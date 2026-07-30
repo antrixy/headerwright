@@ -47,6 +47,27 @@ async function renderList() {
   for (const profile of profiles) {
     list.appendChild(await renderProfileCard(profile));
   }
+  await updateStatusLine(profiles);
+}
+
+// Editor-style status line: the one-glance truth about what is actually
+// in effect right now. Domain counts are deduplicated across profiles.
+async function updateStatusLine(profiles) {
+  const enabled = await getEnabled();
+  const allDomains = [...new Set(profiles.flatMap((p) => p.domains || []))];
+  let grantedCount = 0;
+  for (const domain of allDomains) {
+    if (await chrome.permissions.contains({ origins: [`*://${domain}/*`] })) {
+      grantedCount++;
+    }
+  }
+  const n = profiles.length;
+  const parts = [
+    `${n} profile${n === 1 ? "" : "s"}`,
+    `${grantedCount}/${allDomains.length} domain${allDomains.length === 1 ? "" : "s"} granted`,
+    enabled ? "applying" : "paused",
+  ];
+  $("status-line").textContent = parts.join(" \u00b7 ");
 }
 
 async function renderProfileCard(profile) {
@@ -292,6 +313,7 @@ async function saveProfile() {
 $("master-toggle").addEventListener("change", async (event) => {
   await setEnabled(event.target.checked);
   $("toggle-state").textContent = event.target.checked ? "On" : "Off";
+  await updateStatusLine(await getProfiles());
 });
 
 $("add-profile").addEventListener("click", () => openEditor(null));

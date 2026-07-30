@@ -5,21 +5,39 @@
 <title>HeaderWright</title>
 <style>
   :root {
-    --on: #1a7f37;      /* same green as the sw.js badge — one color, one meaning */
-    --off: #6e7781;
-    --ink: #1f2328;
+    --on: #1a7f37;        /* same green as the sw.js badge — one color, one meaning */
+    --on-soft: #d4eadb;
+    --off: #818b98;
+    --ink: #24292f;
     --ink-soft: #57606a;
-    --line: #d0d7de;
-    --bg-soft: #f6f8fa;
+    --line: #d8dee4;
+    --surface: #ffffff;
+    --surface-2: #f6f8fa;
     --danger: #a40e26;
+    --danger-soft: #ffebe9;
   }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --on: #3fb950;
+      --on-soft: #12261a;
+      --off: #6e7681;
+      --ink: #e6edf3;
+      --ink-soft: #9198a1;
+      --line: #30363d;
+      --surface: #161b22;
+      --surface-2: #0d1117;
+      --danger: #f85149;
+      --danger-soft: #2d1214;
+    }
+  }
+
   * { box-sizing: border-box; }
   body {
     width: 380px;
     margin: 0;
     color: var(--ink);
     font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-    background: #fff;
+    background: var(--surface);
   }
   code, .mono, input.mono {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -29,13 +47,18 @@
   /* Top bar */
   header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 14px;
+    padding: 12px 16px;
     border-bottom: 1px solid var(--line);
+    background: var(--surface-2);
   }
-  header h1 { font-size: 14px; font-weight: 600; margin: 0; }
+  header h1 {
+    font-size: 14px; font-weight: 650; margin: 0;
+    letter-spacing: -0.01em;
+  }
+  header h1 .wright { color: var(--ink-soft); font-weight: 500; }
 
   /* Master toggle */
-  .toggle { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+  .toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
   .toggle input { position: absolute; opacity: 0; }
   .toggle .track {
     width: 34px; height: 18px; border-radius: 9px;
@@ -49,74 +72,96 @@
   .toggle input:checked + .track { background: var(--on); }
   .toggle input:checked + .track::after { left: 18px; }
   .toggle input:focus-visible + .track { outline: 2px solid var(--ink); outline-offset: 2px; }
-  .toggle .state { font-size: 11px; font-weight: 600; color: var(--ink-soft); min-width: 22px; }
+  .toggle .state {
+    font-size: 11px; font-weight: 600; color: var(--ink-soft);
+    min-width: 22px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .toggle input:checked ~ .state { color: var(--on); }
 
-  main { padding: 10px 14px 14px; }
+  main { padding: 12px 16px 10px; background: var(--surface); }
 
   /* Profile list */
   .profile {
-    border: 1px solid var(--line); border-radius: 6px;
-    padding: 9px 11px; margin-bottom: 8px;
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 8px;
+    background: var(--surface-2);
   }
   .profile .row1 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
   .profile .name { font-weight: 600; }
-  .profile .meta { color: var(--ink-soft); font-size: 12px; margin-top: 2px; }
-  .profile .domains { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .profile .meta { color: var(--ink-soft); font-size: 12px; margin-top: 1px; }
+  .profile .domains { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 4px; }
   .domain {
-    display: inline-flex; align-items: center; gap: 5px;
-    background: var(--bg-soft); border: 1px solid var(--line);
-    border-radius: 4px; padding: 1px 7px;
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 5px; padding: 2px 8px;
   }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--off); }
-  .dot.granted { background: var(--on); }
-  .profile .actions { display: flex; gap: 4px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--off); flex: none; }
+  .dot.granted { background: var(--on); box-shadow: 0 0 0 3px var(--on-soft); }
+  .profile .actions { display: flex; gap: 2px; }
 
   /* Buttons */
   button {
     font: inherit; cursor: pointer; border-radius: 6px;
-    border: 1px solid var(--line); background: #fff; color: var(--ink);
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
     padding: 4px 10px;
   }
-  button:hover { background: var(--bg-soft); }
+  button:hover { background: var(--surface-2); }
   button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
-  button.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
-  button.primary:hover { background: #333a41; }
-  button.quiet { border-color: transparent; color: var(--ink-soft); padding: 4px 6px; }
-  button.quiet:hover { color: var(--ink); background: var(--bg-soft); }
-  button.danger-quiet { border-color: transparent; color: var(--danger); padding: 4px 6px; }
-  button.danger-quiet:hover { background: #fff1f0; }
+  button.primary { background: var(--on); border-color: var(--on); color: #fff; font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); background: var(--on); }
+  button.quiet { border-color: transparent; background: none; color: var(--ink-soft); padding: 4px 6px; }
+  button.quiet:hover { color: var(--ink); background: var(--surface-2); }
+  button.danger-quiet { border-color: transparent; background: none; color: var(--danger); padding: 4px 6px; }
+  button.danger-quiet:hover { background: var(--danger-soft); }
   .add-bar { margin-top: 10px; }
 
   /* Empty state */
   .empty {
-    border: 1px dashed var(--line); border-radius: 6px;
-    padding: 18px 14px; text-align: center; color: var(--ink-soft);
+    border: 1px dashed var(--line); border-radius: 8px;
+    padding: 20px 14px; text-align: center; color: var(--ink-soft);
+    background: var(--surface-2);
   }
 
   /* Editor form */
-  form { border: 1px solid var(--line); border-radius: 6px; padding: 11px; }
-  form h2 { font-size: 13px; margin: 0 0 10px; }
-  label { display: block; font-size: 12px; color: var(--ink-soft); margin: 8px 0 3px; }
-  input[type="text"], select {
-    font: inherit; width: 100%; padding: 5px 7px;
-    border: 1px solid var(--line); border-radius: 5px; color: var(--ink);
+  form {
+    border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+    background: var(--surface-2);
   }
-  input:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outline-offset: 0; }
+  form h2 { font-size: 13px; margin: 0 0 10px; font-weight: 650; }
+  label { display: block; font-size: 12px; color: var(--ink-soft); margin: 9px 0 3px; }
+  input[type="text"], select {
+    font: inherit; width: 100%; padding: 5px 8px;
+    border: 1px solid var(--line); border-radius: 5px;
+    color: var(--ink); background: var(--surface);
+  }
+  input::placeholder { color: var(--ink-soft); opacity: 0.7; }
+  input:focus-visible, select:focus-visible { outline: 2px solid var(--on); outline-offset: 0; border-color: transparent; }
   .hint { font-size: 11px; color: var(--ink-soft); margin-top: 3px; }
 
   .hrow { display: grid; grid-template-columns: 1fr 82px 1fr 24px; gap: 5px; margin-bottom: 5px; }
   .hrow select { width: 82px; padding: 5px 3px; }
   .hrow .remove-row { border: none; background: none; color: var(--ink-soft); font-size: 15px; padding: 0; }
   .hrow .remove-row:hover { color: var(--danger); background: none; }
+  input:disabled { opacity: 0.45; }
 
   .error { color: var(--danger); font-size: 12px; margin-top: 6px; }
   .form-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
   .hidden { display: none; }
+
+  /* Status line — the one-glance answer to "what is applying right now" */
+  footer {
+    padding: 7px 16px;
+    border-top: 1px solid var(--line);
+    background: var(--surface-2);
+    color: var(--ink-soft);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+  }
 </style>
 </head>
 <body>
   <header>
-    <h1>HeaderWright</h1>
+    <h1>Header<span class="wright">Wright</span></h1>
     <label class="toggle" title="Apply all profiles on or off">
       <input type="checkbox" id="master-toggle">
       <span class="track"></span>
@@ -160,6 +205,8 @@
       </form>
     </div>
   </main>
+
+  <footer id="status-line">&nbsp;</footer>
 
   <script type="module" src="popup.js"></script>
 </body>
