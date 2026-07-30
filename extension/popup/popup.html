@@ -113,7 +113,19 @@
   button.quiet:hover { color: var(--ink); background: var(--surface-2); }
   button.danger-quiet { border-color: transparent; background: none; color: var(--danger); padding: 4px 6px; }
   button.danger-quiet:hover { background: var(--danger-soft); }
-  .add-bar { margin-top: 10px; }
+  .add-bar {
+    margin-top: 10px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .io { display: flex; gap: 2px; }
+
+  /* Import confirmation */
+  .confirm {
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; margin-top: 8px;
+    background: var(--surface-2);
+  }
+  .confirm .form-actions { margin-top: 8px; }
 
   /* Empty state */
   .empty {
@@ -177,7 +189,20 @@
       </div>
       <div class="add-bar">
         <button id="add-profile" class="primary">Add profile</button>
+        <span class="io">
+          <button id="export-profiles" class="quiet">Export</button>
+          <button id="import-profiles" class="quiet">Import</button>
+        </span>
+        <input type="file" id="import-file" accept=".json,application/json" class="hidden">
       </div>
+      <div id="import-confirm" class="confirm hidden">
+        <div id="import-confirm-text"></div>
+        <div class="form-actions">
+          <button type="button" id="import-cancel">Cancel</button>
+          <button type="button" id="import-replace" class="primary">Replace</button>
+        </div>
+      </div>
+      <div id="io-msg" class="error hidden"></div>
     </div>
 
     <div id="edit-view" class="hidden">

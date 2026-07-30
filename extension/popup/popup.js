@@ -7,7 +7,8 @@
 // called inside the Save button's click handler (recorded as a build
 // constraint in the permission-posture decision, PROTOCOL.md 2026-07-30).
 
-import { validateHeaderEntry } from "../lib/rules.js";
+import { validateHeaderEntry, isValidDomain } from "../lib/rules.js";
+import { serializeProfiles, parseProfilesFile } from "../lib/canonical.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
@@ -255,8 +256,8 @@ function validateForm({ name, domains, headers }) {
   if (domains.length === 0) return "Add at least one domain.";
   for (const domain of domains) {
     // Bare hostnames only — scheme/path/port belong to the generated
-    // origin pattern, not here.
-    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(domain)) {
+    // origin pattern, not here. Shared with import validation.
+    if (!isValidDomain(domain)) {
       return `"${domain}" doesn't look like a domain. Use a bare hostname like example.com.`;
     }
   }
@@ -318,6 +319,94 @@ async function saveProfile() {
   }
 }
 
+// -------------------------------------------------------- export/import
+
+let pendingImport = null; // parsed profiles awaiting Replace confirmation
+
+function showIoMsg(message) {
+  const el = $("io-msg");
+  el.textContent = message;
+  el.classList.remove("hidden");
+}
+
+function hideIoUi() {
+  $("io-msg").classList.add("hidden");
+  $("import-confirm").classList.add("hidden");
+  pendingImport = null;
+}
+
+async function exportProfiles() {
+  const profiles = await getProfiles();
+  const text = serializeProfiles(profiles);
+  const url = URL.createObjectURL(
+    new Blob([text], { type: "application/json" })
+  );
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  // Deterministic filename, no timestamp — the file contents are
+  // byte-stable, so the name is too. The browser suffixes on collision.
+  anchor.download = "headerwright-profiles.json";
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+async function onImportFileChosen(event) {
+  hideIoUi();
+  const file = event.target.files[0];
+  event.target.value = ""; // allow re-selecting the same file later
+  if (!file) return;
+
+  let profiles;
+  try {
+    profiles = parseProfilesFile(await file.text());
+  } catch (err) {
+    showIoMsg(`Import failed: ${err.message}.`);
+    return;
+  }
+
+  pendingImport = profiles;
+  const current = (await getProfiles()).length;
+  const n = profiles.length;
+  $("import-confirm-text").textContent =
+    `Replace your ${current} profile${current === 1 ? "" : "s"} with ` +
+    `${n} profile${n === 1 ? "" : "s"} from "${file.name}"?`;
+  $("import-confirm").classList.remove("hidden");
+}
+
+async function applyImport() {
+  if (pendingImport === null) return;
+  const incoming = pendingImport;
+
+  const outgoing = await getProfiles();
+
+  // Persist FIRST — same lesson as saveProfile: the permission prompt
+  // below closes the popup, and nothing after it may be load-bearing.
+  await setProfiles(incoming);
+  hideIoUi();
+  await renderList();
+
+  // Keep "Site access equals your profiles" true through imports:
+  // revoke domains no longer referenced by any profile...
+  const incomingDomains = new Set(incoming.flatMap((p) => p.domains));
+  const droppedDomains = [
+    ...new Set(outgoing.flatMap((p) => p.domains || [])),
+  ].filter((d) => !incomingDomains.has(d));
+  if (droppedDomains.length > 0) {
+    await chrome.permissions.remove({
+      origins: droppedDomains.map((d) => `*://${d}/*`),
+    });
+  }
+
+  // ...and request the imported ones (idempotent for already-granted;
+  // Chrome prompts only for new domains). Popup may close here — fine.
+  if (incomingDomains.size > 0) {
+    const granted = await chrome.permissions.request({
+      origins: [...incomingDomains].map((d) => `*://${d}/*`),
+    });
+    if (granted) await renderList();
+  }
+}
+
 // ---------------------------------------------------------------- wiring
 
 $("master-toggle").addEventListener("change", async (event) => {
@@ -331,6 +420,15 @@ $("add-header-row").addEventListener("click", () => addHeaderRow());
 $("f-cancel").addEventListener("click", () => showView("list"));
 $("f-save").addEventListener("click", saveProfile);
 $("profile-form").addEventListener("submit", (e) => e.preventDefault());
+
+$("export-profiles").addEventListener("click", exportProfiles);
+$("import-profiles").addEventListener("click", () => {
+  hideIoUi();
+  $("import-file").click();
+});
+$("import-file").addEventListener("change", onImportFileChosen);
+$("import-cancel").addEventListener("click", hideIoUi);
+$("import-replace").addEventListener("click", applyImport);
 
 // ------------------------------------------------------------------ init
 
