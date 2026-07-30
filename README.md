@@ -25,6 +25,29 @@ Early development. v0.1.0 is not yet released.
 - No account, no sync, no backend — profiles live in local extension storage
 - No telemetry
 
+## Permissions
+
+HeaderWright does not request access to any site at install time. When you
+add a profile scoped to a domain, the browser prompts for permission on that
+domain only — one extra click per new domain, not once for everything.
+
+Why:
+
+- **Bounded blast radius.** If the extension is ever compromised — a bad
+  update, a hijacked account, a supply-chain slip — the damage is limited to
+  domains you've actually granted, not every site you visit.
+- **Revocable per site.** Removing a profile can drop that domain's
+  permission too, so unused access doesn't linger.
+- **What you see is what's true.** `chrome://extensions` → Site access shows
+  exactly the domains HeaderWright can currently touch, and that list should
+  always match your configured profiles.
+- **Lighter store review.** Broad host permissions draw more scrutiny from
+  the Chrome Web Store; asking for nothing until it's needed avoids that by
+  construction, not by explanation.
+
+This costs one extra permission prompt the first time you scope a profile to
+a new domain. That's the tradeoff, made deliberately.
+
 ## Development
 
 Build and run instructions will land with the v0.1.0 release.
