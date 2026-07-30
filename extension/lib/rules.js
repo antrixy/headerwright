@@ -42,6 +42,19 @@ export const APPENDABLE_REQUEST_HEADERS = new Set([
 const VALID_OPERATIONS = new Set(["set", "append", "remove"]);
 
 /**
+ * Bare-hostname check, shared by the popup form and import validation.
+ * Single-label hosts (e.g. "localhost") are deliberately allowed — a
+ * developer header tool that rejects localhost would be strange. Ports
+ * are not part of a domain here: DNR's requestDomains and origin match
+ * patterns both ignore ports, so "localhost" covers localhost:3000 too.
+ */
+export function isValidDomain(domain) {
+  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(
+    domain
+  );
+}
+
+/**
  * Validate one header entry from a profile.
  * @returns {{valid: true} | {valid: false, reason: string}}
  */
