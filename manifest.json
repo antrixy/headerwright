@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "HeaderWright",
+  "version": "0.1.0",
+  "description": "Set, append, and remove HTTP request headers by profile. No webRequest — this extension cannot read your traffic.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "HeaderWright"
+  },
+  "background": {
+    "service_worker": "sw.js"
+  },
+  "permissions": [
+    "declarativeNetRequestWithHostAccess",
+    "storage"
+  ],
+  "optional_host_permissions": [
+    "*://*/*"
+  ]
+}
