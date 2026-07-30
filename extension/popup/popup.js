@@ -276,21 +276,15 @@ async function saveProfile() {
     return;
   }
 
-  // Permission request — must stay inside this click handler
-  // (user-gesture requirement). Requesting is idempotent for
-  // already-granted origins; Chrome only prompts for new ones.
-  const granted = await chrome.permissions.request({
-    origins: data.domains.map((d) => `*://${d}/*`),
-  });
-  if (!granted) {
-    showFormError(
-      "Permission was not granted. The profile is saved, but headers " +
-        "won't apply on ungranted domains until you edit and re-save it."
-    );
-    // Deliberate: still save. The profile is the user's data; the grant
-    // is browser state. sw.js already skips ungranted domains safely.
-  }
-
+  // Persist FIRST, request permission LAST. chrome.permissions.request()
+  // opens a native dialog when a new grant is needed; that dialog takes
+  // focus, which closes the popup and destroys this JS context — code
+  // after the await never runs in that case. So nothing that matters may
+  // come after it. The grant itself survives popup death (the dialog is
+  // browser UI), and sw.js's permissions.onAdded listener picks it up
+  // and re-syncs rules with no help from us. Found in the v0.1.0 smoke
+  // test: profiles saved after the request were silently lost whenever
+  // the dialog actually appeared.
   const profiles = await getProfiles();
   if (editingProfileId === null) {
     const nextId =
@@ -304,8 +298,24 @@ async function saveProfile() {
   }
   await setProfiles(profiles);
 
+  // Popup UI state, in case we survive the request (already granted, or
+  // denied without a dialog). Set BEFORE the request for the same reason.
   showView("list");
-  renderList();
+  await renderList();
+
+  // User-gesture requirement still holds: the only awaits between the
+  // click and this call are millisecond storage reads/writes, well
+  // inside the transient-activation window.
+  const granted = await chrome.permissions.request({
+    origins: data.domains.map((d) => `*://${d}/*`),
+  });
+
+  // Only reachable when no dialog was shown or after it resolves with
+  // the popup still alive. The domain dots and status line are the
+  // truth display either way.
+  if (granted) {
+    await renderList();
+  }
 }
 
 // ---------------------------------------------------------------- wiring
