@@ -4,11 +4,11 @@
   "version": "0.1.0",
   "description": "Set, append, and remove HTTP request headers by profile. No webRequest — this extension cannot read your traffic.",
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "popup/popup.html",
     "default_title": "HeaderWright"
   },
   "background": {
-    "service_worker": "sw.js",
+    "service_worker": "background/sw.js",
     "type": "module"
   },
   "permissions": [

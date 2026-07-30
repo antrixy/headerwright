@@ -4,7 +4,7 @@
 // is the single source of truth, so any context (popup, future options
 // page) only ever needs to write to storage, never message this worker.
 
-import { profileToRule } from "./rules.js";
+import { profileToRule } from "../lib/rules.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";

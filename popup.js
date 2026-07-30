@@ -7,7 +7,7 @@
 // called inside the Save button's click handler (recorded as a build
 // constraint in the permission-posture decision, PROTOCOL.md 2026-07-30).
 
-import { validateHeaderEntry } from "./rules.js";
+import { validateHeaderEntry } from "../lib/rules.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
