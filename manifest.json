@@ -8,7 +8,8 @@
     "default_title": "HeaderWright"
   },
   "background": {
-    "service_worker": "sw.js"
+    "service_worker": "sw.js",
+    "type": "module"
   },
   "permissions": [
     "declarativeNetRequestWithHostAccess",
