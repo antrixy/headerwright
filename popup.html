@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HeaderWright</title>
+<style>
+  :root {
+    --on: #1a7f37;      /* same green as the sw.js badge — one color, one meaning */
+    --off: #6e7781;
+    --ink: #1f2328;
+    --ink-soft: #57606a;
+    --line: #d0d7de;
+    --bg-soft: #f6f8fa;
+    --danger: #a40e26;
+  }
+  * { box-sizing: border-box; }
+  body {
+    width: 380px;
+    margin: 0;
+    color: var(--ink);
+    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: #fff;
+  }
+  code, .mono, input.mono {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+  }
+
+  /* Top bar */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 14px; font-weight: 600; margin: 0; }
+
+  /* Master toggle */
+  .toggle { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+  .toggle input { position: absolute; opacity: 0; }
+  .toggle .track {
+    width: 34px; height: 18px; border-radius: 9px;
+    background: var(--off); position: relative; transition: background .15s;
+  }
+  .toggle .track::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 14px; height: 14px; border-radius: 50%; background: #fff;
+    transition: left .15s;
+  }
+  .toggle input:checked + .track { background: var(--on); }
+  .toggle input:checked + .track::after { left: 18px; }
+  .toggle input:focus-visible + .track { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .toggle .state { font-size: 11px; font-weight: 600; color: var(--ink-soft); min-width: 22px; }
+
+  main { padding: 10px 14px 14px; }
+
+  /* Profile list */
+  .profile {
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 9px 11px; margin-bottom: 8px;
+  }
+  .profile .row1 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .profile .name { font-weight: 600; }
+  .profile .meta { color: var(--ink-soft); font-size: 12px; margin-top: 2px; }
+  .profile .domains { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .domain {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--bg-soft); border: 1px solid var(--line);
+    border-radius: 4px; padding: 1px 7px;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--off); }
+  .dot.granted { background: var(--on); }
+  .profile .actions { display: flex; gap: 4px; }
+
+  /* Buttons */
+  button {
+    font: inherit; cursor: pointer; border-radius: 6px;
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+    padding: 4px 10px;
+  }
+  button:hover { background: var(--bg-soft); }
+  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  button.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+  button.primary:hover { background: #333a41; }
+  button.quiet { border-color: transparent; color: var(--ink-soft); padding: 4px 6px; }
+  button.quiet:hover { color: var(--ink); background: var(--bg-soft); }
+  button.danger-quiet { border-color: transparent; color: var(--danger); padding: 4px 6px; }
+  button.danger-quiet:hover { background: #fff1f0; }
+  .add-bar { margin-top: 10px; }
+
+  /* Empty state */
+  .empty {
+    border: 1px dashed var(--line); border-radius: 6px;
+    padding: 18px 14px; text-align: center; color: var(--ink-soft);
+  }
+
+  /* Editor form */
+  form { border: 1px solid var(--line); border-radius: 6px; padding: 11px; }
+  form h2 { font-size: 13px; margin: 0 0 10px; }
+  label { display: block; font-size: 12px; color: var(--ink-soft); margin: 8px 0 3px; }
+  input[type="text"], select {
+    font: inherit; width: 100%; padding: 5px 7px;
+    border: 1px solid var(--line); border-radius: 5px; color: var(--ink);
+  }
+  input:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outline-offset: 0; }
+  .hint { font-size: 11px; color: var(--ink-soft); margin-top: 3px; }
+
+  .hrow { display: grid; grid-template-columns: 1fr 82px 1fr 24px; gap: 5px; margin-bottom: 5px; }
+  .hrow select { width: 82px; padding: 5px 3px; }
+  .hrow .remove-row { border: none; background: none; color: var(--ink-soft); font-size: 15px; padding: 0; }
+  .hrow .remove-row:hover { color: var(--danger); background: none; }
+
+  .error { color: var(--danger); font-size: 12px; margin-top: 6px; }
+  .form-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>HeaderWright</h1>
+    <label class="toggle" title="Apply all profiles on or off">
+      <input type="checkbox" id="master-toggle">
+      <span class="track"></span>
+      <span class="state" id="toggle-state">Off</span>
+    </label>
+  </header>
+
+  <main>
+    <div id="list-view">
+      <div id="profile-list"></div>
+      <div id="empty" class="empty hidden">
+        No profiles yet. Add one to start setting headers on a site.
+      </div>
+      <div class="add-bar">
+        <button id="add-profile" class="primary">Add profile</button>
+      </div>
+    </div>
+
+    <div id="edit-view" class="hidden">
+      <form id="profile-form">
+        <h2 id="form-title">New profile</h2>
+
+        <label for="f-name">Profile name</label>
+        <input type="text" id="f-name" autocomplete="off" placeholder="Local API auth">
+
+        <label for="f-domains">Domains</label>
+        <input type="text" id="f-domains" class="mono" autocomplete="off"
+               placeholder="api.example.com, example.com">
+        <div class="hint">Comma-separated. Subdomains of each domain match too.</div>
+
+        <label>Headers</label>
+        <div id="header-rows"></div>
+        <button type="button" id="add-header-row" class="quiet">+ Add header</button>
+
+        <div id="form-error" class="error hidden"></div>
+
+        <div class="form-actions">
+          <button type="button" id="f-cancel">Cancel</button>
+          <button type="button" id="f-save" class="primary">Save profile</button>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
