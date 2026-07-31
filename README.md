@@ -7,17 +7,13 @@ No `webRequest` permission, ever — nothing in this extension can observe your
 traffic, and that's verifiable by reading the manifest rather than trusting a
 description.
 
-## Status
-
-Early development. v0.1.0 is not yet released.
-
-## Planned v0.1.0 scope
+## What it does
 
 - Header profiles: set / append / remove request headers
-- Per-profile URL scoping
-- Master on/off toggle with an unmissable badge
-- Deterministic JSON import/export (canonical key-sorted, byte-stable) for
-  sharing configs via git
+- Per-profile domain scoping (subdomains included)
+- Master on/off toggle with a badge that always shows the current state
+- Deterministic JSON import/export — canonical key-sorted, byte-stable
+  output, so configs can be shared and versioned in git
 
 ## What it deliberately does not do (yet)
 
@@ -36,11 +32,12 @@ Why:
 - **Bounded blast radius.** If the extension is ever compromised — a bad
   update, a hijacked account, a supply-chain slip — the damage is limited to
   domains you've actually granted, not every site you visit.
-- **Revocable per site.** Removing a profile can drop that domain's
-  permission too, so unused access doesn't linger.
+- **Revocable per site.** Removing a profile drops that domain's
+  permission too (unless another profile still uses it), so unused access
+  doesn't linger.
 - **What you see is what's true.** `chrome://extensions` → Site access shows
-  exactly the domains HeaderWright can currently touch, and that list should
-  always match your configured profiles.
+  exactly the domains HeaderWright can currently touch, and that list
+  always matches your configured profiles.
 - **Lighter store review.** Broad host permissions draw more scrutiny from
   the Chrome Web Store; asking for nothing until it's needed avoids that by
   construction, not by explanation.
@@ -48,9 +45,30 @@ Why:
 This costs one extra permission prompt the first time you scope a profile to
 a new domain. That's the tradeoff, made deliberately.
 
+A note on the prompt's wording: Chrome phrases every host grant as "read and
+change your data" on the site. That describes the permission class, not this
+extension — with `declarativeNetRequest` only, the browser applies the rules
+itself and no extension code observes any request. The manifest is the proof.
+
 ## Development
 
-Build and run instructions will land with the v0.1.0 release.
+No build step — the `extension/` directory *is* the extension. Load it
+unpacked from `chrome://extensions` with Developer mode on.
+
+Run the selftests with `node test/selftest.mjs` from the repo root (no
+dependencies). The suite covers rule construction and the canonical export
+format, and ends with a check-count tripwire: adding or removing checks
+requires updating `EXPECTED_CHECKS` in the same commit.
+
+The suite verifies construction, not application — a rule can be built
+correctly and still no-op on a domain without a permission grant, so
+release verification also includes a manual smoke test against a live
+endpoint.
+
+## Versioning
+
+Each minor version adds exactly one feature; patch versions are fixes only,
+never features.
 
 ## License
 
