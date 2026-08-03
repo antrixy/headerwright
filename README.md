@@ -1,8 +1,9 @@
 # HeaderWright
 
+[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/ooapgilielelobkkcdlnkenkflbnnmhi)](https://chromewebstore.google.com/detail/headerwright/ooapgilielelobkkcdlnkenkflbnnmhi)
+
 A small, dependency-free Chrome extension for setting, appending, and removing
 HTTP request headers, built on Manifest V3's `declarativeNetRequest` API only.
-
 No `webRequest` permission, ever — nothing in this extension can observe your
 traffic, and that's verifiable by reading the manifest rather than trusting a
 description.
@@ -20,6 +21,12 @@ description.
 - No response header modification — a later version
 - No account, no sync, no backend — profiles live in local extension storage
 - No telemetry
+
+## Install
+
+[Install from the Chrome Web Store](https://chromewebstore.google.com/detail/headerwright/ooapgilielelobkkcdlnkenkflbnnmhi)
+
+To run from source instead, see [Development](#development).
 
 ## Permissions
 
