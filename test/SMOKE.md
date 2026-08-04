@@ -1,0 +1,196 @@
+# HeaderWright — manual smoke test
+
+`node test/selftest.mjs` verifies rule CONSTRUCTION and format STABILITY
+against the pure `extension/lib/` layer. It makes no claim about whether
+rules APPLY to real traffic, and it cannot reach any `chrome.*` call. This
+script is the application oracle. Everything the suite cannot see is here.
+
+Run it against the **packed build** before any store submission. Running it
+against the unpacked build during development is fine and useful, but an
+unpacked pass is not submission evidence: the store copy is a distinct
+install with its own extension ID, its own storage, and its own grants.
+
+Record results with the date, Chrome version, OS, and which build. Do not
+carry a previous run's evidence forward across a change to the code paths
+it exercised.
+
+---
+
+## Preconditions
+
+- A wire-visible echo endpoint. `postman-echo.com/headers` and
+  `httpbin.org/headers` both work; either can be down, so have both.
+- DevTools open on the Network tab for the request under test.
+- `chrome://extensions` → HeaderWright → **Details**, for reading Site access.
+- Know which build you are on. Store ID `ooapgilielelobkkcdlnkenkflbnnmhi`;
+  unpacked-dev builds get a different ID.
+
+**Read the Site access dropdown before starting** and record it. If it says
+*On all sites* rather than *On specific sites*, the extension holds the
+broad `*://*/*` grant, and every revocation result below is meaningless —
+you cannot subtract a narrower pattern from a broader granted one. Set it to
+*On specific sites* and re-establish grants before continuing.
+
+---
+
+## Part 0 — Revocation baseline (run FIRST)
+
+Everything in Part 2 is interpreted against this result. It answers finding
+1a: does `chrome.permissions.remove()` actually drop a grant in this
+browser, or does Chrome retain it?
+
+1. Create one profile on a domain used by no other profile (`example.com`).
+2. Save. Accept the permission dialog. Confirm the domain dot is green and
+   Site access lists `*://example.com/*`.
+3. Delete the profile.
+4. Re-open **Details** fresh (do not read a stale panel) and read Site access.
+5. Reload the extension fully, re-open Details, read Site access again.
+
+| Observation | Meaning |
+| --- | --- |
+| Gone at step 4 | `remove()` revokes promptly. Part 2 revocation expectations apply as written. |
+| Present at 4, gone at 5 | Revocation is deferred until reload. Part 2 expectations apply, but only after a reload. |
+| Present at both | Chrome retains conservatively. Part 2 revocation rows become DOCUMENTED, not FAILED. Finding 2's toggle option stays off the table. |
+
+Corollary check, cheap and worth doing: re-create a profile on the same
+domain. **No prompt** means the grant never dropped, independent of what the
+Details panel shows.
+
+If a one-time investigation is in scope for this sitting, log the return
+value of `chrome.permissions.remove()` at the call site in
+`reconcileGrants()` before step 3. It separates "we never called it
+correctly" from "Chrome declined" directly, and nothing else does. Remove
+the logging before committing.
+
+---
+
+## Part 1 — Core application (regression baseline)
+
+1. **Positive apply.** Profile with `X-HeaderWright-Test: Hello` on the echo
+   domain, granted, master toggle ON. Load the echo endpoint. The header is
+   present in the response body and on the wire.
+2. **Negative control.** Toggle master OFF. Reload with a fresh request (not
+   a cached one). The header is absent. Badge and status line agree.
+3. **Per-domain scoping.** Two profiles on two different domains, both
+   granted. Only the matching profile's header appears on each domain.
+4. **Deny path.** New profile on a fresh domain; deny the dialog. The
+   profile is still SAVED, its dot is GRAY, the status line counts it as
+   ungranted, and DevTools shows the header is NOT applied. "What you see is
+   what's true" holds under deny.
+5. **Export → import → export.** Byte-identical. Diff the two files; expect
+   empty.
+6. **Import rejection.** Hand-edit an export to be invalid. Import surfaces
+   the exact reason, and the prior configuration is untouched.
+
+---
+
+## Part 2 — Permission lifecycle (new in v0.1.1)
+
+This is the part the 47-check v0.1.0 suite did not cover and could not: it
+verifies the ADVERTISED INVARIANT that granted access tracks configured
+profiles. The pure suite proves the set arithmetic in
+`diffDomainGrants()`; this proves `reconcileGrants()` is actually wired to
+it at all three call sites.
+
+The scenarios mirror the A1 selftest cases deliberately. If a row here
+disagrees with the suite, the wiring is wrong, not the arithmetic.
+
+### 2a — Shared-domain retention on edit
+
+Setup:
+
+    Profile A: example.com
+    Profile B: example.com, api.example.com
+
+Grant both. Confirm Site access lists both origins.
+
+**Edit A: `example.com` → `localhost`.** Save.
+
+| Domain | Expected | Why |
+| --- | --- | --- |
+| `example.com` | RETAINED | B still references it |
+| `api.example.com` | RETAINED | B references it |
+| `localhost` | GRANTED (dialog) | newly requested |
+
+This is the row a naive "revoke whatever the edited profile used to have"
+fix breaks. If `example.com` disappears here, B is silently broken.
+
+**Then edit B: `example.com, api.example.com` → `localhost`.** Save.
+
+| Domain | Expected | Why |
+| --- | --- | --- |
+| `example.com` | REVOKED | now unreferenced |
+| `api.example.com` | REVOKED | now unreferenced |
+| `localhost` | RETAINED, no dialog | A references it, already granted |
+
+Interpret the two REVOKED rows against Part 0. Under the retain-conservatively
+outcome they are documented, not failures.
+
+### 2b — No churn on an unchanged save
+
+Open a fully granted profile, change nothing, Save.
+
+Expected: **no permission dialog**, no visible change to Site access, no dot
+flicker. Any dialog here means requests are being diffed against profile
+membership instead of grant state.
+
+### 2c — Denied-domain recovery still works
+
+This is the path finding 2's affordance will eventually replace. Until then
+it is the only recovery a denied domain has, and it must not be lost.
+
+1. Create a profile on a fresh domain and DENY the dialog. Dot is gray.
+2. Open the profile, change nothing, Save.
+
+Expected: **the dialog appears again.** Accept it; the dot turns green.
+
+2b and 2c together are the pair that pins the design: unchanged-and-granted
+must be silent, unchanged-and-denied must re-prompt.
+
+### 2d — Ordering survives a real dialog
+
+Edit one profile so it BOTH drops a domain and adds a new one in the same
+save (`old.test` → `new.test`, where no other profile references `old.test`).
+
+Expected: the dialog for `new.test` appears, AND `old.test` is revoked.
+
+This is the direct test of `remove()` running before `request()`. If the
+dialog never appears, `remove()` destroyed the popup's JS context and the
+ordering assumption in `reconcileGrants()` is wrong — record it, because the
+code comment currently states that belief as unverified.
+
+### 2e — Delete and import
+
+- **Delete** a profile whose domains no other profile uses → those domains
+  revoked, others untouched.
+- **Import** a file that drops some domains and introduces others → dropped
+  ones revoked, new ones prompted, already-granted ones NOT re-prompted.
+
+---
+
+## Part 3 — Badge honesty
+
+Only meaningful once finding 4's narrow fix has landed.
+
+- Master toggle ON with a successful sync → badge ON.
+- Simulated `updateDynamicRules()` failure → badge does NOT assert ON, an
+  error state is persisted, and the popup can explain that configured rules
+  are not currently active.
+
+Any change to badge behavior INVALIDATES the Part 1 step 2 evidence line
+("badge and status line agree"). Re-run it and rewrite the record; do not
+carry the old line forward.
+
+---
+
+## Recording template
+
+    Date:            YYYY-MM-DD
+    Build:           packed (store ID ...) | unpacked (ID ...)
+    Chrome / OS:     150 / macOS
+    Site access:     On specific sites | On all sites
+    Part 0 verdict:  prompt-revoke | deferred-until-reload | retained
+    Part 1:          1-6 pass/fail, with trace IDs for 1 and 2
+    Part 2:          2a-2e pass/fail/documented
+    Part 3:          n/a until finding 4 lands
+    Notes:
