@@ -22,6 +22,10 @@ import {
   profileToRule,
   RESOURCE_TYPES,
   APPENDABLE_REQUEST_HEADERS,
+  isValidHeaderName,
+  isValidHeaderValue,
+  isValidRuleId,
+  MAX_RULE_ID,
 } from "../extension/lib/rules.js";
 import {
   canonicalizeProfiles,
@@ -38,7 +42,7 @@ import {
   originsFor,
 } from "../extension/lib/grants.js";
 
-const EXPECTED_CHECKS = 64;
+const EXPECTED_CHECKS = 94;
 
 let passed = 0;
 let failed = 0;
@@ -300,6 +304,58 @@ check("originFor builds the port-agnostic origin pattern",
   originFor("localhost") === "*://localhost/*");
 check("originsFor maps a list",
   originsFor(["a.test", "b.test"]).join(" ") === "*://a.test/* *://b.test/*");
+
+// ------------------------------------------- header syntax (finding 3, A2)
+// Provenance: RFC 9110 token set for names; NUL/CR/LF plus the remaining C0
+// controls and DEL for values. The Chrome DNR reference specifies NEITHER —
+// see the PROVENANCE comments in lib/rules.js.
+
+check("plain token name is valid", isValidHeaderName("X-Custom-Header"));
+check("RFC token specials are valid", isValidHeaderName("a!#$%&'*+-.^_`|~9Z"));
+check("name with a space is invalid", !isValidHeaderName("X Custom"));
+check("name with a colon is invalid", !isValidHeaderName("X-Custom:"));
+check("name with leading whitespace is invalid (import path has no trim)",
+  !isValidHeaderName(" X-Custom"));
+check("name with trailing whitespace is invalid", !isValidHeaderName("X-Custom "));
+check("empty name is invalid", !isValidHeaderName(""));
+check("name with a tab is invalid", !isValidHeaderName("X\tCustom"));
+check("non-string name is invalid", !isValidHeaderName(null));
+
+check("ordinary value is valid", isValidHeaderValue("Hello, world/1.0 (test)"));
+check("value with NUL is invalid", !isValidHeaderValue("a\u0000b"));
+check("value with CR is invalid", !isValidHeaderValue("a\rb"));
+check("value with LF is invalid", !isValidHeaderValue("a\nb"));
+check("value with CRLF injection is invalid",
+  !isValidHeaderValue("x\r\nX-Injected: 1"));
+check("value with DEL is invalid", !isValidHeaderValue("a\u007fb"));
+check("value with another C0 control is invalid (deliberate, stricter)",
+  !isValidHeaderValue("a\u0001b"));
+check("value with HTAB is invalid (KNOWN deviation: RFC allows it)",
+  !isValidHeaderValue("a\tb"));
+check("non-string value is invalid", !isValidHeaderValue(undefined));
+
+check("bad name rejected through validateHeaderEntry",
+  !validateHeaderEntry({ name: "X Custom", operation: "set", value: "1" }).valid);
+check("bad value rejected through validateHeaderEntry",
+  !validateHeaderEntry({ name: "X-A", operation: "set", value: "a\r\nb" }).valid);
+check("remove operation ignores the value channel entirely",
+  validateHeaderEntry({ name: "X-A", operation: "remove", value: "a\rb" }).valid);
+
+// ------------------------------------------ rule-id range (finding 3, A3)
+
+check("id 1 is valid", isValidRuleId(1));
+check("id at the inferred maximum is valid", isValidRuleId(MAX_RULE_ID));
+check("id 0 is invalid", !isValidRuleId(0));
+check("negative id is invalid", !isValidRuleId(-1));
+check("non-integer id is invalid", !isValidRuleId(1.5));
+check("id above the inferred maximum is invalid", !isValidRuleId(MAX_RULE_ID + 1));
+check("MAX_SAFE_INTEGER id is invalid", !isValidRuleId(Number.MAX_SAFE_INTEGER));
+check("NaN id is invalid", !isValidRuleId(NaN));
+checkThrows("import rejects an over-range id", () =>
+  parseProfilesFile(validDoc([
+    { id: MAX_RULE_ID + 1, name: "a", domains: ["a.com"],
+      headers: [{ name: "x", operation: "set", value: "1" }] },
+  ])), '"id" must be an integer');
 
 // -------------------------------------------------------------- result
 
