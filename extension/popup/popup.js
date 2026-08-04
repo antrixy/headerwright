@@ -9,6 +9,12 @@
 
 import { validateHeaderEntry, isValidDomain } from "../lib/rules.js";
 import { serializeProfiles, parseProfilesFile } from "../lib/canonical.js";
+import {
+  diffDomainGrants,
+  referencedDomains,
+  originFor,
+  originsFor,
+} from "../lib/grants.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
@@ -37,6 +43,78 @@ async function setEnabled(enabled) {
   await chrome.storage.local.set({ [STORAGE_KEY_ENABLED]: enabled });
 }
 
+// ------------------------------------------------------------- grants
+
+// Which of these domains Chrome currently grants. sw.js has its own copy
+// of this shape; it cannot be shared because lib/ is chrome.*-free by
+// construction and this needs chrome.permissions.contains().
+async function grantedDomainsFor(domains) {
+  const unique = [...new Set(domains)];
+  const results = await Promise.all(
+    unique.map(async (domain) =>
+      (await chrome.permissions.contains({ origins: [originFor(domain)] }))
+        ? domain
+        : null
+    )
+  );
+  return results.filter((d) => d !== null);
+}
+
+/**
+ * The one grant-reconciliation path, shared by save, delete, and import.
+ * Before v0.1.1 each of those had its own inline version of this reasoning
+ * and the edit path had none at all — finding 1b. The set arithmetic is
+ * pure and lives in lib/grants.js; this function is only the chrome.*
+ * wiring around it.
+ *
+ * MUST be called AFTER the profile write and after renderList(). Ordering
+ * rules, both load-bearing:
+ *
+ *  - Persist first (the v0.1.0 Bug record). chrome.permissions.request()
+ *    opens a native dialog that closes the popup and destroys this JS
+ *    context; nothing after it may be load-bearing. sw.js's
+ *    permissions.onAdded/onRemoved listeners close the loop unaided.
+ *
+ *  - remove() BEFORE request(). request() is KNOWN to destroy the context;
+ *    remove() is only believed not to (it should not open a dialog), and
+ *    that belief is unverified as of 0.1.1. The known-dangerous call goes
+ *    last. The consequences are asymmetric too: a lost request() is
+ *    visible as a gray dot the user can retry, while a lost remove()
+ *    leaves a stale grant behind silently, which is finding 1's symptom.
+ */
+async function reconcileGrants(previousProfiles, nextProfiles) {
+  const grantedDomains = await grantedDomainsFor([
+    ...referencedDomains(previousProfiles),
+    ...referencedDomains(nextProfiles),
+  ]);
+  const { toRequest, toRevoke } = diffDomainGrants({
+    previousProfiles,
+    nextProfiles,
+    grantedDomains,
+  });
+
+  if (toRevoke.length > 0) {
+    await chrome.permissions.remove({ origins: originsFor(toRevoke) });
+  }
+
+  if (toRequest.length === 0) {
+    if (toRevoke.length > 0) await renderList();
+    return;
+  }
+
+  // User-gesture requirement still holds. Everything between the click and
+  // this call is storage reads/writes and permissions.contains() checks —
+  // sub-millisecond each, well inside the transient-activation window.
+  const granted = await chrome.permissions.request({
+    origins: originsFor(toRequest),
+  });
+
+  // Only reachable when no dialog was shown, or after it resolves with the
+  // popup still alive. The domain dots and status line are the truth
+  // display either way.
+  if (granted) await renderList();
+}
+
 // ------------------------------------------------------------ list view
 
 async function renderList() {
@@ -55,13 +133,8 @@ async function renderList() {
 // in effect right now. Domain counts are deduplicated across profiles.
 async function updateStatusLine(profiles) {
   const enabled = await getEnabled();
-  const allDomains = [...new Set(profiles.flatMap((p) => p.domains || []))];
-  let grantedCount = 0;
-  for (const domain of allDomains) {
-    if (await chrome.permissions.contains({ origins: [`*://${domain}/*`] })) {
-      grantedCount++;
-    }
-  }
+  const allDomains = referencedDomains(profiles);
+  const grantedCount = (await grantedDomainsFor(allDomains)).length;
   const n = profiles.length;
   const parts = [
     `${n} profile${n === 1 ? "" : "s"}`,
@@ -120,7 +193,7 @@ async function renderDomainChip(domain) {
   const dot = document.createElement("span");
   dot.className = "dot";
   const granted = await chrome.permissions.contains({
-    origins: [`*://${domain}/*`],
+    origins: [originFor(domain)],
   });
   if (granted) dot.classList.add("granted");
   chip.title = granted
@@ -132,27 +205,11 @@ async function renderDomainChip(domain) {
 }
 
 async function deleteProfile(id) {
-  const profiles = await getProfiles();
-  const remaining = profiles.filter((p) => p.id !== id);
-  const removed = profiles.find((p) => p.id === id);
-  await setProfiles(remaining);
-
-  // Revoke each removed domain's permission only if no remaining profile
-  // still references it — two profiles on one domain must not fight over
-  // the grant (recorded in the permission-posture decision).
-  if (removed) {
-    const stillReferenced = new Set(remaining.flatMap((p) => p.domains || []));
-    const toRevoke = (removed.domains || []).filter(
-      (d) => !stillReferenced.has(d)
-    );
-    if (toRevoke.length > 0) {
-      await chrome.permissions.remove({
-        origins: toRevoke.map((d) => `*://${d}/*`),
-      });
-    }
-  }
-
-  renderList();
+  const previousProfiles = await getProfiles();
+  const nextProfiles = previousProfiles.filter((p) => p.id !== id);
+  await setProfiles(nextProfiles);
+  await renderList();
+  await reconcileGrants(previousProfiles, nextProfiles);
 }
 
 // ---------------------------------------------------------- editor view
@@ -277,46 +334,31 @@ async function saveProfile() {
     return;
   }
 
-  // Persist FIRST, request permission LAST. chrome.permissions.request()
-  // opens a native dialog when a new grant is needed; that dialog takes
-  // focus, which closes the popup and destroys this JS context — code
-  // after the await never runs in that case. So nothing that matters may
-  // come after it. The grant itself survives popup death (the dialog is
-  // browser UI), and sw.js's permissions.onAdded listener picks it up
-  // and re-syncs rules with no help from us. Found in the v0.1.0 smoke
-  // test: profiles saved after the request were silently lost whenever
-  // the dialog actually appeared.
-  const profiles = await getProfiles();
+  // Persist FIRST, touch permissions LAST — see reconcileGrants() for the
+  // full ordering rationale and the v0.1.0 Bug record it comes from.
+  //
+  // previousProfiles must be a snapshot taken BEFORE the change: the edit
+  // path diffs against it. Building nextProfiles as a new array rather
+  // than mutating in place is what makes that snapshot meaningful.
+  const previousProfiles = await getProfiles();
+  let nextProfiles;
   if (editingProfileId === null) {
     const nextId =
-      profiles.reduce((max, p) => Math.max(max, p.id), 0) + 1;
-    profiles.push({ id: nextId, ...data });
+      previousProfiles.reduce((max, p) => Math.max(max, p.id), 0) + 1;
+    nextProfiles = [...previousProfiles, { id: nextId, ...data }];
   } else {
-    const index = profiles.findIndex((p) => p.id === editingProfileId);
-    if (index !== -1) {
-      profiles[index] = { id: editingProfileId, ...data };
-    }
+    nextProfiles = previousProfiles.map((p) =>
+      p.id === editingProfileId ? { id: editingProfileId, ...data } : p
+    );
   }
-  await setProfiles(profiles);
+  await setProfiles(nextProfiles);
 
   // Popup UI state, in case we survive the request (already granted, or
   // denied without a dialog). Set BEFORE the request for the same reason.
   showView("list");
   await renderList();
 
-  // User-gesture requirement still holds: the only awaits between the
-  // click and this call are millisecond storage reads/writes, well
-  // inside the transient-activation window.
-  const granted = await chrome.permissions.request({
-    origins: data.domains.map((d) => `*://${d}/*`),
-  });
-
-  // Only reachable when no dialog was shown or after it resolves with
-  // the popup still alive. The domain dots and status line are the
-  // truth display either way.
-  if (granted) {
-    await renderList();
-  }
+  await reconcileGrants(previousProfiles, nextProfiles);
 }
 
 // -------------------------------------------------------- export/import
@@ -375,36 +417,15 @@ async function onImportFileChosen(event) {
 
 async function applyImport() {
   if (pendingImport === null) return;
-  const incoming = pendingImport;
+  const nextProfiles = pendingImport;
+  const previousProfiles = await getProfiles();
 
-  const outgoing = await getProfiles();
-
-  // Persist FIRST — same lesson as saveProfile: the permission prompt
-  // below closes the popup, and nothing after it may be load-bearing.
-  await setProfiles(incoming);
+  // Persist FIRST — same lesson as saveProfile.
+  await setProfiles(nextProfiles);
   hideIoUi();
   await renderList();
 
-  // Keep "Site access equals your profiles" true through imports:
-  // revoke domains no longer referenced by any profile...
-  const incomingDomains = new Set(incoming.flatMap((p) => p.domains));
-  const droppedDomains = [
-    ...new Set(outgoing.flatMap((p) => p.domains || [])),
-  ].filter((d) => !incomingDomains.has(d));
-  if (droppedDomains.length > 0) {
-    await chrome.permissions.remove({
-      origins: droppedDomains.map((d) => `*://${d}/*`),
-    });
-  }
-
-  // ...and request the imported ones (idempotent for already-granted;
-  // Chrome prompts only for new domains). Popup may close here — fine.
-  if (incomingDomains.size > 0) {
-    const granted = await chrome.permissions.request({
-      origins: [...incomingDomains].map((d) => `*://${d}/*`),
-    });
-    if (granted) await renderList();
-  }
+  await reconcileGrants(previousProfiles, nextProfiles);
 }
 
 // ---------------------------------------------------------------- wiring
