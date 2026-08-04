@@ -11,10 +11,10 @@ const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
 
 // modifyHeaders rules are not in DNR's "safe" action set (block, allow,
-// allowAllRequests, upgradeScheme only) — confirmed on Chrome's
-// declarativeNetRequest reference, 2026-07-30 — so every rule here counts
-// against the 5,000 unsafe-rule cap, not the 30,000 headline figure. This
-// resolves the UNVERIFIED note in PROTOCOL.md's Phase 1 findings.
+// allowAllRequests, upgradeScheme only), so every rule here counts against
+// MAX_NUMBER_OF_UNSAFE_DYNAMIC_RULES — 5,000 — and not the 30,000 headline
+// figure, which is the safe-rule limit. Confirmed on Chrome's
+// declarativeNetRequest reference, re-checked 2026-08-04.
 const MAX_UNSAFE_DYNAMIC_RULES = 5000;
 
 async function getStoredState() {
@@ -28,11 +28,12 @@ async function getStoredState() {
   };
 }
 
-// A profile's domain is only used in a rule if currently granted —
-// registering a rule for an ungranted domain would match in
-// testMatchOutcome but silently no-op on real traffic (the spike's Phase 1
-// finding). Checked per-domain via chrome.permissions.contains rather than
-// hand-rolling origin-pattern matching against chrome.permissions.getAll().
+// A profile's domain is only used in a rule if currently granted — a rule
+// registered for an ungranted domain matches in testMatchOutcome and then
+// silently no-ops on real traffic, which is the worst combination: the
+// oracle says yes and the wire says nothing. Checked per-domain via
+// chrome.permissions.contains rather than hand-rolling origin-pattern
+// matching against chrome.permissions.getAll().
 async function grantedDomainsFor(domains) {
   const checks = await Promise.all(
     (domains || []).map(async (domain) => {
@@ -101,12 +102,12 @@ async function syncRules() {
 }
 
 // Rebuild on install/update and on every browser startup. Dynamic rules
-// are documented to persist across sessions and extension updates, but
-// the spike's finding (rules absent after a full remove + reload) was
-// specifically an uninstall scenario, where chrome.storage.local is wiped
-// too — nothing survives that regardless, rebuild or not. Rebuilding here
-// is cheap and idempotent either way, so it costs nothing to always do it
-// rather than trust persistence in any one case.
+// are documented to persist across sessions and extension updates. The one
+// case where rules were observed absent afterwards was a full remove and
+// reload — an uninstall, which wipes chrome.storage.local too, so nothing
+// survives it regardless of what we do here. Rebuilding is cheap and
+// idempotent, so it costs nothing to always do it rather than trust
+// persistence in any one case.
 chrome.runtime.onInstalled.addListener(syncRules);
 chrome.runtime.onStartup.addListener(syncRules);
 
