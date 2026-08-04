@@ -5,6 +5,7 @@
 // page) only ever needs to write to storage, never message this worker.
 
 import { profileToRule } from "../lib/rules.js";
+import { originFor } from "../lib/grants.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
@@ -36,7 +37,7 @@ async function grantedDomainsFor(domains) {
   const checks = await Promise.all(
     (domains || []).map(async (domain) => {
       const granted = await chrome.permissions.contains({
-        origins: [`*://${domain}/*`],
+        origins: [originFor(domain)],
       });
       return granted ? domain : null;
     })
