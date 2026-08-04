@@ -4,8 +4,9 @@
 //
 // The one thing that MUST live here and not in sw.js:
 // chrome.permissions.request() requires a direct user gesture, so it is
-// called inside the Save button's click handler (recorded as a build
-// constraint in the permission-posture decision, PROTOCOL.md 2026-07-30).
+// called inside the Save button's click handler. A service worker has no
+// gesture to inherit, so this cannot move to sw.js no matter how much
+// tidier that would be.
 
 import { validateHeaderEntry, isValidDomain } from "../lib/rules.js";
 import { serializeProfiles, parseProfilesFile } from "../lib/canonical.js";
