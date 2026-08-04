@@ -169,6 +169,13 @@
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     font-size: 11px;
   }
+  /* Sync failure. Uses the existing danger tokens rather than introducing a
+     new colour: this is the same class of thing as an import rejection, and
+     it should read that way. */
+  footer.sync-failed {
+    color: var(--danger);
+    background: var(--danger-soft);
+  }
 </style>
 </head>
 <body>
