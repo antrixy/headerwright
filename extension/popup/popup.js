@@ -16,9 +16,11 @@ import {
   originFor,
   originsFor,
 } from "../lib/grants.js";
+import { describeSync, DEFAULT_SYNC_STATE } from "../lib/status.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
+const STORAGE_KEY_SYNC = "hw:sync";
 
 const $ = (id) => document.getElementById(id);
 
@@ -42,6 +44,15 @@ async function getEnabled() {
 
 async function setEnabled(enabled) {
   await chrome.storage.local.set({ [STORAGE_KEY_ENABLED]: enabled });
+}
+
+// Written by sw.js after every rule registration attempt. Absent until the
+// first sync has run, which is not a failure — see DEFAULT_SYNC_STATE.
+async function getSyncState() {
+  const stored = await chrome.storage.local.get(STORAGE_KEY_SYNC);
+  const state = stored[STORAGE_KEY_SYNC];
+  if (!state || typeof state.ok !== "boolean") return DEFAULT_SYNC_STATE;
+  return state;
 }
 
 // ------------------------------------------------------------- grants
@@ -134,15 +145,24 @@ async function renderList() {
 // in effect right now. Domain counts are deduplicated across profiles.
 async function updateStatusLine(profiles) {
   const enabled = await getEnabled();
+  const sync = await getSyncState();
   const allDomains = referencedDomains(profiles);
   const grantedCount = (await grantedDomainsFor(allDomains)).length;
   const n = profiles.length;
   const parts = [
     `${n} profile${n === 1 ? "" : "s"}`,
     `${grantedCount}/${allDomains.length} domain${allDomains.length === 1 ? "" : "s"} granted`,
-    enabled ? "applying" : "paused",
+    describeSync({ enabled, syncOk: sync.ok }),
   ];
-  $("status-line").textContent = parts.join(" \u00b7 ");
+  const line = $("status-line");
+  line.textContent = parts.join(" \u00b7 ");
+  // The exact reason belongs somewhere reachable but not shouted: the third
+  // segment already states that rules are not active, and this explains why
+  // without the popup growing an error panel it does not otherwise need.
+  line.title = sync.ok
+    ? ""
+    : `Chrome rejected the last rule registration: ${sync.error || "unknown error"}`;
+  line.classList.toggle("sync-failed", !sync.ok);
 }
 
 async function renderProfileCard(profile) {
