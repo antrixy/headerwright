@@ -31,8 +31,14 @@ import {
   FILE_FORMAT,
   FILE_VERSION,
 } from "../extension/lib/canonical.js";
+import {
+  diffDomainGrants,
+  referencedDomains,
+  originFor,
+  originsFor,
+} from "../extension/lib/grants.js";
 
-const EXPECTED_CHECKS = 47;
+const EXPECTED_CHECKS = 64;
 
 let passed = 0;
 let failed = 0;
@@ -196,6 +202,104 @@ check("accepts and canonicalizes a valid file",
   parseProfilesFile(validDoc([
     { id: 1, name: "a", domains: ["B.com", "a.com"], headers: [{ name: "x", operation: "set", value: "1" }] },
   ]))[0].domains.join(",") === "a.com,b.com");
+
+// ------------------------------------------------- grants / A1 scenarios
+// Shared-domain retention FIRST: it is the case a naive "revoke whatever
+// the edited profile used to have" fix silently breaks, and the case that
+// would have caught finding 1b.
+
+const prof = (id, domains) => ({
+  id,
+  name: `P${id}`,
+  domains,
+  headers: [{ name: "X-A", operation: "set", value: "1" }],
+});
+
+// Setup: A: example.com   B: example.com, api.example.com
+const setA1 = [prof(1, ["example.com"]), prof(2, ["example.com", "api.example.com"])];
+// Edit A: example.com -> localhost
+const setA2 = [prof(1, ["localhost"]), prof(2, ["example.com", "api.example.com"])];
+// Then edit B: example.com, api.example.com -> localhost
+const setA3 = [prof(1, ["localhost"]), prof(2, ["localhost"])];
+
+const editA = diffDomainGrants({
+  previousProfiles: setA1,
+  nextProfiles: setA2,
+  grantedDomains: ["example.com", "api.example.com"],
+});
+check("A1: shared domain RETAINED when one profile stops referencing it",
+  !editA.toRevoke.includes("example.com"));
+check("A1: untouched domain of another profile RETAINED",
+  !editA.toRevoke.includes("api.example.com"));
+check("A1: newly referenced domain is requested",
+  editA.toRequest.join(",") === "localhost");
+check("A1: edit revokes nothing while a reference survives",
+  editA.toRevoke.length === 0);
+
+const editB = diffDomainGrants({
+  previousProfiles: setA2,
+  nextProfiles: setA3,
+  grantedDomains: ["example.com", "api.example.com", "localhost"],
+});
+check("A1: now-unreferenced domains are REVOKED",
+  editB.toRevoke.join(",") === "api.example.com,example.com");
+check("A1: still-referenced domain is not revoked",
+  !editB.toRevoke.includes("localhost"));
+check("A1: already-granted domain is not re-requested",
+  editB.toRequest.length === 0);
+
+check("A1: unchanged profile set produces no permission churn",
+  (() => {
+    const d = diffDomainGrants({
+      previousProfiles: setA1,
+      nextProfiles: setA1,
+      grantedDomains: ["example.com", "api.example.com"],
+    });
+    return d.toRequest.length === 0 && d.toRevoke.length === 0;
+  })());
+check("A1: unchanged set STILL re-requests a denied domain (finding 2 recovery path)",
+  diffDomainGrants({
+    previousProfiles: setA1,
+    nextProfiles: setA1,
+    grantedDomains: ["example.com"],
+  }).toRequest.join(",") === "api.example.com");
+check("A1: delete revokes only what no remaining profile references",
+  diffDomainGrants({
+    previousProfiles: setA1,
+    nextProfiles: [setA1[0]],
+    grantedDomains: ["example.com", "api.example.com"],
+  }).toRevoke.join(",") === "api.example.com");
+check("A1: never revokes a domain that was not granted",
+  diffDomainGrants({
+    previousProfiles: setA1,
+    nextProfiles: [],
+    grantedDomains: ["example.com"],
+  }).toRevoke.join(",") === "example.com");
+check("A1: import replace-all drops old and requests new",
+  (() => {
+    const d = diffDomainGrants({
+      previousProfiles: setA1,
+      nextProfiles: [prof(9, ["other.test"])],
+      grantedDomains: ["example.com", "api.example.com"],
+    });
+    return d.toRevoke.join(",") === "api.example.com,example.com" &&
+      d.toRequest.join(",") === "other.test";
+  })());
+check("A1: results are sorted and deduplicated",
+  diffDomainGrants({
+    previousProfiles: [],
+    nextProfiles: [prof(1, ["z.test", "a.test"]), prof(2, ["a.test"])],
+    grantedDomains: [],
+  }).toRequest.join(",") === "a.test,z.test");
+
+check("referencedDomains dedupes across profiles",
+  referencedDomains(setA1).join(",") === "api.example.com,example.com");
+check("referencedDomains tolerates a profile with no domains key",
+  referencedDomains([{ id: 1, name: "x" }]).length === 0);
+check("originFor builds the port-agnostic origin pattern",
+  originFor("localhost") === "*://localhost/*");
+check("originsFor maps a list",
+  originsFor(["a.test", "b.test"]).join(" ") === "*://a.test/* *://b.test/*");
 
 // -------------------------------------------------------------- result
 
