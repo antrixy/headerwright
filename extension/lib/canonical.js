@@ -2,7 +2,9 @@
 // Deterministic, byte-stable serialization of profiles — the export file
 // format. Pure functions, no chrome.* calls, Node-importable by selftests.
 //
-// The contract (from the project handoff, frozen at v0.1.0):
+// The contract, FROZEN at v0.1.0 — the file format became a public contract
+// the moment anyone committed an exported file to git, so the rules below
+// change only under a version bump in the envelope, never silently:
 //   - keys sorted alphabetically at every level
 //   - 2-space indent, one item per line (git-diffable)
 //   - trailing newline
