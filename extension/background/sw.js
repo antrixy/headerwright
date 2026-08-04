@@ -6,9 +6,11 @@
 
 import { profileToRule } from "../lib/rules.js";
 import { originFor } from "../lib/grants.js";
+import { computeBadge } from "../lib/status.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
+const STORAGE_KEY_SYNC = "hw:sync";
 
 // modifyHeaders rules are not in DNR's "safe" action set (block, allow,
 // allowAllRequests, upgradeScheme only), so every rule here counts against
@@ -72,33 +74,60 @@ async function buildRules(profiles) {
   return { rules, skippedProfileIds };
 }
 
-async function updateBadge(enabled) {
-  await chrome.action.setBadgeText({ text: enabled ? "ON" : "OFF" });
-  await chrome.action.setBadgeBackgroundColor({
-    color: enabled ? "#1a7f37" : "#6e7781",
-  });
+// Badge text and colour are decided in lib/status.js so the honesty rule is
+// testable without a browser. This function is only the chrome.* call, and it
+// swallows its own errors: a failure to paint the badge must not become
+// another unhandled rejection.
+async function updateBadge(state) {
+  const { text, color } = computeBadge(state);
+  try {
+    await chrome.action.setBadgeText({ text });
+    await chrome.action.setBadgeBackgroundColor({ color });
+  } catch (err) {
+    console.error("HeaderWright: could not update the badge —", err);
+  }
 }
 
 async function syncRules() {
   const { profiles, enabled } = await getStoredState();
 
-  const existing = await chrome.declarativeNetRequest.getDynamicRules();
-  const removeRuleIds = existing.map((rule) => rule.id);
+  let syncOk = true;
+  let error = null;
 
-  const addRules = enabled ? (await buildRules(profiles)).rules : [];
+  try {
+    const existing = await chrome.declarativeNetRequest.getDynamicRules();
+    const removeRuleIds = existing.map((rule) => rule.id);
 
-  // Single atomic call — per Chrome's docs, either all specified rules are
-  // added and removed, or an error is returned and nothing changes. Rule
-  // validity (append allowlist, non-empty values, granted domains) is
-  // filtered out in buildRules()/profileToRule() before this point, on
-  // purpose: one bad profile must not be able to take every other
-  // profile's rules down with it.
-  await chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds,
-    addRules,
+    const addRules = enabled ? (await buildRules(profiles)).rules : [];
+
+    // Single atomic call — per Chrome's docs, either all specified rules are
+    // added and removed, or an error is returned and nothing changes. Rule
+    // validity (append allowlist, non-empty values, granted domains) is
+    // filtered out in buildRules()/profileToRule() before this point, on
+    // purpose: one bad profile must not be able to take every other
+    // profile's rules down with it.
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds,
+      addRules,
+    });
+  } catch (err) {
+    // Before v0.1.1 this rejection was unhandled: the worker logged, the
+    // popup never learned, and the badge went on claiming ON with nothing
+    // registered. Catching it is the fix; the state below is what lets any
+    // other context find out.
+    syncOk = false;
+    error = err && err.message ? err.message : String(err);
+    console.error("HeaderWright: rule sync failed —", error);
+  }
+
+  // Writing this key does NOT re-enter syncRules: the storage listener below
+  // reacts to the profiles and enabled keys only. Worth stating plainly,
+  // because a listener that matched every key would loop here forever.
+  await chrome.storage.local.set({
+    [STORAGE_KEY_SYNC]: { ok: syncOk, error },
   });
 
-  await updateBadge(enabled);
+  await updateBadge({ enabled, syncOk });
 }
 
 // Rebuild on install/update and on every browser startup. Dynamic rules
