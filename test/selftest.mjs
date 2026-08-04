@@ -7,9 +7,8 @@
 // verifies rule CONSTRUCTION and format STABILITY. It deliberately makes
 // no claim about rule APPLICATION to real traffic: a rule can be built
 // correctly, match in the oracle, and still no-op without a host
-// permission grant (the spike's Phase 1 finding). Application evidence
-// comes from the manual smoke test against httpbin.org, recorded in the
-// project handoff — not from here.
+// permission grant. Application evidence comes from the manual smoke test
+// in test/SMOKE.md, run against a live echo endpoint — not from here.
 //
 // Count tripwire: EXPECTED_CHECKS below is the promotion tripwire, same
 // mechanism as toon-diff's selftest counts. Adding checks requires
