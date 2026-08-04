@@ -170,16 +170,32 @@ code comment currently states that belief as unverified.
 
 ## Part 3 — Badge honesty
 
-Only meaningful once finding 4's narrow fix has landed.
+Live as of v0.1.1 (finding 4, narrow half). The pure suite covers the decision
+table in lib/status.js; this covers the wiring and the failure injection.
 
-- Master toggle ON with a successful sync → badge ON.
-- Simulated `updateDynamicRules()` failure → badge does NOT assert ON, an
-  error state is persisted, and the popup can explain that configured rules
-  are not currently active.
+1. **Truthful states.** Master toggle ON with a successful sync → badge ON,
+   status line third segment reads "applying". Toggle OFF → badge OFF,
+   "paused".
+2. **Inject a failure.** In the service worker console, register a rule by
+   hand whose header value contains a CR — something the validator would now
+   refuse but that reaches DNR if written straight to storage. Alternatively
+   stub `chrome.declarativeNetRequest.updateDynamicRules` to reject. Then
+   trigger a sync by toggling the master switch.
 
-Any change to badge behavior INVALIDATES the Part 1 step 2 evidence line
-("badge and status line agree"). Re-run it and rewrite the record; do not
-carry the old line forward.
+   Expected: badge shows `!` in red, NOT ON. Status line reads "not applying —
+   last sync failed" and its tooltip names Chrome's rejection message. The
+   service worker console shows a handled error, not an unhandled rejection.
+3. **Failure outranks the toggle.** With the failure still injected, switch
+   the master toggle OFF. The badge must STILL show `!`, not OFF — the sync
+   that just ran was the one clearing the rules, so OFF would assert a
+   teardown that may not have happened.
+4. **Recovery.** Remove the injected failure and trigger a sync. Badge returns
+   to ON or OFF, status line stops reporting failure, tooltip clears.
+
+RE-VERIFICATION DEBT DISCHARGED HERE: the 2026-07-31 negative-control evidence
+line included "badge/status consistent". The badge changed in 0.1.1, so that
+line is void. Re-run Part 1 steps 1 and 2 on the packed build and REWRITE the
+evidence entry in the handoff — do not carry the old wording forward.
 
 ---
 
@@ -233,7 +249,7 @@ settled later rather than silently hardening into folklore.
     Part 0 verdict:  prompt-revoke | deferred-until-reload | retained
     Part 1:          1-6 pass/fail, with trace IDs for 1 and 2
     Part 2:          2a-2e pass/fail/documented
-    Part 3:          n/a until finding 4 lands
+    Part 3:          1-4 pass/fail; Part 1 steps 1-2 REWRITTEN after badge change
     Part 4a:         max accepted rule id observed = ?
     Part 4b:         HTAB in value accepted / rejected by Chrome = ?
     Notes:
