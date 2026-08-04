@@ -42,6 +42,71 @@ export const APPENDABLE_REQUEST_HEADERS = new Set([
 const VALID_OPERATIONS = new Set(["set", "append", "remove"]);
 
 /**
+ * HTTP field-name token characters, RFC 9110 section 5.6.2 (the "token"
+ * production). Chromium implements the same set in
+ * net::HttpUtil::IsValidHeaderName.
+ *
+ * PROVENANCE (v0.1.1, checked 2026-08-04): the Chrome declarativeNetRequest
+ * reference documents ModifyHeaderInfo.header only as "The name of the header
+ * to be modified" — it specifies NO character constraints. So this is grounded
+ * in the RFC and Chromium's implementation of it, NOT in the extension docs.
+ * The acceptance criterion asked us to verify the set against current docs;
+ * the set is not in the docs, and that gap is the honest answer.
+ *
+ * Surrounding whitespace fails this pattern, which is deliberate: the popup
+ * trims but the IMPORT path does not, and import accepts hand-edited JSON.
+ */
+export const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+/**
+ * Upper bound on a DNR dynamic rule id.
+ *
+ * PROVENANCE: UNDOCUMENTED. The Chrome reference states only "Mandatory and
+ * should be >= 1" and gives no maximum. 2147483647 is INFERRED from the
+ * extensions IDL integer type (32-bit signed), corroborated by a reported
+ * failure passing Number.MAX_SAFE_INTEGER — it rejects with "expected
+ * integer, found number", which is a 32-bit overflow rather than a range
+ * check. Treat this constant as a conservative guess until the smoke test
+ * confirms it empirically (test/SMOKE.md Part 4).
+ */
+export const MAX_RULE_ID = 2147483647;
+
+export function isValidHeaderName(name) {
+  return typeof name === "string" && HEADER_NAME_PATTERN.test(name);
+}
+
+/**
+ * Reject characters that cannot appear in a header value.
+ *
+ * NUL, CR, and LF are the hard cases: they are forbidden by the RFC, rejected
+ * by Chromium, and are the header-injection vectors. The remaining C0 controls
+ * and DEL are rejected as a DELIBERATE STRICTER-THAN-REQUIRED choice
+ * (decision 2026-08-04).
+ *
+ * One knowing deviation from the standard: HTAB (0x09) is LEGAL in an RFC 9110
+ * field-value, and we reject it anyway. That makes this validator lossy for a
+ * value Chrome would have accepted. Recorded rather than hidden; revisit if a
+ * real config ever needs a tab in a header value.
+ */
+export function isValidHeaderValue(value) {
+  if (typeof value !== "string") return false;
+  for (const ch of value) {
+    const code = ch.codePointAt(0);
+    if (code <= 0x1f || code === 0x7f) return false;
+  }
+  return true;
+}
+
+/**
+ * A profile id is used verbatim as the DNR dynamic rule id, so it must satisfy
+ * whatever updateDynamicRules() accepts. One out-of-range id fails the whole
+ * ATOMIC update, taking every other profile's rules down with it.
+ */
+export function isValidRuleId(id) {
+  return Number.isInteger(id) && id >= 1 && id <= MAX_RULE_ID;
+}
+
+/**
  * Bare-hostname check, shared by the popup form and import validation.
  * Single-label hosts (e.g. "localhost") are deliberately allowed — a
  * developer header tool that rejects localhost would be strange. Ports
@@ -62,6 +127,13 @@ export function validateHeaderEntry(entry) {
   if (!entry || typeof entry.name !== "string" || entry.name.trim() === "") {
     return { valid: false, reason: "missing or empty header name" };
   }
+  if (!isValidHeaderName(entry.name)) {
+    return {
+      valid: false,
+      reason:
+        "header name must be an HTTP token (letters, digits, and !#$%&'*+-.^_`|~), with no spaces, colons, or surrounding whitespace",
+    };
+  }
   if (!VALID_OPERATIONS.has(entry.operation)) {
     return { valid: false, reason: `unknown operation "${entry.operation}"` };
   }
@@ -70,6 +142,12 @@ export function validateHeaderEntry(entry) {
       return {
         valid: false,
         reason: `operation "${entry.operation}" requires a non-empty value`,
+      };
+    }
+    if (!isValidHeaderValue(entry.value)) {
+      return {
+        valid: false,
+        reason: "header value contains a control character (NUL, CR, LF, other C0, or DEL)",
       };
     }
   }

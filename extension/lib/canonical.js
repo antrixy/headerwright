@@ -23,7 +23,7 @@
 //   - the master toggle is deliberately NOT part of the file: it is
 //     local runtime state, not shareable configuration
 
-import { validateHeaderEntry, isValidDomain } from "./rules.js";
+import { validateHeaderEntry, isValidDomain, isValidRuleId, MAX_RULE_ID } from "./rules.js";
 
 export const FILE_FORMAT = "headerwright-profiles";
 export const FILE_VERSION = 1;
@@ -121,8 +121,14 @@ export function parseProfilesFile(text) {
     if (profile === null || typeof profile !== "object" || Array.isArray(profile)) {
       throw new Error(`${where}: must be an object`);
     }
-    if (!Number.isInteger(profile.id) || profile.id < 1) {
-      throw new Error(`${where}: "id" must be a positive integer`);
+    // The id is used verbatim as the DNR dynamic rule id, and one bad id
+    // fails the whole atomic updateDynamicRules() call — every other
+    // profile's rules go down with it. Import accepts hand-edited JSON, so
+    // this is the boundary where a crafted or fat-fingered id is caught.
+    if (!isValidRuleId(profile.id)) {
+      throw new Error(
+        `${where}: "id" must be an integer between 1 and ${MAX_RULE_ID}`
+      );
     }
     if (seenIds.has(profile.id)) {
       throw new Error(`${where}: duplicate id ${profile.id}`);
