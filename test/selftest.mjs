@@ -40,8 +40,16 @@ import {
   originFor,
   originsFor,
 } from "../extension/lib/grants.js";
+import {
+  computeBadge,
+  describeSync,
+  BADGE_ON,
+  BADGE_OFF,
+  BADGE_FAILED,
+  DEFAULT_SYNC_STATE,
+} from "../extension/lib/status.js";
 
-const EXPECTED_CHECKS = 94;
+const EXPECTED_CHECKS = 107;
 
 let passed = 0;
 let failed = 0;
@@ -355,6 +363,39 @@ checkThrows("import rejects an over-range id", () =>
     { id: MAX_RULE_ID + 1, name: "a", domains: ["a.com"],
       headers: [{ name: "x", operation: "set", value: "1" }] },
   ])), '"id" must be an integer');
+
+// ------------------------------------------ badge honesty (finding 4, A5)
+// The narrow half only: does the badge stop asserting ON when registration
+// failed. activeRuleCount and the four-state scheme are NOT here on purpose.
+
+check("enabled + successful sync shows ON",
+  computeBadge({ enabled: true, syncOk: true }) === BADGE_ON);
+check("disabled + successful sync shows OFF",
+  computeBadge({ enabled: false, syncOk: true }) === BADGE_OFF);
+check("enabled + FAILED sync does not show ON",
+  computeBadge({ enabled: true, syncOk: false }) !== BADGE_ON);
+check("enabled + FAILED sync shows the failure badge",
+  computeBadge({ enabled: true, syncOk: false }) === BADGE_FAILED);
+check("DISABLED + failed sync does not show OFF either (clear may have failed)",
+  computeBadge({ enabled: false, syncOk: false }) === BADGE_FAILED);
+check("badge text fits Chrome's badge (<= 4 chars) in every state",
+  [BADGE_ON, BADGE_OFF, BADGE_FAILED].every((b) => b.text.length <= 4));
+check("every badge state carries a colour",
+  [BADGE_ON, BADGE_OFF, BADGE_FAILED].every((b) => /^#[0-9a-f]{6}$/i.test(b.color)));
+
+check("status line says applying when enabled and synced",
+  describeSync({ enabled: true, syncOk: true }) === "applying");
+check("status line says paused when disabled and synced",
+  describeSync({ enabled: false, syncOk: true }) === "paused");
+check("status line does not claim applying after a failed sync",
+  describeSync({ enabled: true, syncOk: false }) !== "applying");
+check("status line does not claim paused after a failed sync",
+  describeSync({ enabled: false, syncOk: false }) !== "paused");
+check("failed-sync text names the failure rather than a stale good state",
+  describeSync({ enabled: true, syncOk: false }).includes("failed"));
+check("missing sync state defaults to ok, not to a claimed failure",
+  DEFAULT_SYNC_STATE.ok === true &&
+  computeBadge({ enabled: true, syncOk: DEFAULT_SYNC_STATE.ok }) === BADGE_ON);
 
 // -------------------------------------------------------------- result
 
