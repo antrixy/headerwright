@@ -183,6 +183,47 @@ carry the old line forward.
 
 ---
 
+## Part 4 — Confirm the inferred validator bounds (new in v0.1.1)
+
+Two constraints in lib/rules.js are NOT documented by Chrome and were inferred.
+This part is what converts them from guesses into observations. Both need the
+service worker console open (chrome://extensions → Details → service worker).
+
+### 4a — Rule-ID upper bound
+
+MAX_RULE_ID is 2147483647, inferred from the extensions IDL integer type. The
+Chrome reference states only "should be >= 1" and gives no maximum.
+
+In the service worker console, call updateDynamicRules() directly with a
+minimal modifyHeaders rule at each id and record which are accepted:
+
+    2147483647   expect ACCEPTED
+    2147483648   expect REJECTED
+    4294967295   expect REJECTED
+
+If 2147483648 is accepted, the bound is unsigned or larger and MAX_RULE_ID is
+too strict — a validator that rejects ids Chrome would take is lossy. Widen it
+and record the observed value. If 2147483647 is REJECTED, the real bound is
+lower; find it and record that instead.
+
+### 4b — HTAB in a header value
+
+isValidHeaderValue() rejects HTAB (0x09), which RFC 9110 permits in a
+field-value. This is the one place the validator is knowingly stricter than the
+standard (decision 2026-08-04).
+
+Register a rule by hand whose header value contains a tab. If Chrome accepts
+it, the strictness is confirmed as OUR choice rather than a platform limit —
+which is fine, but it should be recorded as a choice, not left looking like a
+constraint. If Chrome rejects it, the choice is vindicated and the comment in
+lib/rules.js should be updated to say so.
+
+Neither result blocks 0.1.1. Both close a stated-as-inferred gap, and the whole
+point of writing the provenance into the source comments was so this could be
+settled later rather than silently hardening into folklore.
+
+---
+
 ## Recording template
 
     Date:            YYYY-MM-DD
@@ -193,4 +234,6 @@ carry the old line forward.
     Part 1:          1-6 pass/fail, with trace IDs for 1 and 2
     Part 2:          2a-2e pass/fail/documented
     Part 3:          n/a until finding 4 lands
+    Part 4a:         max accepted rule id observed = ?
+    Part 4b:         HTAB in value accepted / rejected by Chrome = ?
     Notes:
