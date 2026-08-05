@@ -4,15 +4,17 @@
 
 A small, dependency-free Chrome extension for setting, appending, and removing
 HTTP request headers, built on Manifest V3's `declarativeNetRequest` API only.
-No `webRequest` permission, ever — nothing in this extension can observe your
-traffic, and that's verifiable by reading the manifest rather than trusting a
+No `webRequest` permission, ever. HeaderWright receives no request or response
+events: it hands declarative rules to Chrome, and Chrome applies them
+internally. That's verifiable by reading the manifest rather than trusting a
 description.
 
 ## What it does
 
 - Header profiles: set / append / remove request headers
 - Per-profile domain scoping (subdomains included)
-- Master on/off toggle with a badge that always shows the current state
+- Master on/off toggle with a badge showing that toggle's state, plus a
+  distinct state when Chrome rejects a rule registration
 - Deterministic JSON import/export — canonical key-sorted, byte-stable
   output, so configs can be shared and versioned in git
 
@@ -39,12 +41,20 @@ Why:
 - **Bounded blast radius.** If the extension is ever compromised — a bad
   update, a hijacked account, a supply-chain slip — the damage is limited to
   domains you've actually granted, not every site you visit.
-- **Revocable per site.** Removing a profile drops that domain's
-  permission too (unless another profile still uses it), so unused access
-  doesn't linger.
-- **What you see is what's true.** `chrome://extensions` → Site access shows
-  exactly the domains HeaderWright can currently touch, and that list
-  always matches your configured profiles.
+- **Revocable per site.** Deleting a profile, editing its domains, or
+  importing a config that drops a domain all release that domain's
+  permission — unless another profile still references it. Verified against
+  `chrome.permissions.getAll()`: the grant is gone immediately, not deferred.
+- **What you see is what's true.** HeaderWright's own popup is the honest
+  display: a green dot means the grant is currently held, a gray dot means it
+  isn't and the headers will not apply. Both are read from Chrome at render
+  time rather than remembered.
+
+  One caveat, found while verifying this: the site list under
+  `chrome://extensions` → Details is *not* a reliable view of what is
+  currently granted. It has been observed listing a domain that
+  `chrome.permissions.getAll()` reports as not granted. Trust the popup, or
+  the API, over that panel.
 - **Lighter store review.** Broad host permissions draw more scrutiny from
   the Chrome Web Store; asking for nothing until it's needed avoids that by
   construction, not by explanation.
@@ -68,9 +78,10 @@ format, and ends with a check-count tripwire: adding or removing checks
 requires updating `EXPECTED_CHECKS` in the same commit.
 
 The suite verifies construction, not application — a rule can be built
-correctly and still no-op on a domain without a permission grant, so
-release verification also includes a manual smoke test against a live
-endpoint.
+correctly and still no-op on a domain without a permission grant, so release
+verification also includes a manual smoke test against a live endpoint. Those
+steps are written down in [test/SMOKE.md](./test/SMOKE.md) rather than left to
+memory.
 
 ## Versioning
 
