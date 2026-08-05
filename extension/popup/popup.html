@@ -97,6 +97,16 @@
   }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--off); flex: none; }
   .dot.granted { background: var(--on); box-shadow: 0 0 0 3px var(--on-soft); }
+  /* Ungranted chips are buttons (finding 2). Reset the UA button styling the
+     .domain rule does not cover, then add the affordance: a dashed border
+     says "this one is actionable" without shouting, and distinguishes it from
+     the solid border of a granted, non-interactive chip. */
+  button.domain {
+    font: inherit; color: inherit; cursor: pointer;
+    border-style: dashed;
+  }
+  button.domain:hover { border-color: var(--ink-soft); background: var(--surface-2); }
+  button.domain:focus-visible { outline: 2px solid var(--on); outline-offset: 1px; }
   .profile .actions { display: flex; gap: 2px; }
 
   /* Buttons */
