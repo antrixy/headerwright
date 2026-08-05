@@ -61,13 +61,13 @@ export const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 /**
  * Upper bound on a DNR dynamic rule id.
  *
- * PROVENANCE: UNDOCUMENTED. The Chrome reference states only "Mandatory and
- * should be >= 1" and gives no maximum. 2147483647 is INFERRED from the
- * extensions IDL integer type (32-bit signed), corroborated by a reported
- * failure passing Number.MAX_SAFE_INTEGER — it rejects with "expected
- * integer, found number", which is a 32-bit overflow rather than a range
- * check. Treat this constant as a conservative guess until the smoke test
- * confirms it empirically (test/SMOKE.md Part 4).
+ * PROVENANCE: undocumented by Chrome, but VERIFIED EMPIRICALLY 2026-08-04.
+ * The reference states only "Mandatory and should be >= 1" and gives no
+ * maximum. Registering rules directly via updateDynamicRules() found the exact
+ * boundary: id 2147483647 is ACCEPTED, id 2147483648 is REJECTED with
+ * "Invalid type: expected integer, found number" — a 32-bit signed overflow
+ * rather than a range check, consistent with the extensions IDL integer type.
+ * No longer an inference.
  */
 export const MAX_RULE_ID = 2147483647;
 
@@ -84,9 +84,11 @@ export function isValidHeaderName(name) {
  * (decision 2026-08-04).
  *
  * One knowing deviation from the standard: HTAB (0x09) is LEGAL in an RFC 9110
- * field-value, and we reject it anyway. That makes this validator lossy for a
- * value Chrome would have accepted. Recorded rather than hidden; revisit if a
- * real config ever needs a tab in a header value.
+ * field-value, and we reject it anyway. This is lossy, and CONFIRMED lossy —
+ * verified 2026-08-04 by registering a rule whose header value contained a tab
+ * directly via updateDynamicRules(): Chrome ACCEPTED it. So the restriction is
+ * ours, not the platform's. Recorded rather than hidden; revisit if a real
+ * config ever needs a tab in a header value.
  */
 export function isValidHeaderValue(value) {
   if (typeof value !== "string") return false;
