@@ -7,6 +7,7 @@
 import { profileToRule } from "../lib/rules.js";
 import { originFor } from "../lib/grants.js";
 import { computeBadge } from "../lib/status.js";
+import { createSerialQueue } from "../lib/queue.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
@@ -88,7 +89,7 @@ async function updateBadge(state) {
   }
 }
 
-async function syncRules() {
+async function runSync() {
   const { profiles, enabled } = await getStoredState();
 
   let syncOk = true;
@@ -129,6 +130,14 @@ async function syncRules() {
 
   await updateBadge({ enabled, syncOk });
 }
+
+// Every entry point goes through this, never runSync directly. Overlapping
+// runs compute removeRuleIds from the same snapshot and then collide on a
+// rule id — see lib/queue.js for the observed case. Serializing is cheap
+// insurance; it does not by itself prove the ordering hazard is gone.
+const syncRules = createSerialQueue(runSync, (err) => {
+  console.error("HeaderWright: queued sync threw —", err);
+});
 
 // Rebuild on install/update and on every browser startup. Dynamic rules
 // are documented to persist across sessions and extension updates. The one
