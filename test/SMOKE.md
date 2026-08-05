@@ -159,6 +159,20 @@ dialog never appears, `remove()` destroyed the popup's JS context and the
 ordering assumption in `reconcileGrants()` is wrong — record it, because the
 code comment currently states that belief as unverified.
 
+### 2f — Grant affordance on a denied domain (finding 2, new in v0.1.1)
+
+1. Create a profile on a fresh domain and DENY the dialog. The chip renders
+   with a gray dot and a DASHED border — that border is the affordance.
+2. Click the chip. Expected: the permission dialog fires again. Accept it.
+3. The dot turns green, the chip reverts to a solid border and stops being
+   clickable, and the status line granted count increases.
+4. Confirm a GRANTED chip is NOT clickable: no pointer cursor, no dialog.
+   Grant-only is deliberate; a revoke control over a shared domain has
+   unresolved meaning and is not in this version.
+5. Keyboard: the ungranted chip must be reachable by Tab and activate on
+   Enter or Space. It is a real button element, so this should be free —
+   verify rather than assume.
+
 ### 2e — Delete and import
 
 - **Delete** a profile whose domains no other profile uses → those domains
@@ -196,6 +210,30 @@ RE-VERIFICATION DEBT DISCHARGED HERE: the 2026-07-31 negative-control evidence
 line included "badge/status consistent". The badge changed in 0.1.1, so that
 line is void. Re-run Part 1 steps 1 and 2 on the packed build and REWRITE the
 evidence entry in the handoff — do not carry the old wording forward.
+
+---
+
+## Part 3b — Sync serialization (finding 5, new in v0.1.1)
+
+On v0.1.0 an ordinary profile save was observed to produce
+"Rule with id 3 does not have a unique ID" in the popup console: two syncs
+overlapped, computed removeRuleIds from the same snapshot, and collided. It
+did NOT reproduce on demand, and the winning run had already registered the
+correct state, so nothing misapplied.
+
+With syncRules serialized, repeat the trigger and confirm the collision is
+gone. Popup console open, Preserve log ticked:
+
+1. Save a new profile on a fresh domain and accept the dialog. Watch for any
+   unique-ID error. Repeat five times with different domains — the race was
+   timing-dependent, so a single clean run proves little.
+2. Toggle the master switch rapidly several times. This fires
+   storage.onChanged repeatedly and is the cheapest way to force overlap.
+3. Expected throughout: no unique-ID error, and the badge never shows the
+   failure state for a race that changed nothing.
+
+If a unique-ID error still appears, the queue is not covering an entry point
+— check that every listener registers the QUEUED syncRules and not runSync.
 
 ---
 
@@ -250,6 +288,7 @@ settled later rather than silently hardening into folklore.
     Part 1:          1-6 pass/fail, with trace IDs for 1 and 2
     Part 2:          2a-2e pass/fail/documented
     Part 3:          1-4 pass/fail; Part 1 steps 1-2 REWRITTEN after badge change
+    Part 3b:         unique-ID error seen in N of 5 saves (expect 0)
     Part 4a:         max accepted rule id observed = ?
     Part 4b:         HTAB in value accepted / rejected by Chrome = ?
     Notes:
