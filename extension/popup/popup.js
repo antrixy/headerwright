@@ -208,18 +208,45 @@ async function renderProfileCard(profile) {
 }
 
 async function renderDomainChip(domain) {
-  const chip = document.createElement("span");
-  chip.className = "domain mono";
-
-  const dot = document.createElement("span");
-  dot.className = "dot";
   const granted = await chrome.permissions.contains({
     origins: [originFor(domain)],
   });
+
+  // An UNGRANTED domain is rendered as a button, a granted one as plain text.
+  // Finding 2, option 1: before v0.1.1 the only way to re-fire request() for
+  // a domain whose dialog was denied was Edit then Save — which works, and
+  // which nothing in the UI suggests, so a profile could sit permanently
+  // non-functional with no in-app recovery.
+  //
+  // GRANT-ONLY, deliberately. Making the granted chip a revoke control is a
+  // symmetric toggle, and a toggle over a SHARED domain has unresolved
+  // meaning: revoking one profile's chip would silently break every other
+  // profile referencing that host. That is design work, not a patch, and it
+  // queues to its own version. This exposes an existing path and nothing more.
+  const chip = document.createElement(granted ? "span" : "button");
+  chip.className = granted ? "domain mono" : "domain mono grantable";
+
+  const dot = document.createElement("span");
+  dot.className = "dot";
   if (granted) dot.classList.add("granted");
+
   chip.title = granted
     ? `${domain}: permission granted, headers apply`
-    : `${domain}: permission not granted, headers will not apply`;
+    : `${domain}: permission not granted, headers will not apply. Click to grant access.`;
+
+  if (!granted) {
+    chip.type = "button";
+    chip.addEventListener("click", async () => {
+      // Nothing load-bearing may follow request(): the dialog destroys this
+      // JS context. Nothing needs to — the profile is already stored, and
+      // sw.js's permissions.onAdded listener re-syncs rules unaided. The
+      // re-render below only matters when no dialog was shown.
+      const ok = await chrome.permissions.request({
+        origins: [originFor(domain)],
+      });
+      if (ok) await renderList();
+    });
+  }
 
   chip.append(dot, document.createTextNode(domain));
   return chip;
