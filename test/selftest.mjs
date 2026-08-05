@@ -48,8 +48,9 @@ import {
   BADGE_FAILED,
   DEFAULT_SYNC_STATE,
 } from "../extension/lib/status.js";
+import { createSerialQueue } from "../extension/lib/queue.js";
 
-const EXPECTED_CHECKS = 107;
+const EXPECTED_CHECKS = 113;
 
 let passed = 0;
 let failed = 0;
@@ -396,6 +397,61 @@ check("failed-sync text names the failure rather than a stale good state",
 check("missing sync state defaults to ok, not to a claimed failure",
   DEFAULT_SYNC_STATE.ok === true &&
   computeBadge({ enabled: true, syncOk: DEFAULT_SYNC_STATE.ok }) === BADGE_ON);
+
+// ------------------------------------------- serial queue (finding 5)
+// Async, so these run after the synchronous checks above and their results
+// are asserted before the count is read (see the await at the bottom).
+
+async function queueChecks() {
+  const order = [];
+  const slow = (id, ms) => () =>
+    new Promise((res) => setTimeout(() => { order.push(id); res(id); }, ms));
+
+  // A later, faster call must not finish before an earlier, slower one.
+  const q1 = createSerialQueue((fn) => fn()());
+  const a = q1(() => slow("a", 30));
+  const b = q1(() => slow("b", 0));
+  await Promise.all([a, b]);
+  check("later call cannot overtake an earlier one", order.join(",") === "a,b");
+
+  // A rejected run must not poison the chain.
+  let ran = 0;
+  let caught = null;
+  const q2 = createSerialQueue(
+    async (shouldThrow) => {
+      ran++;
+      if (shouldThrow) throw new Error("boom");
+    },
+    (err) => { caught = err.message; }
+  );
+  await q2(true);
+  await q2(false);
+  check("a failed run does not stop later runs", ran === 2);
+  check("the failure is surfaced to onError", caught === "boom");
+
+  // Serialization must hold under a burst, which is the real shape: five
+  // listeners can fire before the worker suspends.
+  const seen = [];
+  let active = 0;
+  let overlapped = false;
+  const q3 = createSerialQueue(async (id) => {
+    active++;
+    if (active > 1) overlapped = true;
+    await new Promise((res) => setTimeout(res, 1));
+    seen.push(id);
+    active--;
+  });
+  await Promise.all([1, 2, 3, 4, 5].map((n) => q3(n)));
+  check("no two runs overlap under a burst", !overlapped);
+  check("burst runs complete in enqueue order", seen.join("") === "12345");
+
+  // Missing onError must not itself throw.
+  const q4 = createSerialQueue(async () => { throw new Error("silent"); });
+  await q4();
+  check("omitting onError is safe", true);
+}
+
+await queueChecks();
 
 // -------------------------------------------------------------- result
 
