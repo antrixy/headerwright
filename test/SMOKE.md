@@ -25,6 +25,15 @@ it exercised.
 - Know which build you are on. Store ID `ooapgilielelobkkcdlnkenkflbnnmhi`;
   unpacked-dev builds get a different ID.
 
+> **NEVER REMOVE THE STORE INSTALL DURING A SMOKE RUN.** Smoke tests use the
+> UNPACKED build, which is a separate extension with its own ID, storage, and
+> grants. Removing an extension wipes its `chrome.storage.local` and all of its
+> host grants. The two cards in `chrome://extensions` look alike, and at 0.1.1
+> the store copy was removed by mistake during a reset — which silently
+> destroyed the granted state that the store-update re-prompt question needed,
+> making that question unanswerable for a second release. Check the ID on the
+> card before clicking Remove.
+
 **Read the Site access dropdown before starting** and record it. If it says
 *On all sites* rather than *On specific sites*, the extension holds the
 broad `*://*/*` grant, and every revocation result below is meaningless —
