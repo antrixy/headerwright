@@ -67,6 +67,21 @@ change your data" on the site. That describes the permission class, not this
 extension — with `declarativeNetRequest` only, the browser applies the rules
 itself and no extension code observes any request. The manifest is the proof.
 
+A note on prompts that don't appear: re-adding a domain you previously removed
+may produce **no dialog at all**. The grant is still acquired — Chrome appears
+to suppress the prompt for a host you have already consented to for this
+extension. Nothing is hidden from you when this happens: the popup's dot,
+`chrome.permissions.contains()` and `chrome.permissions.getAll()` all agree
+that the grant is held.
+
+How far that suppression reaches is only partly established. Uninstalling the
+extension **does** clear it — reinstalling and granting the same host prompts
+again, observed twice. Whether it is scoped to the browsing session or persists
+indefinitely for an install that stays in place is **not yet verified**;
+settling it needs a fresh browser profile, and it is recorded here as open
+rather than guessed at. The practical consequence either way is that the
+absence of a prompt is not evidence that a grant was skipped — read the dot.
+
 ## Development
 
 No build step — the `extension/` directory *is* the extension. Load it
