@@ -52,8 +52,9 @@ import {
   DEFAULT_SYNC_STATE,
 } from "../extension/lib/status.js";
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
+import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 156;
+const EXPECTED_CHECKS = 166;
 
 let passed = 0;
 let failed = 0;
@@ -553,6 +554,40 @@ try { parseProfilesFile(preserved); } catch { threw = true; }
 check("an over-cap import throws rather than returning a truncated set", threw);
 check("an over-cap import leaves the source document untouched",
   JSON.parse(preserved).profiles.length === MAX_UNSAFE_DYNAMIC_RULES + 1);
+
+// ------------------------------- static popup wiring (finding 10 motivated)
+// The suite cannot execute popup.js — it needs chrome.* — but it CAN read it.
+// $("some-id") resolving to null is a silent failure: the listener is never
+// attached, the button does nothing, and no error is raised anywhere. Finding
+// 10 adds four new element ids across two files, which is exactly the shape
+// that goes wrong when one file is committed and the other is not.
+//
+// This is the cheap end of the static architecture check still owed from the
+// claim -> evidence table, and it is the first check here that reaches
+// popup.js at all.
+
+const popupJs = readFileSync(new URL("../extension/popup/popup.js", import.meta.url), "utf8");
+const popupHtml = readFileSync(new URL("../extension/popup/popup.html", import.meta.url), "utf8");
+
+const referencedIds = [...popupJs.matchAll(/\$\("([^"]+)"\)/g)].map((m) => m[1]);
+const declaredIds = new Set(
+  [...popupHtml.matchAll(/id="([^"]+)"/g)].map((m) => m[1])
+);
+const danglingIds = [...new Set(referencedIds)].filter((id) => !declaredIds.has(id));
+
+check("popup.js references at least a dozen element ids (the scan works)",
+  new Set(referencedIds).size >= 12);
+check(`every element id popup.js references exists in popup.html${
+  danglingIds.length ? " — dangling: " + danglingIds.join(", ") : ""}`,
+  danglingIds.length === 0);
+
+// Named explicitly so the finding 10 wiring fails loudly rather than as part
+// of a generic list, and in BOTH files — a confirm whose buttons exist only in
+// the markup is a dialog that cannot be dismissed.
+for (const id of ["delete-confirm", "delete-confirm-text", "delete-cancel", "delete-proceed"]) {
+  check(`finding 10: #${id} is declared in popup.html`, declaredIds.has(id));
+  check(`finding 10: #${id} is referenced by popup.js`, referencedIds.includes(id));
+}
 
 // ------------------------------------------ badge honesty (finding 4, A5)
 // The narrow half only: does the badge stop asserting ON when registration
