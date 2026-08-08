@@ -25,6 +25,7 @@ import {
   isValidHeaderValue,
   isValidRuleId,
   nextRuleId,
+  normalizeDomains,
   MAX_RULE_ID,
 } from "../extension/lib/rules.js";
 import {
@@ -51,7 +52,7 @@ import {
 } from "../extension/lib/status.js";
 import { createSerialQueue } from "../extension/lib/queue.js";
 
-const EXPECTED_CHECKS = 127;
+const EXPECTED_CHECKS = 140;
 
 let passed = 0;
 let failed = 0;
@@ -428,6 +429,64 @@ try {
 }
 check("a generated id round-trips through import validation",
   roundTripped === generatedAfterCeiling);
+
+// ------------------------------------------- domain dedup (finding 7)
+// The contract claimed set semantics for domains and the serializer did not
+// honour them. These pin the conformance fix, NOT a format change: version
+// stays 1 and no conforming file's bytes move.
+
+check("normalizeDomains removes exact duplicates",
+  normalizeDomains(["a.com", "a.com", "a.com"]).join(",") === "a.com");
+check("normalizeDomains dedups case-insensitively",
+  normalizeDomains(["example.com", "EXAMPLE.com", "Example.COM"]).join(",")
+    === "example.com");
+check("normalizeDomains sorts",
+  normalizeDomains(["z.com", "a.com"]).join(",") === "a.com,z.com");
+check("normalizeDomains tolerates a missing list",
+  normalizeDomains(undefined).length === 0 && normalizeDomains(null).length === 0);
+check("normalizeDomains drops non-strings rather than throwing",
+  normalizeDomains(["a.com", 7, null, "a.com"]).join(",") === "a.com");
+check("normalizeDomains is idempotent",
+  normalizeDomains(normalizeDomains(["B.com", "b.com", "a.com"])).join(",")
+    === normalizeDomains(["B.com", "b.com", "a.com"]).join(","));
+
+// THE TEST C COUNTEREXAMPLE, kept as the regression fixture. This exact
+// profile exported as ["example.com","example.com","example.com"] on v0.1.1
+// while the status line read "1/1 domain granted".
+const dupProfile = [{
+  id: 1, name: "Test",
+  domains: ["example.com", "EXAMPLE.com", "example.com"],
+  headers: [{ name: "X-A", operation: "set", value: "1" }],
+}];
+check("canonical form of the Test C profile has ONE domain",
+  canonicalizeProfiles(dupProfile)[0].domains.length === 1);
+check("the duplicate set serializes identically to the singleton set",
+  serializeProfiles(dupProfile)
+    === serializeProfiles([{ ...dupProfile[0], domains: ["example.com"] }]));
+
+// The contract's own two rules, checked against the shape that violated them.
+check("identical SETS serialize to identical bytes regardless of duplicates",
+  serializeProfiles([{ ...dupProfile[0], domains: ["a.com", "a.com", "b.com"] }])
+    === serializeProfiles([{ ...dupProfile[0], domains: ["b.com", "a.com"] }]));
+check("export -> import -> export stays byte-identical with duplicates in",
+  serializeProfiles(dupProfile)
+    === serializeProfiles(parseProfilesFile(serializeProfiles(dupProfile))));
+check("import accepts duplicates and returns the deduped set",
+  parseProfilesFile(validDoc(dupProfile))[0].domains.join(",") === "example.com");
+
+// COUNT AGREEMENT (finding 7's second half). The chip list renders
+// profile.domains and the status line counts referencedDomains(); they
+// disagreed on screen. After normalization the two count the same thing, which
+// is the property to pin — the popup wiring itself needs chrome.* and lives in
+// SMOKE.md.
+const canonicalDup = canonicalizeProfiles(dupProfile);
+check("chip count equals status-line domain count after normalization",
+  canonicalDup[0].domains.length === referencedDomains(canonicalDup).length);
+check("count agreement holds across profiles sharing a domain",
+  canonicalizeProfiles([
+    { ...dupProfile[0], id: 1, domains: ["a.com", "a.com"] },
+    { ...dupProfile[0], id: 2, domains: ["a.com", "B.com", "b.com"] },
+  ]).reduce((n, p) => n + p.domains.length, 0) === 3);
 
 // ------------------------------------------ badge honesty (finding 4, A5)
 // The narrow half only: does the badge stop asserting ON when registration
