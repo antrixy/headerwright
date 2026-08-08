@@ -26,6 +26,7 @@ import {
   isValidRuleId,
   nextRuleId,
   normalizeDomains,
+  MAX_UNSAFE_DYNAMIC_RULES,
   MAX_RULE_ID,
 } from "../extension/lib/rules.js";
 import {
@@ -52,7 +53,7 @@ import {
 } from "../extension/lib/status.js";
 import { createSerialQueue } from "../extension/lib/queue.js";
 
-const EXPECTED_CHECKS = 140;
+const EXPECTED_CHECKS = 148;
 
 let passed = 0;
 let failed = 0;
@@ -63,6 +64,24 @@ function check(name, condition) {
   } else {
     failed++;
     console.error(`FAIL: ${name}`);
+  }
+}
+
+// Returns fn()'s value, or the THREW sentinel if it raised.
+//
+// EVERY success-expecting call into lib/ must go through this. An uncaught
+// throw aborts the whole run: no FAIL lines are printed, the count tripwire
+// never executes, and the result is indistinguishable from "no check covers
+// this". That produced a false "0 fails" mutation reading TWICE while building
+// v0.1.2 — once on the generated-id round trip, once on the cap boundary — and
+// a mutation that appears uncaught is exactly the reading that stops someone
+// writing the check that was already there.
+const THREW = Symbol("threw");
+function attempt(fn) {
+  try {
+    return fn();
+  } catch {
+    return THREW;
   }
 }
 
@@ -174,7 +193,7 @@ check("serializing twice is byte-identical", s1 === serializeProfiles(messyProfi
 check("profile input order does not affect bytes",
   s1 === serializeProfiles([messyProfiles[1], messyProfiles[0]]));
 check("round-trip (parse then serialize) is byte-identical",
-  s1 === serializeProfiles(parseProfilesFile(s1)));
+  s1 === attempt(() => serializeProfiles(parseProfilesFile(s1))));
 check("output ends with exactly one trailing newline",
   s1.endsWith("}\n") && !s1.endsWith("\n\n"));
 check("domains are sorted and lowercased in canonical form",
@@ -213,9 +232,9 @@ checkThrows("rejects empty headers array", () =>
     { id: 1, name: "a", domains: ["a.com"], headers: [] },
   ])), '"headers"');
 check("accepts and canonicalizes a valid file",
-  parseProfilesFile(validDoc([
+  attempt(() => parseProfilesFile(validDoc([
     { id: 1, name: "a", domains: ["B.com", "a.com"], headers: [{ name: "x", operation: "set", value: "1" }] },
-  ]))[0].domains.join(",") === "a.com,b.com");
+  ]))[0].domains.join(",")) === "a.com,b.com");
 
 // ------------------------------------------------- grants / A1 scenarios
 // Shared-domain retention FIRST: it is the case a naive "revoke whatever
@@ -421,14 +440,9 @@ check("no generated id collides with an existing profile", noCollision);
 // mid-suite, which makes the mutation failure COUNT unreadable and skips the
 // count tripwire entirely. This must register as a failed check, not a crash.
 const generatedAfterCeiling = nextRuleId(idSet(MAX_RULE_ID));
-let roundTripped = null;
-try {
-  roundTripped = parseProfilesFile(validDoc(idSet(generatedAfterCeiling)))[0].id;
-} catch {
-  roundTripped = null;
-}
 check("a generated id round-trips through import validation",
-  roundTripped === generatedAfterCeiling);
+  attempt(() => parseProfilesFile(validDoc(idSet(generatedAfterCeiling)))[0].id)
+    === generatedAfterCeiling);
 
 // ------------------------------------------- domain dedup (finding 7)
 // The contract claimed set semantics for domains and the serializer did not
@@ -470,9 +484,9 @@ check("identical SETS serialize to identical bytes regardless of duplicates",
     === serializeProfiles([{ ...dupProfile[0], domains: ["b.com", "a.com"] }]));
 check("export -> import -> export stays byte-identical with duplicates in",
   serializeProfiles(dupProfile)
-    === serializeProfiles(parseProfilesFile(serializeProfiles(dupProfile))));
+    === attempt(() => serializeProfiles(parseProfilesFile(serializeProfiles(dupProfile)))));
 check("import accepts duplicates and returns the deduped set",
-  parseProfilesFile(validDoc(dupProfile))[0].domains.join(",") === "example.com");
+  attempt(() => parseProfilesFile(validDoc(dupProfile))[0].domains.join(",")) === "example.com");
 
 // COUNT AGREEMENT (finding 7's second half). The chip list renders
 // profile.domains and the status line counts referencedDomains(); they
@@ -487,6 +501,58 @@ check("count agreement holds across profiles sharing a domain",
     { ...dupProfile[0], id: 1, domains: ["a.com", "a.com"] },
     { ...dupProfile[0], id: 2, domains: ["a.com", "B.com", "b.com"] },
   ]).reduce((n, p) => n + p.domains.length, 0) === 3);
+
+// ------------------------------------- over-cap import refusal (finding 6)
+// The cap is enforced at parse time so an over-cap file is REFUSED rather than
+// accepted and silently truncated at the wire. Counted in profiles because
+// grant state is unknowable here — see the comment in parseProfilesFile.
+
+const bulk = (n, from = 1) => Array.from({ length: n }, (_, i) => ({
+  id: from + i, name: `p${from + i}`, domains: ["a.com"],
+  headers: [{ name: "X-A", operation: "set", value: "1" }],
+}));
+
+check("the cap constant is 5000, the unsafe-rule limit not the 30000 one",
+  MAX_UNSAFE_DYNAMIC_RULES === 5000);
+// Caught, not propagated. An off-by-one in the cap comparison makes this call
+// THROW, and an uncaught throw aborts the run, prints no FAIL lines, and reads
+// downstream as "no check caught this mutation" — which is how a missing test
+// and a crashing one become indistinguishable. Same reason as the generated-id
+// round-trip check below. Every success-expecting parseProfilesFile call in
+// this suite must catch.
+check("a file at exactly the cap is ACCEPTED",
+  attempt(() => parseProfilesFile(validDoc(bulk(MAX_UNSAFE_DYNAMIC_RULES))).length)
+    === MAX_UNSAFE_DYNAMIC_RULES);
+checkThrows("a file one over the cap is REFUSED",
+  () => parseProfilesFile(validDoc(bulk(MAX_UNSAFE_DYNAMIC_RULES + 1))),
+  "more than the");
+checkThrows("the refusal states the actual profile count",
+  () => parseProfilesFile(validDoc(bulk(MAX_UNSAFE_DYNAMIC_RULES + 1))),
+  String(MAX_UNSAFE_DYNAMIC_RULES + 1));
+checkThrows("the refusal states the limit",
+  () => parseProfilesFile(validDoc(bulk(MAX_UNSAFE_DYNAMIC_RULES + 1))),
+  String(MAX_UNSAFE_DYNAMIC_RULES));
+
+// The count check runs BEFORE per-profile validation, so an over-cap file gets
+// the cap reason rather than a complaint about profile 4,312. Pinned because
+// the ordering is the difference between an actionable message and a confusing
+// one, and a later refactor could reorder it without noticing.
+checkThrows("an over-cap file with a bad profile still reports the CAP",
+  () => parseProfilesFile(validDoc([
+    ...bulk(MAX_UNSAFE_DYNAMIC_RULES),
+    { id: 99999, name: "", domains: ["a.com"],
+      headers: [{ name: "X-A", operation: "set", value: "1" }] },
+  ])), "more than the");
+
+// A4 regression guard: refusal is a throw, so no caller can have applied
+// anything. parseProfilesFile is pure — it returns a value or throws, and
+// never mutates its input.
+const preserved = validDoc(bulk(MAX_UNSAFE_DYNAMIC_RULES + 1));
+let threw = false;
+try { parseProfilesFile(preserved); } catch { threw = true; }
+check("an over-cap import throws rather than returning a truncated set", threw);
+check("an over-cap import leaves the source document untouched",
+  JSON.parse(preserved).profiles.length === MAX_UNSAFE_DYNAMIC_RULES + 1);
 
 // ------------------------------------------ badge honesty (finding 4, A5)
 // The narrow half only: does the badge stop asserting ON when registration
