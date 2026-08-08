@@ -530,9 +530,14 @@ async function saveProfile() {
 
 let pendingImport = null; // parsed profiles awaiting Replace confirmation
 
-function showIoMsg(message) {
+// #io-msg is shared by import rejections and the export notice. The tone
+// argument decides which styling applies; it defaults to "error" so the
+// existing import call sites keep their behaviour unchanged.
+function showIoMsg(message, tone = "error") {
   const el = $("io-msg");
   el.textContent = message;
+  el.classList.toggle("error", tone === "error");
+  el.classList.toggle("notice", tone === "notice");
   el.classList.remove("hidden");
 }
 
@@ -549,7 +554,10 @@ function hideAllConfirms() {
   hideDeleteConfirm();
 }
 
+const EXPORT_FILENAME = "headerwright-profiles.json";
+
 async function exportProfiles() {
+  hideAllConfirms();
   const profiles = await getProfiles();
   const text = serializeProfiles(profiles);
   const url = URL.createObjectURL(
@@ -559,9 +567,27 @@ async function exportProfiles() {
   anchor.href = url;
   // Deterministic filename, no timestamp — the file contents are
   // byte-stable, so the name is too. The browser suffixes on collision.
-  anchor.download = "headerwright-profiles.json";
+  anchor.download = EXPORT_FILENAME;
   anchor.click();
   URL.revokeObjectURL(url);
+
+  // PLAINTEXT SECRETS NOTICE. Header values are written to the file exactly as
+  // configured, and a header editor's most common real use is an Authorization
+  // or Cookie value — so an export is frequently a secrets file, and nothing
+  // said so. Deliberately shown AFTER the export rather than as a permanent
+  // hint or a pre-export confirmation: this is the moment the fact becomes
+  // actionable, because a file now exists on disk. A confirmation was rejected
+  // — export is non-destructive and reversible, so gating it would add friction
+  // to a safe action and dilute what a confirmation means everywhere else in
+  // this popup.
+  //
+  // Names the file on purpose: the filename is deterministic, so the message
+  // can always say precisely which artifact to be careful with.
+  showIoMsg(
+    `Exported to ${EXPORT_FILENAME}. Header values are saved in plain text — ` +
+      `if any are tokens or cookies, treat the file as a secret.`,
+    "notice"
+  );
 }
 
 async function onImportFileChosen(event) {
