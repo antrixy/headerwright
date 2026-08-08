@@ -42,3 +42,47 @@ export function createSerialQueue(task, onError) {
     return tail;
   };
 }
+
+/**
+ * Returns a function that defers `task` by `waitMs`, restarting the timer on
+ * every call, so a burst collapses into ONE trailing run with the last
+ * arguments.
+ *
+ * Why this exists (finding 8, v0.1.2): the popup renders once on open and
+ * never re-reads storage, so a sync failure arriving after the render leaves
+ * the status line reading "applying" while the toolbar badge is already red.
+ * The fix is a chrome.storage.onChanged listener that re-renders — but
+ * renderList() calls chrome.permissions.contains() once PER CHIP, and at the
+ * 5,000-profile ceiling that is ~5,000 permission checks per render (observed
+ * 2026-08-05). A naive listener fires that burst on every storage write, and
+ * an ordinary save writes hw:profiles and then hw:sync back to back. So
+ * debouncing is load-bearing here rather than a nicety.
+ *
+ * Trailing edge, not leading: the point is to render the SETTLED state after a
+ * burst, and a leading-edge call would render the state mid-burst and then
+ * have nothing scheduled to correct it.
+ *
+ * Rejections are routed to onError for the same reason createSerialQueue does
+ * it — an async task scheduled from a timer has no caller left to await it, so
+ * an unhandled rejection is the default outcome otherwise.
+ */
+export function createDebounced(task, waitMs, onError) {
+  let timer = null;
+
+  return function schedule(...args) {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      try {
+        const result = task(...args);
+        if (result && typeof result.then === "function") {
+          result.catch((err) => {
+            if (onError) onError(err);
+          });
+        }
+      } catch (err) {
+        if (onError) onError(err);
+      }
+    }, waitMs);
+  };
+}
