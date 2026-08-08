@@ -24,6 +24,22 @@ it exercised.
 - `chrome://extensions` → HeaderWright → **Details**, for reading Site access.
 - Know which build you are on. Store ID `ooapgilielelobkkcdlnkenkflbnnmhi`;
   unpacked-dev builds get a different ID.
+- **Run in the `hw-test` Chrome profile, not the main one.** The two-profile
+  rig was established 2026-08-05 after the store fixture was destroyed twice by
+  the same mistake: the store card and the unpacked card look alike in one
+  `chrome://extensions` list. Extension installs and `chrome.storage` are
+  per-Chrome-profile, so separation makes the mistake unavailable rather than
+  merely discouraged. The test profile is signed OUT on purpose — signing in
+  syncs extensions from the Google account and reintroduces the second card.
+- **Check the DevTools title bar for the extension ID before trusting any
+  console reading.** A correct API call against the wrong extension returns a
+  real number and a wrong conclusion. This cost a mid-session scare on
+  2026-08-05, when an empty `getAll()` was briefly read as the store fixture
+  having been wiped; DevTools was attached to the freshly-loaded unpacked popup,
+  which correctly had no grants.
+- `sw.js` output lands in the **service worker console**, not the popup
+  console. Open it via the "service worker" link on the card. Parts 5 and 6
+  below depend on reading it.
 
 > **NEVER REMOVE THE STORE INSTALL DURING A SMOKE RUN.** Smoke tests use the
 > UNPACKED build, which is a separate extension with its own ID, storage, and
@@ -287,6 +303,192 @@ settled later rather than silently hardening into folklore.
 
 ---
 
+## Fixtures for Parts 5 and 6
+
+Not committed. Generate them with the repo's OWN `serializeProfiles()` so each
+is canonical and known-accepted BY CONSTRUCTION — any rejection seen in a
+browser is then a real disagreement, not a malformed file. From the repo root:
+
+    node -e '
+    import("./extension/lib/canonical.js").then(({serializeProfiles}) => {
+      const h = [{name:"X-HW-Test", operation:"set", value:"1"}];
+      const one = (id) => ({id, name:`p${id}`, domains:["postman-echo.com"], headers:h});
+      const fs = require("fs");
+      fs.writeFileSync("/tmp/hw-fixture-id-ceiling.json",
+        serializeProfiles([{...one(1), id: 2147483647, name: "Ceiling"}]));
+      fs.writeFileSync("/tmp/hw-fixture-cap-5000.json",
+        serializeProfiles(Array.from({length:5000}, (_, i) => one(i+1))));
+      fs.writeFileSync("/tmp/hw-fixture-cap-5001.json",
+        serializeProfiles(Array.from({length:5001}, (_, i) => one(i+1))));
+      console.log("written to /tmp");
+    })'
+
+**TECHNIQUE WORTH REUSING:** point every profile at the SAME already-granted
+domain. Rules are one-per-profile regardless of domain count, so rule count
+scales with profile count while permission dialogs stay at ZERO. That is what
+makes a 5,000-rule test a one-click operation.
+
+---
+
+## Part 5 — Generated rule ids (finding 9, fixed in v0.1.2)
+
+At 0.1.1 `saveProfile()` computed `max(id)+1` and never checked it, so one
+imported profile at the legitimate ceiling made the next save generate
+2147483648 — written to storage unchecked and then rejected by Chrome as a
+32-bit overflow. Confirmed at the wire 2026-08-05.
+
+What actually broke was **a latch, not a takedown**, and the distinction is the
+thing to preserve: atomicity meant the failed call changed nothing, so already
+registered rules survived. Every SUBSEQUENT sync rebuilt the same set,
+containing the same unregisterable rule, and failed identically.
+
+Service worker console open throughout.
+
+1. Import `hw-fixture-id-ceiling.json`. Expected: **accepted** — one profile at
+   id 2147483647, one dynamic rule. The import path deliberately still accepts
+   the ceiling; narrowing it would have invalidated this fixture.
+2. Add a new profile through the popup on any domain. Read its stored id:
+
+       chrome.storage.local.get("hw:profiles")
+
+   | Observation | Meaning |
+   | --- | --- |
+   | id is **1** | Lowest-free allocation working. The ceiling no longer poisons the id space. |
+   | id is 2147483648 | The fix is not wired — `nextRuleId()` is not being called. |
+   | Save refused with "no rule id is available" | The A3 guard fired, which should be unreachable. Record it; something is wrong with allocation. |
+
+3. Confirm both profiles register: `getDynamicRules()` shows 2 rules, `hw:sync`
+   reads `{ok: true}`, badge is not red.
+4. **Id reuse.** Delete the low-id profile, add another. Expected: the freed id
+   is reallocated, and the new rule registers cleanly. Reuse is safe because
+   every sync rebuilds the whole rule set — this step is what proves that
+   claim in a browser rather than in a comment.
+
+### 5b — Latch recovery still works
+
+The generator can no longer create a latch, but hand-edited storage still can,
+and the recovery path must not rot. Optional; run it if the sitting has room.
+
+1. Write an out-of-range id straight to `hw:profiles` from the service worker
+   console, bypassing both validators.
+2. Expected: `sw.js:` "rule sync failed", badge RED, `hw:sync {ok:false}`.
+3. Edit an UNRELATED profile. Expected: the edit is retained in storage but
+   never reaches Chrome — the sync fails identically. That divergence IS the
+   latch.
+4. Delete the offending profile. Expected: `hw:sync` returns to `{ok:true}` and
+   the pending edit is pushed through on the recovering sync.
+
+---
+
+## Part 6 — Over-cap import refusal (finding 6, fixed in v0.1.2)
+
+At 0.1.1 an over-cap import was accepted whole and `sw.js` truncated to the cap
+with only a `console.warn`: 5001 profiles stored, 5000 rules on the wire, sync
+reporting success, green dots on every profile, and no surface saying one was
+inert. Confirmed with numbers, Test D 2026-08-05.
+
+1. Import `hw-fixture-cap-5000.json`. Expected: **accepted.** 5000 profiles,
+   `getDynamicRules().length` is 5000, `hw:sync {ok:true}`, no truncation
+   warning in the service worker console.
+2. Import `hw-fixture-cap-5001.json`. Expected: **refused in the UI**, with the
+   reason naming both numbers — the 5001 it was given and the 5000 Chrome
+   allows. No `hw:profiles` write, no sync, no truncation warning.
+3. **A4 regression.** After the refusal, the prior configuration is untouched:
+   same profile count, same rules, same grants. An import that fails must
+   change nothing.
+
+> **The 5001-profile state is no longer reachable through the UI**, which is
+> the point of the fix and also means the render-burst observation from
+> 2026-08-05 can only be reproduced at 5000 now. Note the ceiling change rather
+> than re-deriving it next time.
+
+The truncation branch in `sw.js` is retained deliberately as defence in depth.
+If its warning ever appears in the service worker console, something wrote to
+storage that did not come through import or the form — that is a real finding,
+not noise.
+
+---
+
+## Part 7 — Domain dedup and count agreement (finding 7, fixed in v0.1.2)
+
+Test C, 2026-08-05: three identical `example.com` chips beside a status line
+reading "1/1 domain granted" — two different counts of the same thing in one
+view, visible without opening a console.
+
+1. Create a profile with the domains field reading exactly:
+
+       example.com, EXAMPLE.com, example.com
+
+2. Save. Expected: **ONE chip**, and the status line domain count agrees with
+   the number of chips on screen. The two counts must never disagree.
+3. Export. Expected: `"domains": ["example.com"]` — a single entry.
+4. **Idempotence.** Import that export, export again, diff the two files.
+   Expected: empty. Byte-identity survives the dedup.
+5. **Legacy storage.** Write a profile with duplicate domains straight to
+   `hw:profiles` from the console, then reopen the popup. Expected: still one
+   chip. Normalization runs on READ, so profiles written by 0.1.1 agree without
+   needing to be re-saved. This is the step that covers an upgrading user.
+
+---
+
+## Part 8 — Live state while the popup is open (finding 8, fixed in v0.1.2)
+
+At 0.1.1 the popup rendered once on open and never re-read storage: a failure
+arriving AFTER the render left the status line reading "applying" beside green
+dots while the toolbar badge was already RED. Reproduced in both directions on
+a genuine failure, 2026-08-05.
+
+The uncovered case is precisely **a change arriving after a render**, so the
+popup must stay open throughout. Closing and reopening it hides the bug.
+
+1. Open the popup. Confirm the status line reads "applying".
+2. **Without closing it**, inject a sync failure from the service worker
+   console (Part 3 step 2 describes how).
+3. Expected: within a moment, the status line updates IN PLACE to "not applying
+   — last sync failed", with the tooltip carrying Chrome's message. No reopen.
+4. Clear the failure. Expected: the status line returns to "applying" in place.
+5. **Grant change from outside.** With the popup open, revoke a host via
+   `chrome://extensions` → Site access. Expected: the chip's dot updates
+   without a reopen.
+6. **Debounce sanity.** Save a profile — that writes `hw:profiles` and then
+   `hw:sync` back to back. Expected: the list settles once, with no visible
+   double-repaint and no perceptible lag. At 5000 profiles this is the step
+   that matters: each render costs one `permissions.contains()` per chip.
+7. **Editor is undisturbed.** Open the editor, type into a field, and trigger a
+   storage change from the console. Expected: the form keeps its contents and
+   the view does not switch. Re-render touches the list and status line only.
+
+---
+
+## Part 9 — Delete confirmation (finding 10, new in v0.1.2)
+
+Delete was the only destructive action with no confirmation, while import —
+which is RECOVERABLE, since the file still exists on disk — had one. This is a
+recorded deviation from "patch = fixes only"; see the handoff before changing
+it.
+
+1. Click Delete on a profile. Expected: **nothing is deleted yet.** A
+   confirmation appears naming that profile and its domain count.
+2. **Cancel.** Expected: the confirmation closes, the profile survives intact,
+   and its grants are untouched.
+3. Click Delete again, then confirm. Expected: the profile is removed, and
+   domains no longer referenced by any other profile are REVOKED in the same
+   step — Part 2e's expectations apply unchanged through the confirmation.
+4. **No native dialog.** The confirmation must be inline. A native
+   `window.confirm()` is the Bug record hazard: a modal destroys the popup's JS
+   context and nothing after the await runs. If the popup closes at any point
+   here, that is a failure.
+5. **Retraction.** Open the confirmation, then delete the SAME profile from
+   another context (write `hw:profiles` from the console). Expected: the
+   confirmation withdraws itself rather than sitting there naming a profile
+   that no longer exists.
+6. **View change abandons it.** Open the confirmation, click Edit on any
+   profile, return to the list. Expected: no confirmation is still armed.
+7. **Import closes it.** Open the confirmation, then start an import. Expected:
+   only one confirmation on screen at a time.
+
+---
+
 ## Recording template
 
     Date:            YYYY-MM-DD
@@ -300,4 +502,10 @@ settled later rather than silently hardening into folklore.
     Part 3b:         unique-ID error seen in N of 5 saves (expect 0)
     Part 4a:         max accepted rule id observed = ?
     Part 4b:         HTAB in value accepted / rejected by Chrome = ?
+    Part 5:          id generated after the ceiling profile = ?  (expect 1)
+    Part 5b:         latch reproduced / recovered = ?  (optional)
+    Part 6:          5000 accepted = ?  5001 refused with both numbers = ?
+    Part 7:          chips shown for a triple-entered domain = ?  (expect 1)
+    Part 8:          status line corrected WITHOUT reopening = ?
+    Part 9:          delete confirmed / cancelled / retracted = ?
     Notes:
