@@ -71,6 +71,25 @@ export const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
  */
 export const MAX_RULE_ID = 2147483647;
 
+/**
+ * Ceiling on registered dynamic rules.
+ *
+ * modifyHeaders is NOT in DNR's "safe" action set (block, allow,
+ * allowAllRequests, upgradeScheme), so every rule this extension registers
+ * counts against MAX_NUMBER_OF_UNSAFE_DYNAMIC_RULES — 5,000 — and not the
+ * 30,000 headline figure, which is the safe-rule limit. Chrome's
+ * declarativeNetRequest reference, re-checked 2026-08-04.
+ *
+ * EMPIRICALLY CONFIRMED 2026-08-05 (Test D): Chrome accepted exactly 5000
+ * unsafe dynamic rules in a single updateDynamicRules() call, and 5001
+ * profiles produced the truncation warning. The constant is correct — there is
+ * no larger limit hiding behind it.
+ *
+ * Lives here rather than in sw.js because the import path has to enforce it
+ * too, and lib/ is the chrome.*-free layer both callers can share.
+ */
+export const MAX_UNSAFE_DYNAMIC_RULES = 5000;
+
 export function isValidHeaderName(name) {
   return typeof name === "string" && HEADER_NAME_PATTERN.test(name);
 }
