@@ -4,7 +4,11 @@
 // is the single source of truth, so any context (popup, future options
 // page) only ever needs to write to storage, never message this worker.
 
-import { profileToRule, normalizeDomains } from "../lib/rules.js";
+import {
+  profileToRule,
+  normalizeDomains,
+  MAX_UNSAFE_DYNAMIC_RULES,
+} from "../lib/rules.js";
 import { originFor } from "../lib/grants.js";
 import { computeBadge } from "../lib/status.js";
 import { createSerialQueue } from "../lib/queue.js";
@@ -12,13 +16,6 @@ import { createSerialQueue } from "../lib/queue.js";
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
 const STORAGE_KEY_SYNC = "hw:sync";
-
-// modifyHeaders rules are not in DNR's "safe" action set (block, allow,
-// allowAllRequests, upgradeScheme only), so every rule here counts against
-// MAX_NUMBER_OF_UNSAFE_DYNAMIC_RULES — 5,000 — and not the 30,000 headline
-// figure, which is the safe-rule limit. Confirmed on Chrome's
-// declarativeNetRequest reference, re-checked 2026-08-04.
-const MAX_UNSAFE_DYNAMIC_RULES = 5000;
 
 // Domains are normalized on read here for the same reason popup.js does it:
 // profiles written by v0.1.1 and earlier can hold duplicates (finding 7), and
@@ -71,6 +68,15 @@ async function buildRules(profiles) {
     }
   }
 
+  // RETAINED DELIBERATELY, AND NOW UNREACHABLE THROUGH THE UI. As of v0.1.2
+  // parseProfilesFile() refuses an over-cap import outright (finding 6), and
+  // the form adds one profile at a time, so nothing the user can do should
+  // reach this branch. It stays because storage is untrusted input — the same
+  // reasoning as acceptance criterion A2, and the same shape as finding 3's
+  // validator, whose defence-in-depth defeated the first attempt to inject a
+  // failure for finding 4. If this warning ever appears in the service worker
+  // console, something wrote to storage that did not come through import or
+  // the form, and that is worth knowing rather than silently surviving.
   if (rules.length > MAX_UNSAFE_DYNAMIC_RULES) {
     console.warn(
       `HeaderWright: ${rules.length} profiles would produce more rules ` +
