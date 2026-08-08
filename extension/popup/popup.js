@@ -157,6 +157,16 @@ async function renderListNow() {
   for (const profile of profiles) {
     list.appendChild(await renderProfileCard(profile));
   }
+
+  // Retract a pending question whose subject no longer exists. Reachable now
+  // that finding 8's listener re-renders on storage events: the profile could
+  // be removed by another context while the confirmation sits open, and a
+  // confirm naming a profile that is already gone is worse than no confirm.
+  if (pendingDeleteId !== null &&
+      !profiles.some((p) => p.id === pendingDeleteId)) {
+    hideDeleteConfirm();
+  }
+
   await updateStatusLine(profiles);
 }
 
@@ -222,7 +232,7 @@ async function renderProfileCard(profile) {
   const deleteBtn = document.createElement("button");
   deleteBtn.className = "danger-quiet";
   deleteBtn.textContent = "Delete";
-  deleteBtn.addEventListener("click", () => deleteProfile(profile.id));
+  deleteBtn.addEventListener("click", () => requestDelete(profile));
 
   actions.append(editBtn, deleteBtn);
   row1.append(name, actions);
@@ -287,9 +297,61 @@ async function renderDomainChip(domain) {
   return chip;
 }
 
+// ------------------------------------------------------ delete (finding 10)
+
+// FINDING 10, and this is a RECORDED DEVIATION from "patch = fixes only", not
+// a reclassification. Adding a confirmation is NEW BEHAVIOUR, so by the patch
+// policy it is a feature and should queue behind Rule Tester. It ships in
+// 0.1.2 anyway, by decision. The deviation is written down — here and in the
+// handoff — because that is what stops the policy eroding by accretion, which
+// is how such rules actually fail: not by being repealed, but through a series
+// of individually reasonable exceptions nobody recorded.
+//
+// The gap it closes: delete was the only destructive action in the extension
+// with no confirmation, while IMPORT had one — and import is RECOVERABLE,
+// since the file it read still exists on disk. Delete is not: profile,
+// headers, and the host grant go with no undo. The weaker action guarded
+// itself and the stronger one did not.
+//
+// NOT window.confirm(). A native modal is the exact hazard in the Bug record:
+// chrome.permissions.request() opens one and it DESTROYS the popup's JS
+// context, so nothing after the await runs. An inline confirm keeps the whole
+// operation inside one context, and it matches the shape import already uses.
+//
+// The block lives OUTSIDE #profile-list deliberately. renderListNow() clears
+// that container on every render, and as of finding 8 renders now arrive from
+// storage events rather than only from user actions — a confirmation rendered
+// into a profile row would be wiped mid-decision by an unrelated sync.
+let pendingDeleteId = null;
+
+function hideDeleteConfirm() {
+  $("delete-confirm").classList.add("hidden");
+  pendingDeleteId = null;
+}
+
+function requestDelete(profile) {
+  hideIoUi(); // never show two confirmations at once
+  pendingDeleteId = profile.id;
+  const n = (profile.domains || []).length;
+  $("delete-confirm-text").textContent =
+    `Delete "${profile.name}" and its ${n} domain${n === 1 ? "" : "s"}? ` +
+    `This cannot be undone.`;
+  $("delete-confirm").classList.remove("hidden");
+}
+
+async function confirmDelete() {
+  if (pendingDeleteId === null) return;
+  const id = pendingDeleteId;
+  hideDeleteConfirm();
+  await deleteProfile(id);
+}
+
 async function deleteProfile(id) {
   const previousProfiles = await getProfiles();
   const nextProfiles = previousProfiles.filter((p) => p.id !== id);
+  // Nothing to do if it is already gone — another context may have removed it
+  // while the confirmation sat open.
+  if (nextProfiles.length === previousProfiles.length) return;
   await setProfiles(nextProfiles);
   await renderList();
   await reconcileGrants(previousProfiles, nextProfiles);
@@ -298,6 +360,10 @@ async function deleteProfile(id) {
 // ---------------------------------------------------------- editor view
 
 function showView(which) {
+  // A pending delete is abandoned on any view change. Leaving it armed while
+  // the user edits a different profile means returning to a confirmation they
+  // have lost the context for.
+  if (which !== "list") hideDeleteConfirm();
   $("list-view").classList.toggle("hidden", which !== "list");
   $("edit-view").classList.toggle("hidden", which !== "edit");
 }
@@ -476,6 +542,13 @@ function hideIoUi() {
   pendingImport = null;
 }
 
+// Opening the import flow closes any pending delete, so the two confirmations
+// can never sit on screen together asking about different things.
+function hideAllConfirms() {
+  hideIoUi();
+  hideDeleteConfirm();
+}
+
 async function exportProfiles() {
   const profiles = await getProfiles();
   const text = serializeProfiles(profiles);
@@ -583,9 +656,11 @@ $("profile-form").addEventListener("submit", (e) => e.preventDefault());
 
 $("export-profiles").addEventListener("click", exportProfiles);
 $("import-profiles").addEventListener("click", () => {
-  hideIoUi();
+  hideAllConfirms();
   $("import-file").click();
 });
+$("delete-cancel").addEventListener("click", hideDeleteConfirm);
+$("delete-proceed").addEventListener("click", confirmDelete);
 $("import-file").addEventListener("change", onImportFileChosen);
 $("import-cancel").addEventListener("click", hideIoUi);
 $("import-replace").addEventListener("click", applyImport);
