@@ -54,7 +54,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 168;
+const EXPECTED_CHECKS = 170;
 
 let passed = 0;
 let failed = 0;
@@ -524,9 +524,14 @@ check("the cap constant is 5000, the unsafe-rule limit not the 30000 one",
 check("a file at exactly the cap is ACCEPTED",
   attempt(() => parseProfilesFile(validDoc(bulk(MAX_UNSAFE_DYNAMIC_RULES))).length)
     === MAX_UNSAFE_DYNAMIC_RULES);
+// Anchored on the deliberate sentence rather than an incidental fragment. The
+// first version of these checks matched "more than the", which was a phrase
+// nobody had chosen on purpose — rewording the message for clarity during the
+// smoke run broke two checks that were not testing behaviour at all. Assert on
+// the part of the message the reader is meant to act on.
 checkThrows("a file one over the cap is REFUSED",
   () => parseProfilesFile(validDoc(bulk(MAX_UNSAFE_DYNAMIC_RULES + 1))),
-  "more than the");
+  "The most that can be applied");
 checkThrows("the refusal states the actual profile count",
   () => parseProfilesFile(validDoc(bulk(MAX_UNSAFE_DYNAMIC_RULES + 1))),
   String(MAX_UNSAFE_DYNAMIC_RULES + 1));
@@ -543,7 +548,7 @@ checkThrows("an over-cap file with a bad profile still reports the CAP",
     ...bulk(MAX_UNSAFE_DYNAMIC_RULES),
     { id: 99999, name: "", domains: ["a.com"],
       headers: [{ name: "X-A", operation: "set", value: "1" }] },
-  ])), "more than the");
+  ])), "The most that can be applied");
 
 // A4 regression guard: refusal is a throw, so no caller can have applied
 // anything. parseProfilesFile is pure — it returns a value or throws, and
@@ -554,6 +559,16 @@ try { parseProfilesFile(preserved); } catch { threw = true; }
 check("an over-cap import throws rather than returning a truncated set", threw);
 check("an over-cap import leaves the source document untouched",
   JSON.parse(preserved).profiles.length === MAX_UNSAFE_DYNAMIC_RULES + 1);
+
+// The instruction tells the reader HOW MANY to remove, so it has to be
+// computed. A hardcoded "remove 1" would be wrong for every file but the
+// smallest overage, and wrong advice is worse than none.
+checkThrows("the refusal says how many profiles to remove (singular)",
+  () => parseProfilesFile(validDoc(bulk(MAX_UNSAFE_DYNAMIC_RULES + 1))),
+  "at least 1 profile from");
+checkThrows("the overage scales, and pluralises",
+  () => parseProfilesFile(validDoc(bulk(MAX_UNSAFE_DYNAMIC_RULES + 3))),
+  "at least 3 profiles from");
 
 // ------------------------------- static popup wiring (finding 10 motivated)
 // The suite cannot execute popup.js — it needs chrome.* — but it CAN read it.
