@@ -54,7 +54,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 166;
+const EXPECTED_CHECKS = 168;
 
 let passed = 0;
 let failed = 0;
@@ -588,6 +588,28 @@ for (const id of ["delete-confirm", "delete-confirm-text", "delete-cancel", "del
   check(`finding 10: #${id} is declared in popup.html`, declaredIds.has(id));
   check(`finding 10: #${id} is referenced by popup.js`, referencedIds.includes(id));
 }
+
+// Same hazard one level down, and the export notice is what surfaced it: a
+// class toggled from JS but never defined in the stylesheet fails SILENTLY.
+// The element gets the class, nothing looks different, and no error is raised
+// — so a message intended to read as neutral would have shipped in the error
+// colour, or in no colour at all. Only literal class names are scanned;
+// anything computed is out of reach here and belongs in the smoke test.
+const toggledClasses = [
+  ...new Set([...popupJs.matchAll(/classList\.(?:add|remove|toggle)\("([^"]+)"/g)]
+    .map((m) => m[1])),
+];
+const styleBlock = (popupHtml.match(/<style>([\s\S]*?)<\/style>/) || ["", ""])[1];
+const definedClasses = new Set(
+  [...styleBlock.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1])
+);
+const undefinedClasses = toggledClasses.filter((c) => !definedClasses.has(c));
+
+check("popup.js toggles at least four classes (the scan works)",
+  toggledClasses.length >= 4);
+check(`every class popup.js toggles is defined in popup.html${
+  undefinedClasses.length ? " — undefined: " + undefinedClasses.join(", ") : ""}`,
+  undefinedClasses.length === 0);
 
 // ------------------------------------------ badge honesty (finding 4, A5)
 // The narrow half only: does the badge stop asserting ON when registration
