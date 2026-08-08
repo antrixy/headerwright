@@ -148,6 +148,38 @@ export function nextRuleId(profiles) {
 }
 
 /**
+ * Bring a domain list into the canonical set form the format contract already
+ * claims for it: lowercased, deduplicated, sorted.
+ *
+ * WHY THIS EXISTS — finding 7, decided 2026-08-05. canonical.js states the
+ * frozen contract as "domains sorted and lowercased within each profile (set
+ * semantics to DNR's requestDomains)" and "identical profile sets always
+ * serialize to identical bytes". Canonicalization lowercased and sorted but
+ * never deduped, so {example.com} and {example.com, example.com,
+ * example.com} — the same set under the contract's own stated semantics —
+ * serialized to different bytes. An exported file containing the second was a
+ * live counterexample to a rule the contract asserts about itself.
+ *
+ * So this is a CONFORMANCE FIX, not a format change, and the envelope stays at
+ * version 1. No conforming file's bytes change, because a file carrying
+ * duplicates was never conforming. Dedup is lossless in the standing sense —
+ * duplicates carry no meaning to requestDomains — and idempotent, so
+ * export -> import -> export byte-identity still holds.
+ *
+ * Lowercase BEFORE dedup, or "example.com" and "EXAMPLE.com" survive as two
+ * members of a set that has one.
+ */
+export function normalizeDomains(domains) {
+  return [
+    ...new Set(
+      (domains || [])
+        .filter((d) => typeof d === "string")
+        .map((d) => d.toLowerCase())
+    ),
+  ].sort();
+}
+
+/**
  * Bare-hostname check, shared by the popup form and import validation.
  * Single-label hosts (e.g. "localhost") are deliberately allowed — a
  * developer header tool that rejects localhost would be strange. Ports
