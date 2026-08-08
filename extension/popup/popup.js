@@ -14,6 +14,7 @@ import {
   isValidRuleId,
   nextRuleId,
   normalizeDomains,
+  MAX_UNSAFE_DYNAMIC_RULES,
 } from "../lib/rules.js";
 import { serializeProfiles, parseProfilesFile } from "../lib/canonical.js";
 import {
@@ -495,6 +496,36 @@ async function saveProfile() {
   const previousProfiles = await getProfiles();
   let nextProfiles;
   if (editingProfileId === null) {
+    // FINDING 15, found during the 0.1.2 smoke run. Import refuses an over-cap
+    // file, but the ADD path had no count check at all — so importing 5,000
+    // profiles and then adding one through the form reached exactly the state
+    // finding 6 exists to prevent: 5001 in storage, 5000 on the wire, hw:sync
+    // reporting {ok: true}, every dot green, and no surface anywhere saying one
+    // profile is inert. Reproduced in a browser, not reasoned about.
+    //
+    // This was flagged and deliberately left out when finding 6 shipped, on the
+    // grounds that nobody reaches 5,000 profiles by hand. That was the wrong
+    // test: it took one click during an unrelated step to get there, and the
+    // release claims to refuse over-cap configurations. A claim with a known
+    // counterexample is the exact failure the claim -> evidence table exists to
+    // stop.
+    //
+    // Counted the same way import counts, and deliberately conservative for the
+    // same reason: a profile with no granted domain or no valid header consumes
+    // no rule budget, but grant state is not knowable here without an async
+    // permissions round trip per domain, and profile count is the sound upper
+    // bound. Editing an existing profile is exempt — it cannot increase the
+    // count, and blocking edits at the cap would trap a user with no way to fix
+    // the configuration that got them there.
+    if (previousProfiles.length >= MAX_UNSAFE_DYNAMIC_RULES) {
+      showFormError(
+        `You already have ${previousProfiles.length} profiles. The most that ` +
+          `can be applied is ${MAX_UNSAFE_DYNAMIC_RULES}. Delete a profile ` +
+          `before adding another.`
+      );
+      return;
+    }
+
     const nextId = nextRuleId(previousProfiles);
     // Acceptance criterion A3, extended to the GENERATION path (finding 9).
     // A3 was written for import and satisfied there; nothing checked the id
