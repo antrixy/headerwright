@@ -146,12 +146,20 @@ export function parseProfilesFile(text) {
   // available at parse time. The cost is refusing a file of 6000 profiles of
   // which only 100 would ever apply; the alternative is accepting it and
   // reintroducing silent truncation later, which is the bug being fixed.
+  // MESSAGE SHAPE, revised during the 0.1.2 smoke run after reading it in the
+  // popup rather than in a test assertion. The first version stated the limit
+  // twice — once in the sentence, once in a parenthetical explaining that one
+  // profile becomes one rule — which read as though two different limits were
+  // in play, and spent its last clause on a mechanism the reader cannot act
+  // on. A rejection owes the reader three things: what was wrong, what the
+  // limit is, and what to do about it. The overage is computed so the
+  // instruction stays correct at any size.
   if (doc.profiles.length > MAX_UNSAFE_DYNAMIC_RULES) {
+    const excess = doc.profiles.length - MAX_UNSAFE_DYNAMIC_RULES;
     throw new Error(
-      `file has ${doc.profiles.length} profiles, more than the ` +
-        `${MAX_UNSAFE_DYNAMIC_RULES} Chrome allows this extension to register ` +
-        `(each profile becomes one header-modifying rule, and Chrome caps ` +
-        `those at ${MAX_UNSAFE_DYNAMIC_RULES})`
+      `this file has ${doc.profiles.length} profiles. The most that can be ` +
+        `applied is ${MAX_UNSAFE_DYNAMIC_RULES}. Remove at least ${excess} ` +
+        `profile${excess === 1 ? "" : "s"} from the file and try again`
     );
   }
 
