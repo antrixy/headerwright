@@ -172,6 +172,15 @@
   input:disabled { opacity: 0.45; }
 
   .error { color: var(--danger); font-size: 12px; margin-top: 6px; }
+  /* Neutral counterpart to .error, for a message that reports a SUCCESS the
+     user should nonetheless know something about. #io-msg is shared between
+     import rejections and the export notice, and a red line after a
+     successful export reads as a failure. Existing tokens only, no new
+     colour — same approach as the sync-failed footer. */
+  .notice {
+    color: var(--ink-soft); font-size: 12px; margin-top: 6px;
+    border-left: 2px solid var(--line); padding-left: 8px;
+  }
   .form-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
   .hidden { display: none; }
 
