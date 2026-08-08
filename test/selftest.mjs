@@ -24,6 +24,7 @@ import {
   isValidHeaderName,
   isValidHeaderValue,
   isValidRuleId,
+  nextRuleId,
   MAX_RULE_ID,
 } from "../extension/lib/rules.js";
 import {
@@ -50,7 +51,7 @@ import {
 } from "../extension/lib/status.js";
 import { createSerialQueue } from "../extension/lib/queue.js";
 
-const EXPECTED_CHECKS = 113;
+const EXPECTED_CHECKS = 127;
 
 let passed = 0;
 let failed = 0;
@@ -364,6 +365,69 @@ checkThrows("import rejects an over-range id", () =>
     { id: MAX_RULE_ID + 1, name: "a", domains: ["a.com"],
       headers: [{ name: "x", operation: "set", value: "1" }] },
   ])), '"id" must be an integer');
+
+// -------------------------------- generated rule ids (finding 9, A3 extended)
+// A3 was written for the IMPORT path and satisfied there. The GENERATION path
+// in saveProfile() was never covered, and finding 9 is what came through the
+// gap. These checks pin the generator against the same bound import obeys.
+
+const idSet = (...ids) => ids.map((id) => ({ id, name: "p", domains: ["a.com"],
+  headers: [{ name: "x", operation: "set", value: "1" }] }));
+
+check("first profile gets id 1", nextRuleId([]) === 1);
+check("null profile set is treated as empty", nextRuleId(null) === 1);
+check("contiguous ids allocate above the top", nextRuleId(idSet(1, 2, 3)) === 4);
+check("a gap is filled before extending", nextRuleId(idSet(1, 3)) === 2);
+check("the lowest gap wins, not the first found scanning ids",
+  nextRuleId(idSet(2, 3, 5)) === 1);
+check("unsorted input allocates the same as sorted",
+  nextRuleId(idSet(3, 1, 2)) === nextRuleId(idSet(1, 2, 3)));
+check("non-integer ids in storage do not block allocation",
+  nextRuleId([{ id: "1" }, { id: null }, { id: 1.5 }]) === 1);
+
+// THE FINDING 9 CASE ITSELF. max(id)+1 over a ceiling profile is 2147483648,
+// which Chrome rejects as a 32-bit overflow and which the old generator wrote
+// to storage unchecked. Both halves are pinned: the result must be in range,
+// and it must specifically not be the overflowing value.
+check("a ceiling profile does not poison the id space",
+  nextRuleId(idSet(MAX_RULE_ID)) === 1);
+check("generated id after a ceiling profile is valid",
+  isValidRuleId(nextRuleId(idSet(MAX_RULE_ID))));
+check("generated id after a ceiling profile is NOT max+1",
+  nextRuleId(idSet(MAX_RULE_ID)) !== MAX_RULE_ID + 1);
+check("ceiling plus a contiguous block still fills the gap",
+  nextRuleId(idSet(1, 2, 3, MAX_RULE_ID)) === 4);
+
+// The generator's output must satisfy the same predicate import enforces, and
+// must never collide with a live id. Checked across a spread of shapes rather
+// than one, so a fix that special-cases the ceiling alone does not pass.
+let allValid = true;
+let noCollision = true;
+for (const ids of [[], [1], [1, 2, 3], [2, 3], [5, 9], [MAX_RULE_ID],
+                   [1, MAX_RULE_ID], [MAX_RULE_ID - 1, MAX_RULE_ID]]) {
+  const generated = nextRuleId(idSet(...ids));
+  if (!isValidRuleId(generated)) allValid = false;
+  if (ids.includes(generated)) noCollision = false;
+}
+check("every generated id is a valid rule id", allValid);
+check("no generated id collides with an existing profile", noCollision);
+
+// A generated id must survive the import path, which is the boundary the
+// generator was failing to inherit from. Round-trips the invented id through
+// parseProfilesFile rather than asserting about it in isolation.
+// Caught rather than allowed to propagate on purpose: a generator regression
+// makes parseProfilesFile THROW here, and an uncaught throw aborts the run
+// mid-suite, which makes the mutation failure COUNT unreadable and skips the
+// count tripwire entirely. This must register as a failed check, not a crash.
+const generatedAfterCeiling = nextRuleId(idSet(MAX_RULE_ID));
+let roundTripped = null;
+try {
+  roundTripped = parseProfilesFile(validDoc(idSet(generatedAfterCeiling)))[0].id;
+} catch {
+  roundTripped = null;
+}
+check("a generated id round-trips through import validation",
+  roundTripped === generatedAfterCeiling);
 
 // ------------------------------------------ badge honesty (finding 4, A5)
 // The narrow half only: does the badge stop asserting ON when registration
