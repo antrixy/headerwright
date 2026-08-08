@@ -489,6 +489,37 @@ it.
 
 ---
 
+## Part 10 — Export plaintext-secrets notice (new in v0.1.2)
+
+Header values are written to the export file exactly as configured, and a
+header editor's most common real use is an `Authorization` or `Cookie` value.
+Nothing said so before 0.1.2.
+
+The suite can prove the `.notice` class is DEFINED. It cannot see what colour
+anything renders, which is the entire point of this part.
+
+1. Export. Expected: the file downloads as usual, and a message appears naming
+   `headerwright-profiles.json` and stating that header values are plain text.
+2. **It must read as neutral, not as an error.** `#io-msg` is shared with
+   import rejections and is styled in the danger colour by default. A red line
+   after a successful export says "your export failed", which is a new false
+   claim in the same release that removed several.
+3. **Both themes.** Check in light and dark — the popup follows
+   `prefers-color-scheme`, and the notice uses `--ink-soft` and `--line`, both
+   of which are redefined in the dark block.
+4. **The channel still carries errors.** Immediately after the notice, import a
+   deliberately invalid file. Expected: the message is REPLACED by the
+   rejection reason, rendered in the error colour. If it stays neutral, the
+   class toggle is one-way and every future import rejection reads as a
+   success.
+5. **No confirmation before export.** Export is non-destructive and must not
+   gate itself. If a confirmation appears, the wrong pattern was applied.
+6. **Export closes a pending delete confirmation.** Open a delete confirmation,
+   then click Export without confirming. Expected: the confirmation withdraws
+   and the export notice appears in its place — never both at once.
+
+---
+
 ## Recording template
 
     Date:            YYYY-MM-DD
@@ -508,4 +539,6 @@ it.
     Part 7:          chips shown for a triple-entered domain = ?  (expect 1)
     Part 8:          status line corrected WITHOUT reopening = ?
     Part 9:          delete confirmed / cancelled / retracted = ?
+    Part 10:         export notice neutral in light / dark = ?
+                     import rejection still renders red afterwards = ?
     Notes:
