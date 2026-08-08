@@ -51,9 +51,9 @@ import {
   BADGE_FAILED,
   DEFAULT_SYNC_STATE,
 } from "../extension/lib/status.js";
-import { createSerialQueue } from "../extension/lib/queue.js";
+import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 
-const EXPECTED_CHECKS = 148;
+const EXPECTED_CHECKS = 156;
 
 let passed = 0;
 let failed = 0;
@@ -640,7 +640,76 @@ async function queueChecks() {
   check("omitting onError is safe", true);
 }
 
+// --------------------------------------------- debounce (finding 8)
+// Rate control for the popup's storage listener. renderList costs one
+// permissions.contains() per chip, so coalescing a burst is load-bearing.
+
+async function debounceChecks() {
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
+  let runs = 0;
+  const d1 = createDebounced(() => { runs++; }, 5);
+  d1(); d1(); d1(); d1(); d1();
+  check("a burst has not run yet at schedule time", runs === 0);
+  await sleep(30);
+  check("a burst of five collapses into ONE run", runs === 1);
+
+  // Trailing edge with the LAST arguments — a leading-edge implementation
+  // would render the state mid-burst with nothing scheduled to correct it.
+  let seen = null;
+  const d2 = createDebounced((v) => { seen = v; }, 5);
+  d2("first"); d2("second"); d2("last");
+  await sleep(30);
+  check("the trailing run uses the LAST arguments", seen === "last");
+
+  // Calls separated by more than the window are distinct runs, or the listener
+  // would coalesce unrelated events indefinitely under steady traffic.
+  let spaced = 0;
+  const d3 = createDebounced(() => { spaced++; }, 5);
+  d3();
+  await sleep(30);
+  d3();
+  await sleep(30);
+  check("calls outside the window run separately", spaced === 2);
+
+  // A rejected async task must reach onError rather than becoming an unhandled
+  // rejection: nothing awaits a task scheduled from a timer.
+  let caught = null;
+  const d4 = createDebounced(async () => { throw new Error("boom"); }, 5,
+    (err) => { caught = err.message; });
+  d4();
+  await sleep(30);
+  check("an async rejection is surfaced to onError", caught === "boom");
+
+  // A synchronous throw must not escape the timer callback either.
+  let syncCaught = null;
+  const d5 = createDebounced(() => { throw new Error("sync"); }, 5,
+    (err) => { syncCaught = err.message; });
+  d5();
+  await sleep(30);
+  check("a synchronous throw is surfaced to onError", syncCaught === "sync");
+
+  // Omitting onError must be safe, matching createSerialQueue's contract.
+  const d6 = createDebounced(async () => { throw new Error("quiet"); }, 5);
+  d6();
+  await sleep(30);
+  check("omitting onError is safe for the debouncer too", true);
+
+  // Scheduling again AFTER a run has fired must still work — a debouncer that
+  // fails to reset its timer handle fires once and then goes deaf, which in
+  // the popup would look exactly like finding 8 never having been fixed.
+  let revived = 0;
+  const d7 = createDebounced(() => { revived++; }, 5);
+  d7();
+  await sleep(30);
+  d7();
+  await sleep(30);
+  check("the debouncer still fires after an earlier run completed",
+    revived === 2);
+}
+
 await queueChecks();
+await debounceChecks();
 
 // -------------------------------------------------------------- result
 
