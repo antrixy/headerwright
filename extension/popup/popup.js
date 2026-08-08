@@ -23,6 +23,7 @@ import {
   originsFor,
 } from "../lib/grants.js";
 import { describeSync, DEFAULT_SYNC_STATE } from "../lib/status.js";
+import { createSerialQueue, createDebounced } from "../lib/queue.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
@@ -147,7 +148,7 @@ async function reconcileGrants(previousProfiles, nextProfiles) {
 
 // ------------------------------------------------------------ list view
 
-async function renderList() {
+async function renderListNow() {
   const profiles = await getProfiles();
   const list = $("profile-list");
   list.textContent = "";
@@ -158,6 +159,22 @@ async function renderList() {
   }
   await updateStatusLine(profiles);
 }
+
+// SERIALIZED, and nothing calls renderListNow directly — the same wiring rule
+// as sw.js's syncRules, and the one mistake that would silently void this.
+//
+// renderListNow clears the list and then awaits a permissions.contains() per
+// chip before appending, so it yields repeatedly with the DOM half-built. Two
+// overlapping runs therefore interleave: the second clears what the first has
+// already appended, and the first keeps appending into a list the second is
+// also filling. Until v0.1.2 every render was triggered by a popup action and
+// awaited in sequence, so this was hard to reach. The storage listener below
+// makes renders arrive independently of anything the user is doing, which is
+// precisely what turns an unreachable race into a reachable one. Same family
+// as finding 5, and the same primitive fixes it.
+const renderList = createSerialQueue(renderListNow, (err) => {
+  console.error("HeaderWright: popup render failed —", err);
+});
 
 // Editor-style status line: the one-glance truth about what is actually
 // in effect right now. Domain counts are deduplicated across profiles.
@@ -509,6 +526,46 @@ async function applyImport() {
 
   await reconcileGrants(previousProfiles, nextProfiles);
 }
+
+// ------------------------------------------------------- live state (f8)
+
+// FINDING 8. The popup rendered once on open and never re-read storage, so a
+// sync failure arriving AFTER the render left the status line reading
+// "applying" beside two green dots while the toolbar badge was already red.
+// Reproduced in both directions on a genuine failure, 2026-08-05: failure
+// after render -> stale; render after failure -> correct. The state shown was
+// STALE rather than false, and reopening the popup corrected it — which is why
+// this is low severity and still worth removing. It is the same family as
+// finding 4's badge and finding 1a's Details panel: a surface asserting
+// something that stopped being true.
+//
+// SCOPED TO TWO KEYS ON PURPOSE. hw:sync is what sw.js writes after every
+// registration attempt, and hw:profiles is what any other context could
+// change. hw:enabled is deliberately absent: only this popup writes it, from
+// the toggle handler below, which already updates the status line itself — and
+// every toggle produces an hw:sync write anyway, so the state still lands.
+// Listening to every key would re-render on our own writes twice over.
+//
+// DEBOUNCED because renderList costs one permissions.contains() PER CHIP. An
+// ordinary save writes hw:profiles and then hw:sync back to back, which is two
+// renders for one user action; at the 5,000-profile ceiling that is ~10,000
+// permission checks where 5,000 will do. 100ms is below the threshold where a
+// UI update reads as lag, and comfortably wider than the gap between those two
+// writes.
+const WATCHED_KEYS = [STORAGE_KEY_PROFILES, STORAGE_KEY_SYNC];
+
+const scheduleRerender = createDebounced(renderList, 100, (err) => {
+  console.error("HeaderWright: re-render after a storage change failed —", err);
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local") return;
+  if (WATCHED_KEYS.some((key) => key in changes)) {
+    // Safe while the editor is open: renderListNow only touches the list view
+    // and the status line, never the form fields or which view is showing.
+    scheduleRerender();
+  }
+});
 
 // ---------------------------------------------------------------- wiring
 
