@@ -13,6 +13,7 @@ import {
   isValidDomain,
   isValidRuleId,
   nextRuleId,
+  normalizeDomains,
 } from "../lib/rules.js";
 import { serializeProfiles, parseProfilesFile } from "../lib/canonical.js";
 import {
@@ -33,9 +34,21 @@ let editingProfileId = null; // null = creating a new profile
 
 // ---------------------------------------------------------------- storage
 
+// Domains are normalized on the way OUT of storage, not only on the way in.
+// Both write paths (form and import) already store a normalized set, so this
+// is for profiles written by v0.1.1 and earlier, which could hold duplicates.
+// Without it, finding 7's visible symptom would survive the upgrade for any
+// existing profile until its owner happened to re-save it: the chip list
+// renders profile.domains directly while the status line counts
+// referencedDomains(), which has always deduplicated. Normalizing here is what
+// makes those two counts agree BY CONSTRUCTION rather than by two call sites
+// remembering to agree. Same posture as A2 — storage is untrusted input.
 async function getProfiles() {
   const stored = await chrome.storage.local.get(STORAGE_KEY_PROFILES);
-  return stored[STORAGE_KEY_PROFILES] || [];
+  return (stored[STORAGE_KEY_PROFILES] || []).map((profile) => ({
+    ...profile,
+    domains: normalizeDomains(profile.domains),
+  }));
 }
 
 async function setProfiles(profiles) {
@@ -342,10 +355,13 @@ function hideFormError() {
 
 function readForm() {
   const name = $("f-name").value.trim();
-  const domains = $("f-domains")
-    .value.split(",")
-    .map((d) => d.trim().toLowerCase())
-    .filter((d) => d !== "");
+  // normalizeDomains lowercases, deduplicates and sorts — finding 7. The form
+  // accepts "example.com, EXAMPLE.com, example.com" and used to store all
+  // three, which rendered as three identical chips beside a status line
+  // reading "1/1 domain granted": two counts of the same thing in one view.
+  const domains = normalizeDomains(
+    $("f-domains").value.split(",").map((d) => d.trim()).filter((d) => d !== "")
+  );
 
   const headers = [];
   for (const row of $("header-rows").querySelectorAll(".hrow")) {
