@@ -109,6 +109,45 @@ export function isValidRuleId(id) {
 }
 
 /**
+ * Allocate the id for a NEW profile: the lowest positive integer not already
+ * in use. Returns null only if the id space is exhausted, which cannot happen
+ * below MAX_RULE_ID profiles and therefore cannot happen under the 5,000-rule
+ * cap either.
+ *
+ * WHY NOT max(id)+1 — finding 9, confirmed at the wire 2026-08-05. The old
+ * generator computed max(id)+1 and never checked the result against
+ * isValidRuleId. Import accepts an id of exactly MAX_RULE_ID (legitimately —
+ * that is the boundary SMOKE 4a established), so one imported ceiling profile
+ * made the NEXT save generate 2147483648, which was written to storage
+ * unchecked and then rejected by Chrome as a 32-bit overflow. The comment
+ * above isValidRuleId states the invariant the generator was breaking: import
+ * honoured the bound, the generator did not inherit it.
+ *
+ * Lowest-free rather than a guard-and-refuse, because a guard alone leaves the
+ * user unable to create any profile with no in-app escape — the finding 2
+ * shape. Here the ceiling profile simply does not poison the id space: the
+ * gaps below it are all still free.
+ *
+ * Id REUSE is safe here and is not the "lowest-free reuse" nicety that was
+ * deferred as cosmetic. Every sync rebuilds the whole dynamic rule set —
+ * removeRuleIds is the full existing set, addRules is built fresh — so a
+ * reused id never collides with a live rule from a deleted profile. Ids are
+ * identity within one profile set and one export file, nothing wider.
+ *
+ * The loop terminates at the first gap, so it runs at most (profiles + 1)
+ * times regardless of how large the ids themselves are.
+ */
+export function nextRuleId(profiles) {
+  const used = new Set(
+    (profiles || []).map((p) => (p ? p.id : undefined)).filter(Number.isInteger)
+  );
+  for (let id = 1; id <= MAX_RULE_ID; id++) {
+    if (!used.has(id)) return id;
+  }
+  return null;
+}
+
+/**
  * Bare-hostname check, shared by the popup form and import validation.
  * Single-label hosts (e.g. "localhost") are deliberately allowed — a
  * developer header tool that rejects localhost would be strange. Ports
