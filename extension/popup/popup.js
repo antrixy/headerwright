@@ -8,7 +8,12 @@
 // gesture to inherit, so this cannot move to sw.js no matter how much
 // tidier that would be.
 
-import { validateHeaderEntry, isValidDomain } from "../lib/rules.js";
+import {
+  validateHeaderEntry,
+  isValidDomain,
+  isValidRuleId,
+  nextRuleId,
+} from "../lib/rules.js";
 import { serializeProfiles, parseProfilesFile } from "../lib/canonical.js";
 import {
   diffDomainGrants,
@@ -391,8 +396,21 @@ async function saveProfile() {
   const previousProfiles = await getProfiles();
   let nextProfiles;
   if (editingProfileId === null) {
-    const nextId =
-      previousProfiles.reduce((max, p) => Math.max(max, p.id), 0) + 1;
+    const nextId = nextRuleId(previousProfiles);
+    // Acceptance criterion A3, extended to the GENERATION path (finding 9).
+    // A3 was written for import and satisfied there; nothing checked the id
+    // this popup invents. nextRuleId() cannot return an out-of-range id at any
+    // reachable profile count, so this branch is unreachable in practice — it
+    // is here because an UNCHECKED write to storage is what made finding 9 a
+    // silent latch, and the check is what makes that structurally impossible
+    // rather than merely unlikely.
+    if (!isValidRuleId(nextId)) {
+      showFormError(
+        "Cannot create another profile: no rule id is available. Delete an " +
+          "existing profile and try again."
+      );
+      return;
+    }
     nextProfiles = [...previousProfiles, { id: nextId, ...data }];
   } else {
     nextProfiles = previousProfiles.map((p) =>
