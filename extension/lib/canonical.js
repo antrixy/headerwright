@@ -17,15 +17,25 @@
 //
 // Canonicalization rules and why:
 //   - profiles sorted by id
-//   - domains sorted and lowercased within each profile (set semantics
-//     to DNR's requestDomains — reordering is lossless)
+//   - domains sorted, lowercased and DEDUPLICATED within each profile (set
+//     semantics to DNR's requestDomains — reordering is lossless, and so is
+//     dropping a duplicate). Dedup arrived in v0.1.2 as a CONFORMANCE FIX,
+//     not a format change: the set semantics above were always stated, the
+//     serializer just did not honour them. See normalizeDomains() in
+//     rules.js for the full argument. Version stays 1.
 //   - header order PRESERVED — operation order on the same header can be
 //     semantically meaningful (set-then-append), and canonicalization
 //     must never change meaning
 //   - the master toggle is deliberately NOT part of the file: it is
 //     local runtime state, not shareable configuration
 
-import { validateHeaderEntry, isValidDomain, isValidRuleId, MAX_RULE_ID } from "./rules.js";
+import {
+  validateHeaderEntry,
+  isValidDomain,
+  isValidRuleId,
+  normalizeDomains,
+  MAX_RULE_ID,
+} from "./rules.js";
 
 export const FILE_FORMAT = "headerwright-profiles";
 export const FILE_VERSION = 1;
@@ -40,9 +50,7 @@ export function canonicalizeProfiles(profiles) {
     .map((profile) => ({
       id: profile.id,
       name: profile.name,
-      domains: [...(profile.domains || [])]
-        .map((d) => d.toLowerCase())
-        .sort(),
+      domains: normalizeDomains(profile.domains),
       headers: (profile.headers || []).map((entry) => {
         const out = { name: entry.name, operation: entry.operation };
         if (entry.operation !== "remove") out.value = entry.value;
