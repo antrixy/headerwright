@@ -35,6 +35,7 @@ import {
   isValidRuleId,
   normalizeDomains,
   MAX_RULE_ID,
+  MAX_UNSAFE_DYNAMIC_RULES,
 } from "./rules.js";
 
 export const FILE_FORMAT = "headerwright-profiles";
@@ -123,6 +124,35 @@ export function parseProfilesFile(text) {
   }
   if (!Array.isArray(doc.profiles)) {
     throw new Error('"profiles" must be an array');
+  }
+
+  // FINDING 6 — refuse loudly rather than apply partially. Before v0.1.2 an
+  // over-cap import was accepted whole, and sw.js then truncated the rule list
+  // to the cap with only a console.warn: 5001 profiles in storage, 5000 rules
+  // on the wire, hw:sync reporting {ok: true}, green dots on every profile, and
+  // no surface anywhere saying one of them was inert. Confirmed with numbers,
+  // Test D 2026-08-05. Partial application reported as complete is a distinct
+  // honesty gap from finding 4's, and the 0.1.1 failure indicator does not and
+  // should not cover it — that sync genuinely succeeds. For a configuration
+  // tool, refusing is better than silently applying most of what was asked.
+  //
+  // COUNTED IN PROFILES, NOT RULES, AND THIS IS DELIBERATELY CONSERVATIVE.
+  // The real ceiling is 5000 APPLYING profiles: one rule per profile
+  // regardless of how many domains or headers it carries, and a profile with
+  // no granted domain or no valid header returns null from profileToRule() and
+  // consumes no budget at all. But grant state is a chrome.permissions question
+  // and this file is chrome.*-free by construction, so the applying count is
+  // genuinely unknowable here. Profile count is the only sound upper bound
+  // available at parse time. The cost is refusing a file of 6000 profiles of
+  // which only 100 would ever apply; the alternative is accepting it and
+  // reintroducing silent truncation later, which is the bug being fixed.
+  if (doc.profiles.length > MAX_UNSAFE_DYNAMIC_RULES) {
+    throw new Error(
+      `file has ${doc.profiles.length} profiles, more than the ` +
+        `${MAX_UNSAFE_DYNAMIC_RULES} Chrome allows this extension to register ` +
+        `(each profile becomes one header-modifying rule, and Chrome caps ` +
+        `those at ${MAX_UNSAFE_DYNAMIC_RULES})`
+    );
   }
 
   const seenIds = new Set();
