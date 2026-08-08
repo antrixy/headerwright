@@ -4,7 +4,7 @@
 // is the single source of truth, so any context (popup, future options
 // page) only ever needs to write to storage, never message this worker.
 
-import { profileToRule } from "../lib/rules.js";
+import { profileToRule, normalizeDomains } from "../lib/rules.js";
 import { originFor } from "../lib/grants.js";
 import { computeBadge } from "../lib/status.js";
 import { createSerialQueue } from "../lib/queue.js";
@@ -20,13 +20,21 @@ const STORAGE_KEY_SYNC = "hw:sync";
 // declarativeNetRequest reference, re-checked 2026-08-04.
 const MAX_UNSAFE_DYNAMIC_RULES = 5000;
 
+// Domains are normalized on read here for the same reason popup.js does it:
+// profiles written by v0.1.1 and earlier can hold duplicates (finding 7), and
+// an unnormalized list reaches DNR's requestDomains verbatim and is also
+// checked once per duplicate by grantedDomainsFor(). Both write paths store a
+// normalized set now, so this only covers what is already on disk.
 async function getStoredState() {
   const stored = await chrome.storage.local.get([
     STORAGE_KEY_PROFILES,
     STORAGE_KEY_ENABLED,
   ]);
   return {
-    profiles: stored[STORAGE_KEY_PROFILES] || [],
+    profiles: (stored[STORAGE_KEY_PROFILES] || []).map((profile) => ({
+      ...profile,
+      domains: normalizeDomains(profile.domains),
+    })),
     enabled: stored[STORAGE_KEY_ENABLED] === true,
   };
 }
