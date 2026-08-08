@@ -123,13 +123,18 @@
   button.quiet:hover { color: var(--ink); background: var(--surface-2); }
   button.danger-quiet { border-color: transparent; background: none; color: var(--danger); padding: 4px 6px; }
   button.danger-quiet:hover { background: var(--danger-soft); }
+  /* The confirm's own Delete. Solid rather than quiet: this is the button that
+     actually destroys something, and it should not look like the one that only
+     asks. Reuses the existing danger token — no new colour. */
+  button.danger { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
+  button.danger:hover { filter: brightness(1.08); background: var(--danger); }
   .add-bar {
     margin-top: 10px;
     display: flex; align-items: center; justify-content: space-between;
   }
   .io { display: flex; gap: 2px; }
 
-  /* Import confirmation */
+  /* Import and delete confirmations */
   .confirm {
     border: 1px solid var(--line); border-radius: 8px;
     padding: 10px 12px; margin-top: 8px;
@@ -217,6 +222,13 @@
         <div class="form-actions">
           <button type="button" id="import-cancel">Cancel</button>
           <button type="button" id="import-replace" class="primary">Replace</button>
+        </div>
+      </div>
+      <div id="delete-confirm" class="confirm hidden">
+        <div id="delete-confirm-text"></div>
+        <div class="form-actions">
+          <button type="button" id="delete-cancel">Cancel</button>
+          <button type="button" id="delete-proceed" class="danger">Delete</button>
         </div>
       </div>
       <div id="io-msg" class="error hidden"></div>
