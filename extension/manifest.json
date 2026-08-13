@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "HeaderWright",
-  "version": "0.1.2",
+  "name": "HeaderWright — Modify HTTP Request Headers",
+  "version": "0.1.3",
   "description": "Set, append, and remove HTTP request headers by profile. No webRequest — this extension cannot read your traffic.",
   "icons": {
     "16": "icons/icon16.png",
