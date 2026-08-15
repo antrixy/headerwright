@@ -52,7 +52,7 @@ Why:
   permission — unless another profile still references it. Verified against
   `chrome.permissions.getAll()`: the grant is gone immediately, not deferred.
   This holds for a partially-held grant too: a domain carrying only the
-  pre-0.1.5 apex permission releases what it has rather than being skipped
+  pre-0.1.4 apex permission releases what it has rather than being skipped
   because it does not hold the complete set (finding 20).
 - **What you see is what's true.** HeaderWright's own popup is the honest
   display: a green dot means the grant is currently held, a gray dot means it
