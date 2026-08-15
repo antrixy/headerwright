@@ -97,6 +97,11 @@
   }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--off); flex: none; }
   .dot.granted { background: var(--on); box-shadow: 0 0 0 3px var(--on-soft); }
+  /* A domain carrying a pre-0.1.4 grant. Deliberately NOT a third dot colour:
+     the dot answers "do headers apply here", and the answer is no, same as
+     any other ungranted domain. The dashed underline marks WHY without
+     weakening what the dot means. Existing tokens only. */
+  button.domain.migrating { border-style: solid; text-decoration: underline dashed var(--ink-soft); text-underline-offset: 2px; }
   /* Ungranted chips are buttons (finding 2). Reset the UA button styling the
      .domain rule does not cover, then add the affordance: a dashed border
      says "this one is actionable" without shouting, and distinguishes it from
@@ -181,6 +186,11 @@
     color: var(--ink-soft); font-size: 12px; margin-top: 6px;
     border-left: 2px solid var(--line); padding-left: 8px;
   }
+  /* The migration notice sits ABOVE the list rather than below an action, so
+     it needs the margin on the other side. Same class otherwise: this is the
+     same register as the export notice — a neutral thing the user should
+     know, not an error. */
+  #migration-notice { margin-top: 0; margin-bottom: 10px; }
   .form-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
   .hidden { display: none; }
 
@@ -214,6 +224,11 @@
 
   <main>
     <div id="list-view">
+      <!-- Finding 18 upgrade path. Outside #profile-list, which renderListNow
+           clears on every render (finding 8). Hidden unless a domain is
+           actually carrying a pre-0.1.4 grant, so it disappears for good once
+           the last one is re-approved and never renders on a fresh install. -->
+      <div id="migration-notice" class="notice hidden"></div>
       <div id="profile-list"></div>
       <div id="empty" class="empty hidden">
         No profiles yet. Add one to start setting headers on a site.
