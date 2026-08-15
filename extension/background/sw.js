@@ -9,7 +9,10 @@ import {
   normalizeDomains,
   MAX_UNSAFE_DYNAMIC_RULES,
 } from "../lib/rules.js";
-import { originFor } from "../lib/grants.js";
+import {
+  originsForDomain,
+  staleManagedOrigins,
+} from "../lib/grants.js";
 import { computeBadge } from "../lib/status.js";
 import { createSerialQueue } from "../lib/queue.js";
 
@@ -42,11 +45,19 @@ async function getStoredState() {
 // oracle says yes and the wire says nothing. Checked per-domain via
 // chrome.permissions.contains rather than hand-rolling origin-pattern
 // matching against chrome.permissions.getAll().
+//
+// contains() is ALL-of, and originsForDomain() now returns the apex pattern
+// AND the subdomain pattern (finding 18). That strictness is the fix: a
+// domain holding only the v0.1.3-era apex grant reports ungranted, its rule
+// is skipped, and the popup chip renders as a grant button. The alternative
+// — treating the apex grant as good enough — is what shipped for three
+// releases and is exactly the state where DNR matches api.example.com and
+// the wire shows nothing.
 async function grantedDomainsFor(domains) {
   const checks = await Promise.all(
     (domains || []).map(async (domain) => {
       const granted = await chrome.permissions.contains({
-        origins: [originFor(domain)],
+        origins: originsForDomain(domain),
       });
       return granted ? domain : null;
     })
@@ -160,8 +171,56 @@ const syncRules = createSerialQueue(runSync, (err) => {
 // survives it regardless of what we do here. Rebuilding is cheap and
 // idempotent, so it costs nothing to always do it rather than trust
 // persistence in any one case.
-chrome.runtime.onInstalled.addListener(syncRules);
-chrome.runtime.onStartup.addListener(syncRules);
+// Finding 19: sweep host grants no current profile asks for.
+//
+// diffDomainGrants() reconciles a CHANGE — it can only revoke a domain that
+// was in previousProfiles. A grant left by an older release, or by an
+// upgrade that changed the pattern shape, is invisible to it forever. This
+// runs the same invariant against ground truth (permissions.getAll) instead
+// of against a diff, so the extension establishes the invariant rather than
+// merely preserving it.
+//
+// REVOKE ONLY, and that is not a design shortcut. permissions.request()
+// requires a user gesture and there is none in a service worker, so the
+// upgrade path for the new subdomain pattern CANNOT be silent: an existing
+// install's domains go gray until the user clicks a chip. That is the
+// honest state — those domains genuinely lack subdomain access — and the
+// chip button added in finding 2 is already the recovery path.
+//
+// Scoped by isManagedOrigin(): a host the user granted through
+// chrome://extensions -> Site access, or "*://*/*" from
+// optional_host_permissions, is not this function's to take away.
+async function reconcileHostGrants() {
+  try {
+    const { profiles } = await getStoredState();
+    const { origins } = await chrome.permissions.getAll();
+    const stale = staleManagedOrigins(profiles, origins);
+    if (stale.length === 0) return;
+
+    // Logged, not silent. A revoke the user did not ask for should leave a
+    // trace somewhere they can find it.
+    console.info(
+      `HeaderWright: revoking ${stale.length} host grant(s) no profile ` +
+        `references — ${stale.join(", ")}`
+    );
+    await chrome.permissions.remove({ origins: stale });
+    // No syncRules() call needed: permissions.onRemoved fires below.
+  } catch (err) {
+    // A failed sweep must not take the sync with it. The invariant stays
+    // broken until the next startup, which is strictly better than an
+    // extension that will not start.
+    console.error("HeaderWright: grant reconciliation failed —", err);
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  reconcileHostGrants();
+  syncRules();
+});
+chrome.runtime.onStartup.addListener(() => {
+  reconcileHostGrants();
+  syncRules();
+});
 
 // Single source of truth: any write to profiles or the master toggle,
 // from any context, re-syncs automatically. No message passing needed
