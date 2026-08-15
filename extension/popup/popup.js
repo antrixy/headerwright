@@ -20,8 +20,10 @@ import { serializeProfiles, parseProfilesFile } from "../lib/canonical.js";
 import {
   diffDomainGrants,
   referencedDomains,
-  originFor,
+  originsForDomain,
   originsFor,
+  legacyOriginsForDomain,
+  isLegacyOnlyGrant,
 } from "../lib/grants.js";
 import { describeSync, DEFAULT_SYNC_STATE } from "../lib/status.js";
 import { createSerialQueue, createDebounced } from "../lib/queue.js";
@@ -77,19 +79,53 @@ async function getSyncState() {
 
 // ------------------------------------------------------------- grants
 
+/**
+ * Grant state for every domain in one pass: granted, and if not, whether it
+ * is carrying a pre-0.1.4 grant (finding 18's upgrade path).
+ *
+ * Replaces the per-chip contains() call. renderDomainChip() used to make one
+ * per CHIP, so a domain referenced by three profiles was checked three times
+ * — the cost the debouncer at the bottom of this file exists to contain.
+ * This checks each UNIQUE domain once, which is the same dedup reasoning as
+ * finding 7, and costs a second call only for domains that came back
+ * ungranted.
+ *
+ * @returns {Promise<Map<string, {granted: boolean, legacyOnly: boolean}>>}
+ */
+async function grantStateFor(domains) {
+  const unique = [...new Set(domains || [])];
+  const entries = await Promise.all(
+    unique.map(async (domain) => {
+      const granted = await chrome.permissions.contains({
+        origins: originsForDomain(domain),
+      });
+      // Only ask the follow-up question when the answer can matter.
+      const legacyGranted = granted
+        ? false
+        : await chrome.permissions.contains({
+            origins: legacyOriginsForDomain(domain),
+          });
+      return [
+        domain,
+        {
+          granted,
+          legacyOnly: isLegacyOnlyGrant(domain, {
+            legacyGranted,
+            currentGranted: granted,
+          }),
+        },
+      ];
+    })
+  );
+  return new Map(entries);
+}
+
 // Which of these domains Chrome currently grants. sw.js has its own copy
 // of this shape; it cannot be shared because lib/ is chrome.*-free by
 // construction and this needs chrome.permissions.contains().
 async function grantedDomainsFor(domains) {
-  const unique = [...new Set(domains)];
-  const results = await Promise.all(
-    unique.map(async (domain) =>
-      (await chrome.permissions.contains({ origins: [originFor(domain)] }))
-        ? domain
-        : null
-    )
-  );
-  return results.filter((d) => d !== null);
+  const state = await grantStateFor(domains);
+  return [...state].filter(([, s]) => s.granted).map(([d]) => d);
 }
 
 /**
@@ -149,14 +185,63 @@ async function reconcileGrants(previousProfiles, nextProfiles) {
 
 // ------------------------------------------------------------ list view
 
+/**
+ * The finding-18 upgrade notice.
+ *
+ * NOT A NEW FEATURE, and this is a deliberate reading of the patch policy
+ * rather than a second recorded exception after finding 10. Finding 10 added
+ * a capability the extension did not have. This adds no capability: v0.1.4
+ * invalidates grants the user already made, and a fix that breaks working
+ * configurations without saying why is an INCOMPLETE FIX. The migration
+ * explanation is part of the remediation.
+ *
+ * There is also no other channel to say it in. No telemetry, no update page,
+ * no content script, and store release notes are not read. If the popup does
+ * not say it, nothing does — and a user whose extension quietly stopped
+ * working does not file a bug, they uninstall.
+ *
+ * SELF-EXPIRING: driven entirely by isLegacyOnlyGrant(), which can only be
+ * true on an install that granted under v0.1.3 and goes false permanently
+ * once re-granted. No version constant, no cleanup task, nothing to remember
+ * to delete. On a fresh install this branch is unreachable.
+ *
+ * Lives OUTSIDE #profile-list for finding 8's reason: renderListNow() clears
+ * that container on every render, including renders arriving from storage
+ * events mid-read.
+ */
+function renderMigrationNotice(grants) {
+  const el = $("migration-notice");
+  const n = [...grants.values()].filter((s) => s.legacyOnly).length;
+
+  el.classList.toggle("hidden", n === 0);
+  if (n === 0) return;
+
+  // Describes what happened and what it costs. No apology, no reassurance,
+  // no "click here" urgency — the chips are already the affordance, and the
+  // notice's job is to explain the gray dots, not to sell the fix.
+  el.textContent =
+    `HeaderWright now requests access to subdomains, so headers set for ` +
+    `example.com also apply on api.example.com. ${n} domain` +
+    `${n === 1 ? "" : "s"} granted under an earlier version ` +
+    `${n === 1 ? "does" : "do"} not cover this yet, and ` +
+    `${n === 1 ? "its" : "their"} headers will not apply until re-approved. ` +
+    `Click any gray domain below to re-approve it.`;
+}
+
 async function renderListNow() {
   const profiles = await getProfiles();
   const list = $("profile-list");
   list.textContent = "";
   $("empty").classList.toggle("hidden", profiles.length > 0);
 
+  // One permission pass for the whole render, read from below rather than
+  // per chip. Also the input to the migration notice, which has to be
+  // decided BEFORE the chips are built so it can count them.
+  const grants = await grantStateFor(referencedDomains(profiles));
+  renderMigrationNotice(grants);
+
   for (const profile of profiles) {
-    list.appendChild(await renderProfileCard(profile));
+    list.appendChild(renderProfileCard(profile, grants));
   }
 
   // Retract a pending question whose subject no longer exists. Reachable now
@@ -168,7 +253,7 @@ async function renderListNow() {
     hideDeleteConfirm();
   }
 
-  await updateStatusLine(profiles);
+  await updateStatusLine(profiles, grants);
 }
 
 // SERIALIZED, and nothing calls renderListNow directly — the same wiring rule
@@ -189,11 +274,17 @@ const renderList = createSerialQueue(renderListNow, (err) => {
 
 // Editor-style status line: the one-glance truth about what is actually
 // in effect right now. Domain counts are deduplicated across profiles.
-async function updateStatusLine(profiles) {
+// `grants` is optional: renderListNow has already made the permission pass
+// and hands it down rather than paying for a second one. The line 798 caller
+// has no render in flight, so it makes its own.
+async function updateStatusLine(profiles, grants) {
   const enabled = await getEnabled();
   const sync = await getSyncState();
   const allDomains = referencedDomains(profiles);
-  const grantedCount = (await grantedDomainsFor(allDomains)).length;
+  const state = grants || (await grantStateFor(allDomains));
+  const grantedCount = allDomains.filter(
+    (d) => state.get(d)?.granted
+  ).length;
   const n = profiles.length;
   const parts = [
     `${n} profile${n === 1 ? "" : "s"}`,
@@ -211,7 +302,7 @@ async function updateStatusLine(profiles) {
   line.classList.toggle("sync-failed", !sync.ok);
 }
 
-async function renderProfileCard(profile) {
+function renderProfileCard(profile, grants) {
   const card = document.createElement("div");
   card.className = "profile";
 
@@ -246,17 +337,19 @@ async function renderProfileCard(profile) {
   const domains = document.createElement("div");
   domains.className = "domains";
   for (const domain of profile.domains || []) {
-    domains.appendChild(await renderDomainChip(domain));
+    domains.appendChild(renderDomainChip(domain, grants));
   }
 
   card.append(row1, meta, domains);
   return card;
 }
 
-async function renderDomainChip(domain) {
-  const granted = await chrome.permissions.contains({
-    origins: [originFor(domain)],
-  });
+function renderDomainChip(domain, grants) {
+  // Default to ungranted for a domain the pass somehow missed: a gray dot on
+  // a granted domain is a visible, correctable understatement, while a green
+  // dot on an ungranted one is the exact lie finding 18 was.
+  const { granted, legacyOnly } =
+    grants.get(domain) || { granted: false, legacyOnly: false };
 
   // An UNGRANTED domain is rendered as a button, a granted one as plain text.
   // Finding 2, option 1: before v0.1.1 the only way to re-fire request() for
@@ -276,9 +369,15 @@ async function renderDomainChip(domain) {
   dot.className = "dot";
   if (granted) dot.classList.add("granted");
 
+  if (legacyOnly) chip.classList.add("migrating");
+
   chip.title = granted
     ? `${domain}: permission granted, headers apply`
-    : `${domain}: permission not granted, headers will not apply. Click to grant access.`;
+    : legacyOnly
+      ? `${domain}: this domain was granted under an older version that did ` +
+        `not cover subdomains. Headers will not apply until you click to ` +
+        `re-approve.`
+      : `${domain}: permission not granted, headers will not apply. Click to grant access.`;
 
   if (!granted) {
     chip.type = "button";
@@ -288,7 +387,7 @@ async function renderDomainChip(domain) {
       // sw.js's permissions.onAdded listener re-syncs rules unaided. The
       // re-render below only matters when no dialog was shown.
       const ok = await chrome.permissions.request({
-        origins: [originFor(domain)],
+        origins: originsForDomain(domain),
       });
       if (ok) await renderList();
     });
