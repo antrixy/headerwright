@@ -113,12 +113,21 @@ export function isLegacyOnlyGrant(domain, { legacyGranted, currentGranted }) {
 /**
  * Does this origin pattern have the shape HeaderWright itself generates?
  *
- * Used by the global grant reconciliation in sw.js to decide what it is
- * entitled to revoke. A user can grant hosts to this extension outside its
- * own UI (chrome://extensions -> Site access), including "*://* /*" from
- * optional_host_permissions, and a sweep that removed everything it did not
- * personally request would fight the user rather than serve the invariant.
- * Anything not matching this shape is left alone.
+ * A SHAPE TEST, NOT A PROVENANCE TEST, and the distinction is load-bearing
+ * enough to state plainly: chrome.permissions.getAll() reports what is held,
+ * not who asked for it. There is no field saying whether a grant came from
+ * this extension's permissions.request() or from the user working
+ * chrome://extensions -> Site access. This function CANNOT tell them apart
+ * and does not claim to.
+ *
+ * What it does establish is narrower: the sweep is confined to patterns of
+ * the exact form this extension emits. The all-hosts pattern from
+ * optional_host_permissions does not match, so "On all sites" survives. A
+ * scheme-specific pattern does not match either, which MAY mean Chrome's own
+ * site-access grants are already outside the sweep — that depends on what
+ * shape Chrome actually produces, which is an observation nobody has made
+ * yet. See SMOKE.md Part 12. Until it is made, read the guarantee as "shape
+ * confined" and not as "user grants are safe".
  */
 export function isManagedOrigin(pattern) {
   return /^\*:\/\/(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\/\*$/.test(
@@ -152,13 +161,36 @@ export function staleManagedOrigins(profiles, grantedOrigins) {
  * @param {object} args
  * @param {Array}  args.previousProfiles  profile set before the change
  * @param {Array}  args.nextProfiles      profile set after the change
- * @param {Array<string>} args.grantedDomains  domains Chrome currently grants
+ * @param {Array<string>} args.grantedDomains  domains holding the COMPLETE
+ *   origin set from originsForDomain() — the all-of question
+ * @param {Array<string>} [args.heldDomains]  domains holding ANY managed
+ *   origin, complete or not — the any-of question. Defaults to
+ *   grantedDomains, which is correct whenever the two cannot differ.
  * @returns {{toRequest: string[], toRevoke: string[]}} sorted, deduplicated
  *
- * Two deliberate asymmetries, both load-bearing:
+ * THE TWO SETS ARE DIFFERENT QUESTIONS, and collapsing them into one was
+ * finding 20 — a regression introduced by finding 18's own fix and caught
+ * before release, not a pre-existing gap. That fix correctly made the grant
+ * check strict so a
+ * partially-granted domain could not carry a DNR rule. But this function
+ * was still fed that same strict set to decide what to REVOKE, and those
+ * are not the same question:
+ *
+ *   "granted enough to carry a rule?"      -> all-of  -> toRequest
+ *   "holds anything worth cleaning up?"    -> any-of  -> toRevoke
+ *
+ * A domain upgraded from v0.1.3 holds the apex pattern but not the
+ * subdomain one, so under a single strict set it was simultaneously not
+ * granted enough to use and not granted enough to revoke. It fell through
+ * both branches and survived deletion. v0.1.3 revoked it correctly; the
+ * strict-everywhere version did not. Verified against the exact README
+ * claim it would have broken: "deleting a
+ * profile ... releases that domain's permission ... immediately".
+ *
+ * Three deliberate asymmetries, all load-bearing:
  *
  * 1. toRevoke is diffed against PROFILE membership (referenced before but
- *    not after), then intersected with what is actually granted. Diffing
+ *    not after), then intersected with what is actually HELD. Diffing
  *    against the edited profile alone is the finding-1b bug: a domain
  *    another profile still references must be RETAINED.
  *
@@ -169,17 +201,29 @@ export function staleManagedOrigins(profiles, grantedOrigins) {
  *    would also silently delete the only recovery path a denied domain
  *    has today — Edit -> Save re-firing request(). Churn-free for the
  *    all-granted case falls out of this anyway: nothing to request.
+ *
+ * 3. toRequest uses the STRICT set and toRevoke the PERMISSIVE one, and
+ *    the direction matters. Strict-for-request keeps the migration path
+ *    open: a legacy domain reads as ungranted, so Edit -> Save re-fires
+ *    request() and completes the upgrade. Permissive-for-revoke keeps the
+ *    cleanup path open: the same domain reads as held, so deleting it
+ *    releases what it has. Swapping them would re-break both at once.
  */
 export function diffDomainGrants({
   previousProfiles,
   nextProfiles,
   grantedDomains,
+  heldDomains,
 }) {
   const before = new Set(referencedDomains(previousProfiles));
   const after = new Set(referencedDomains(nextProfiles));
   const granted = new Set(grantedDomains || []);
+  // Defaulting to grantedDomains rather than to the empty set is the safe
+  // direction: a caller that has not been taught the distinction keeps the
+  // pre-finding-20 behaviour instead of silently revoking nothing.
+  const held = new Set(heldDomains || grantedDomains || []);
 
-  const toRevoke = [...before].filter((d) => !after.has(d) && granted.has(d));
+  const toRevoke = [...before].filter((d) => !after.has(d) && held.has(d));
   const toRequest = [...after].filter((d) => !granted.has(d));
 
   return { toRequest: toRequest.sort(), toRevoke: toRevoke.sort() };
