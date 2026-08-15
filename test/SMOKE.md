@@ -532,6 +532,30 @@ Needs an echo endpoint reachable at both an apex and a subdomain. If the
 usual one is not, any host you control with a wildcard DNS record works;
 record which was used.
 
+**RUN ORDER — the numbering here is not the execution order.** A legacy-gray
+domain is a CONSUMABLE. Step 6's last bullet turns one green, and 6b turns the
+last one green by design. But step 7 must be read before any re-grant, and all
+of Part 12 continues from step 6 with a domain still gray. Taken in document
+order, steps 7 and 12 arrive with nothing left to observe and the v0.1.3
+fixture has to be rebuilt.
+
+Spend every observation that REQUIRES gray before any that CLEARS it:
+
+    6 (all bullets except the last) -> 8 -> 7 -> Part 12 steps 1-4
+      -> 6 last bullet -> 6b -> 12.5 -> 6d -> 6c -> 10 -> 9 -> 12.6-12.7
+
+Steps 8 and 7 are one sweep — swept and retained observed in the same pass is
+a stronger result than either alone, so orphan the step 8 domain in storage
+BEFORE the upgrade and open the service worker console BEFORE reloading. That
+console line is logged on install and is not recoverable afterwards.
+
+Grant enough legacy domains up front that nothing needs rebuilding mid-run:
+one carrying multiple profiles (serves 6d and 12.4), one to cycle through
+12.1-12.3, one to orphan for step 8, and one held untouched as step 7's
+retention control. Verify every granted set with `permissions.getAll()` in the
+service worker console, NOT the Details panel — that panel collapses the
+patterns and under-reports.
+
 1. **Apex still applies (regression control).** Profile on `<apex>`, granted
    fresh in v0.1.4, master ON. Header present on `<apex>`. This is Part 1
    step 1 re-run against the new pattern set — if it fails, the wildcard
@@ -610,12 +634,63 @@ is the one case that contradicts the README's "released immediately" claim.
 
 Continues from Part 11 step 6, with a legacy-only domain still gray.
 
+### Instrument the revoke path before running steps 1-3
+
+Without this, a retained grant is ambiguous between two very different
+answers: Chrome kept it despite a correct `remove()`, or `remove()` never
+happened. The first is DOCUMENTED per the Part 0 table; the second is a FAILED
+row and a real bug. The observation cannot be reconstructed afterwards, so arm
+the wrapper first.
+
+    const _rm = chrome.permissions.remove.bind(chrome.permissions);
+    chrome.permissions.remove = (p) => {
+      console.log("REMOVE CALLED", JSON.stringify(p.origins));
+      return _rm(p).then(r => { console.log("REMOVE RESULT", r); return r; });
+    };
+    console.log("wrapper armed");
+
+Then act, then read `chrome.permissions.getAll().then(p => p.origins)`.
+
+What to expect: the popup revokes with the domain's `heldOrigins` — exactly
+what is held, not what a full grant would look like — so a legacy-only domain
+must produce ONE pattern in the apex shape, `*://<domain>/*`. Two patterns is
+the leak this part exists to catch: removing `*://*.<domain>/*` succeeds
+vacuously while the grant that is actually held stays behind.
+
+| Observation | Verdict |
+| --- | --- |
+| No `REMOVE CALLED` line | **FAIL** — code path missed |
+| Called with 2 patterns for a legacy-only domain | **FAIL** — the leak regressed |
+| Called with `["*://<domain>/*"]`, result true, origin STILL in `getAll()` | **DOCUMENTED** — Chrome retention |
+| Called with `["*://<domain>/*"]`, result true, origin GONE | **PASS** |
+
+The wrapper lives in the service worker and dies when the worker idles out.
+Re-arm after any restart and confirm `wrapper armed` is still the newest line
+in the console before each of steps 1-3 — a wrapper that died silently reads
+exactly like the FAIL row above.
+
 1. **Delete releases the legacy grant.** With the domain gray, delete the
    profile and confirm. Check `chrome://extensions` -> Site access: the
    old apex grant is GONE, without a browser restart.
-2. **Edit releases it too.** Restore the profile, re-gray it (reload the
-   v0.1.3 build over it again, or revoke via Site access), then EDIT the
-   domain to something else and save. The old grant is gone.
+2. **Edit releases it too.** Restore the profile, re-gray it (see below), then
+   EDIT the domain to something else and save. The old grant is gone.
+
+   Re-graying: reloading the v0.1.3 build over the directory again is the
+   genuine path but is slow, and revoking via Site access is unreliable
+   because that panel collapses the two patterns. `isLegacyOnlyGrant()` is a
+   pure state test — apex held, current set not held — so the state is
+   reachable directly from the service worker console:
+
+       // drop ONLY the wildcard; keep the apex
+       await chrome.permissions.remove({ origins: ["*://*.<domain>/*"] });
+       await chrome.permissions.getAll().then(p => console.log(p.origins));
+       // expect: holds "*://<domain>/*", does NOT hold "*://*.<domain>/*"
+
+   `remove()` needs no user gesture, so this works from the console. Reopen
+   the popup: gray chip, dashed underline, notice count incremented. RECORD
+   THAT THE RE-GRAY WAS SYNTHETIC wherever it is used — it reproduces the
+   state, not the upgrade that produces the state. Part 11 steps 6 and 6b
+   still require a genuine v0.1.3 -> v0.1.4 overwrite.
 3. **Import replace-all releases it.** Same setup, then import a config that
    does not reference the domain. Gone.
 4. **A shared legacy domain is RETAINED.** Two profiles on the same gray
@@ -676,7 +751,12 @@ Site Access UI even produces the shape the sweep matches. Find out:
                      8 orphaned grant swept, console line seen = ?
                      9 "On all sites" survived reload = ?
                      10 IP-literal profile still applies = ?  (n/a if unused)
-    Part 12:         1-3 legacy grant released on delete/edit/import = ?
+    Part 12:         wrapper armed = ?  re-armed after each SW restart = ?
+                     1 delete: REMOVE CALLED = "..."  result = ?  after = ?
+                     2 edit:   REMOVE CALLED = "..."  result = ?  after = ?
+                     3 import: REMOVE CALLED = "..."  result = ?  after = ?
+                     1-3 verdict per the table = pass / documented / fail
+                     re-gray method (genuine downgrade / synthetic console) = ?
                      4 shared legacy domain retained = ?
                      5 re-grant still works afterwards = ?
                      6 pattern Chrome's Site Access UI produced = "..."
