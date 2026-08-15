@@ -80,52 +80,71 @@ async function getSyncState() {
 // ------------------------------------------------------------- grants
 
 /**
- * Grant state for every domain in one pass: granted, and if not, whether it
- * is carrying a pre-0.1.4 grant (finding 18's upgrade path).
+ * Grant state for every domain in one pass.
+ *
+ * THREE FACTS PER DOMAIN, because finding 20 established that they are not
+ * the same fact:
+ *
+ *   granted     all-of: holds the COMPLETE origin set, so it may carry a
+ *               DNR rule and show a green dot
+ *   heldOrigins any-of: which managed origins it actually holds, so a
+ *               revoke can release exactly those and nothing else
+ *   legacyOnly  holds the pre-0.1.4 apex pattern but not the current set,
+ *               so it needs the migration notice
+ *
+ * A domain upgraded from v0.1.3 is granted=false with a non-empty
+ * heldOrigins. Reading only `granted` is what let it survive deletion.
  *
  * Replaces the per-chip contains() call. renderDomainChip() used to make one
  * per CHIP, so a domain referenced by three profiles was checked three times
  * — the cost the debouncer at the bottom of this file exists to contain.
- * This checks each UNIQUE domain once, which is the same dedup reasoning as
- * finding 7, and costs a second call only for domains that came back
- * ungranted.
+ * This checks each UNIQUE domain once. The per-origin breakdown costs extra
+ * calls only for domains that came back ungranted, which is the uncommon
+ * case and the only one where the breakdown changes any decision.
  *
- * @returns {Promise<Map<string, {granted: boolean, legacyOnly: boolean}>>}
+ * @returns {Promise<Map<string, {granted: boolean, heldOrigins: string[],
+ *   legacyOnly: boolean}>>}
  */
 async function grantStateFor(domains) {
   const unique = [...new Set(domains || [])];
   const entries = await Promise.all(
     unique.map(async (domain) => {
-      const granted = await chrome.permissions.contains({
-        origins: originsForDomain(domain),
-      });
-      // Only ask the follow-up question when the answer can matter.
-      const legacyGranted = granted
-        ? false
-        : await chrome.permissions.contains({
-            origins: legacyOriginsForDomain(domain),
-          });
+      const origins = originsForDomain(domain);
+      const granted = await chrome.permissions.contains({ origins });
+
+      if (granted) {
+        return [domain, { granted: true, heldOrigins: origins, legacyOnly: false }];
+      }
+
+      // Ungranted: find out WHICH patterns are held. Asked per origin rather
+      // than inferred from array position — originsForDomain() is free to
+      // change its ordering or its contents, and a revoke path that silently
+      // depends on index 0 being the apex is the kind of coupling finding 1a
+      // was made of.
+      const held = await Promise.all(
+        origins.map(async (o) =>
+          (await chrome.permissions.contains({ origins: [o] })) ? o : null
+        )
+      );
+      const heldOrigins = held.filter((o) => o !== null);
+      const legacyGranted = legacyOriginsForDomain(domain).every((o) =>
+        heldOrigins.includes(o)
+      );
+
       return [
         domain,
         {
-          granted,
+          granted: false,
+          heldOrigins,
           legacyOnly: isLegacyOnlyGrant(domain, {
             legacyGranted,
-            currentGranted: granted,
+            currentGranted: false,
           }),
         },
       ];
     })
   );
   return new Map(entries);
-}
-
-// Which of these domains Chrome currently grants. sw.js has its own copy
-// of this shape; it cannot be shared because lib/ is chrome.*-free by
-// construction and this needs chrome.permissions.contains().
-async function grantedDomainsFor(domains) {
-  const state = await grantStateFor(domains);
-  return [...state].filter(([, s]) => s.granted).map(([d]) => d);
 }
 
 /**
@@ -151,18 +170,36 @@ async function grantedDomainsFor(domains) {
  *    leaves a stale grant behind silently, which is finding 1's symptom.
  */
 async function reconcileGrants(previousProfiles, nextProfiles) {
-  const grantedDomains = await grantedDomainsFor([
+  const state = await grantStateFor([
     ...referencedDomains(previousProfiles),
     ...referencedDomains(nextProfiles),
   ]);
+
+  // FINDING 20. These two lists differ only for a domain mid-migration, and
+  // that domain is exactly the one the strict-everywhere version lost
+  // track of. Feeding the strict
+  // list to both sides is the regression.
+  const grantedDomains = [...state].filter(([, s]) => s.granted).map(([d]) => d);
+  const heldDomains = [...state]
+    .filter(([, s]) => s.heldOrigins.length > 0)
+    .map(([d]) => d);
+
   const { toRequest, toRevoke } = diffDomainGrants({
     previousProfiles,
     nextProfiles,
     grantedDomains,
+    heldDomains,
   });
 
   if (toRevoke.length > 0) {
-    await chrome.permissions.remove({ origins: originsFor(toRevoke) });
+    // Exactly what is held, not what a full grant would look like. Chrome
+    // treats removing an unheld origin as a no-op, but relying on that turns
+    // an observation into a load-bearing assumption for the privacy
+    // invariant, and the state map already knows the true answer.
+    const origins = toRevoke.flatMap((d) => state.get(d)?.heldOrigins || []);
+    if (origins.length > 0) {
+      await chrome.permissions.remove({ origins });
+    }
   }
 
   if (toRequest.length === 0) {
