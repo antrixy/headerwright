@@ -520,6 +520,86 @@ anything renders, which is the entire point of this part.
 
 ---
 
+## Part 11 — Subdomain application and upgrade path (findings 18/19, fixed in v0.1.4)
+
+**This is the part the selftest structurally cannot do.** The suite now
+proves the permission set and the DNR host set cover the same hosts, but
+"covers" there is a claim about two string oracles. Only Chrome can say
+whether the header reaches the wire on a subdomain. Through v0.1.3 the
+construction was right, the oracle said yes, and the wire said nothing.
+
+Needs an echo endpoint reachable at both an apex and a subdomain. If the
+usual one is not, any host you control with a wildcard DNS record works;
+record which was used.
+
+1. **Apex still applies (regression control).** Profile on `<apex>`, granted
+   fresh in v0.1.4, master ON. Header present on `<apex>`. This is Part 1
+   step 1 re-run against the new pattern set — if it fails, the wildcard
+   grant broke the case that used to work.
+2. **Subdomain applies — THE FIX.** Same profile, no edits. Load
+   `sub.<apex>`. The header is present on the wire. Under v0.1.3 this step
+   fails; that failure is the bug and is worth reproducing once on the old
+   build before trusting the new one.
+3. **Deep subdomain applies.** `a.b.<apex>`. Present.
+4. **Suffix confusable does NOT apply.** A host that merely ends with the
+   same letters (`not<apex>`, or `<apex>.something-else.test`) gets NO
+   header. The wildcard must not have widened the set beyond the DNR
+   condition — over-application is a worse bug than the one being fixed.
+5. **Dialog text.** Grant a fresh domain and read the native dialog. It
+   should name the site and its subdomains. Record the exact wording: this
+   is the user-visible cost of the fix and it belongs in the record.
+6. **Upgrade path from a real v0.1.3 profile.** Install v0.1.3, create a
+   profile, grant it, confirm the dot is GREEN. Load the v0.1.4 build over
+   it without deleting storage.
+   - The profile survives.
+   - Its dot is now GRAY, and the chip is clickable.
+   - The chip carries the dashed underline, and its tooltip names the older
+     version as the reason — distinguishable from a domain that was simply
+     never granted.
+   - The migration notice appears above the list, counts the affected
+     domains correctly, and reads with correct singular/plural agreement.
+     Check BOTH: one affected domain and two.
+   - The status line and badge agree that it is ungranted — no green dot
+     over an unapplied header, which was the whole failure mode.
+   - Clicking the chip opens the dialog; accepting turns it green and the
+     header applies on both apex and subdomain WITHOUT reopening the popup.
+6b. **The notice self-expires.** Continuing from step 6, re-approve the LAST
+   affected domain. The notice disappears in the same render, without
+   reopening the popup. Close and reopen: still gone. Then reload the
+   extension entirely: still gone. Nothing but a re-grant should be able to
+   clear it, and nothing should be able to bring it back.
+6c. **The notice never appears on a fresh install.** Load v0.1.4 into a
+   clean profile (the `hw-test` Chrome profile with storage cleared), create
+   a profile, deny the grant. The dot is gray and the chip is clickable, but
+   there is NO notice and NO dashed underline — a denied grant is not a
+   migration. This is the false-positive check: the notice is only correct
+   if it cannot fire for a user who never ran v0.1.3.
+6d. **Render cost did not regress.** The permission pass is now once per
+   unique domain instead of once per chip. With three profiles referencing
+   the same domain, the popup renders without visible flicker and the chips
+   all agree. Finding 8's live-update path still works: change storage from
+   the service worker console and the list corrects itself.
+7. **Sweep leaves the legacy grant alone until it is unreferenced.** After
+   step 6 but BEFORE re-granting, check `chrome://extensions` → Site access.
+   The v0.1.3 apex grant should still be listed: it is inside the wanted set,
+   so `reconcileHostGrants()` must not have taken it.
+8. **Sweep removes a genuinely orphaned grant.** With v0.1.3 installed,
+   grant a domain, then edit storage directly (service worker console:
+   `chrome.storage.local.set`) to drop that domain from every profile —
+   simulating the pre-v0.1.1 stale grant that `diffDomainGrants()` cannot
+   see. Load v0.1.4. On install the service worker console logs the revoke
+   and the grant is gone from Site access.
+9. **User-granted all-sites is NOT swept.** Set Site access to "On all
+   sites" in `chrome://extensions`, then reload the extension. The setting
+   survives. `isManagedOrigin()` must keep the sweep off anything the
+   extension did not itself request.
+10. **IP literal, if you use one.** A profile on `127.0.0.1` or a LAN
+    address still applies. This is the case the wildcard pattern would
+    have broken; `originsForDomain()` special-cases it and only a live run
+    proves the special case was needed and sufficient.
+
+---
+
 ## Recording template
 
     Date:            YYYY-MM-DD
@@ -541,4 +621,16 @@ anything renders, which is the entire point of this part.
     Part 9:          delete confirmed / cancelled / retracted = ?
     Part 10:         export notice neutral in light / dark = ?
                      import rejection still renders red afterwards = ?
+    Part 11:         echo host used (apex / wildcard DNS) = ?
+                     1-4 apply/no-apply as expected = ?
+                     5 dialog wording observed = "..."
+                     6 v0.1.3 -> v0.1.4 dot went GRAY = ?  re-grant OK = ?
+                     6 notice text at n=1 / n=2 = "..." / "..."
+                     6b notice gone after last re-grant, survives reload = ?
+                     6c fresh install + denied grant shows NO notice = ?
+                     6d shared domain renders once, no flicker = ?
+                     7 legacy apex grant retained = ?
+                     8 orphaned grant swept, console line seen = ?
+                     9 "On all sites" survived reload = ?
+                     10 IP-literal profile still applies = ?  (n/a if unused)
     Notes:

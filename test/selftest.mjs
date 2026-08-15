@@ -40,8 +40,13 @@ import {
 import {
   diffDomainGrants,
   referencedDomains,
-  originFor,
+  originsForDomain,
   originsFor,
+  isIpLiteral,
+  isManagedOrigin,
+  staleManagedOrigins,
+  legacyOriginsForDomain,
+  isLegacyOnlyGrant,
 } from "../extension/lib/grants.js";
 import {
   computeBadge,
@@ -54,7 +59,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 170;
+const EXPECTED_CHECKS = 195;
 
 let passed = 0;
 let failed = 0;
@@ -330,10 +335,143 @@ check("referencedDomains dedupes across profiles",
   referencedDomains(setA1).join(",") === "api.example.com,example.com");
 check("referencedDomains tolerates a profile with no domains key",
   referencedDomains([{ id: 1, name: "x" }]).length === 0);
-check("originFor builds the port-agnostic origin pattern",
-  originFor("localhost") === "*://localhost/*");
-check("originsFor maps a list",
-  originsFor(["a.test", "b.test"]).join(" ") === "*://a.test/* *://b.test/*");
+// ------------------------------------------------ origin patterns (F18/F19)
+//
+// THE PINNED BUG. Through v0.1.3 this section asserted
+//   originFor("localhost") === "*://localhost/*"
+// which is a faithful test of the wrong thing: it pinned an exact-host
+// permission against a DNR condition that also matches subdomains, so the
+// suite went green on precisely the mismatch that made every subdomain rule
+// a silent no-op. A string-equality test cannot catch that class of bug. The
+// oracle below compares COVERED HOST SETS, which can.
+
+// Does DNR's requestDomains entry `domain` match `host`? Chrome: the domain
+// itself and any subdomain of it.
+function dnrCovers(domain, host) {
+  return host === domain || host.endsWith("." + domain);
+}
+
+// Does a Chrome match pattern of the shape "*://HOST/*" cover `host`?
+// "*.d" covers d and any subdomain of d; a bare host covers itself only.
+function patternCovers(pattern, host) {
+  const m = /^\*:\/\/(.+)\/\*$/.exec(pattern);
+  if (!m) return false;
+  const pat = m[1];
+  if (pat.startsWith("*.")) {
+    const base = pat.slice(2);
+    return host === base || host.endsWith("." + base);
+  }
+  return host === pat;
+}
+
+const HOST_CORPUS = [
+  "example.com",
+  "api.example.com",
+  "foo.api.example.com",
+  "notexample.com",
+  "example.com.evil.test",
+  "evil-example.com",
+  "localhost",
+  "sub.localhost",
+  "192.168.1.5",
+  "sub.192.168.1.5",
+];
+
+check("F18 INVARIANT: permission set covers exactly the DNR host set",
+  ["example.com", "localhost", "a.b.test"].every((domain) =>
+    HOST_CORPUS.every(
+      (host) =>
+        dnrCovers(domain, host) ===
+        originsForDomain(domain).some((p) => patternCovers(p, host))
+    )
+  ));
+check("F18: the apex domain is covered",
+  originsForDomain("example.com").some((p) =>
+    patternCovers(p, "example.com")));
+check("F18: a subdomain is covered — the v0.1.3 regression",
+  originsForDomain("example.com").some((p) =>
+    patternCovers(p, "api.example.com")));
+check("F18: a deep subdomain is covered",
+  originsForDomain("example.com").some((p) =>
+    patternCovers(p, "a.b.c.example.com")));
+check("F18: a suffix-confusable host is NOT covered",
+  !originsForDomain("example.com").some((p) =>
+    patternCovers(p, "notexample.com")));
+check("F18: the domain as a left label of another host is NOT covered",
+  !originsForDomain("example.com").some((p) =>
+    patternCovers(p, "example.com.evil.test")));
+check("F18: both patterns are emitted for a hostname",
+  originsForDomain("example.com").join(" ") ===
+    "*://example.com/* *://*.example.com/*");
+check("F18: the v0.1.3 pattern is still in the set, so upgrades orphan nothing",
+  originsForDomain("example.com").includes("*://example.com/*"));
+check("F18: an IPv4 literal gets the apex pattern only",
+  originsForDomain("192.168.1.5").join(" ") === "*://192.168.1.5/*");
+check("F18: isIpLiteral accepts a dotted quad and rejects a hostname",
+  isIpLiteral("10.0.0.1") && !isIpLiteral("example.com") &&
+    !isIpLiteral("1.2.3") && !isIpLiteral(""));
+check("F18: originsFor flattens, dedupes, and sorts",
+  originsFor(["b.test", "a.test", "b.test"]).join(" ") ===
+    "*://*.a.test/* *://*.b.test/* *://a.test/* *://b.test/*");
+check("F18: originsFor tolerates a missing list",
+  originsFor(undefined).length === 0);
+
+check("F19: isManagedOrigin recognizes both shapes this extension emits",
+  isManagedOrigin("*://example.com/*") &&
+    isManagedOrigin("*://*.example.com/*"));
+check("F19: isManagedOrigin rejects all-hosts and foreign shapes",
+  !isManagedOrigin("*://*/*") && !isManagedOrigin("<all_urls>") &&
+    !isManagedOrigin("https://example.com/*") &&
+    !isManagedOrigin("*://example.com/path*"));
+check("F19: a grant no profile references is stale",
+  staleManagedOrigins(setA1, [
+    "*://example.com/*",
+    "*://*.example.com/*",
+    "*://api.example.com/*",
+    "*://*.api.example.com/*",
+    "*://old.example.com/*",
+  ]).join(" ") === "*://old.example.com/*");
+check("F19: a referenced domain's grants are never stale",
+  staleManagedOrigins([prof(1, ["a.test"])], [
+    "*://a.test/*",
+    "*://*.a.test/*",
+  ]).length === 0);
+check("F19: a partial v0.1.3-era grant is retained, not swept",
+  staleManagedOrigins([prof(1, ["a.test"])],
+    ["*://a.test/*"]).length === 0);
+check("F19: user-granted all-hosts is left alone",
+  staleManagedOrigins([], ["*://*/*", "<all_urls>"]).length === 0);
+check("F19: an empty profile set sweeps every managed grant",
+  staleManagedOrigins([], ["*://a.test/*", "*://*.a.test/*"]).length === 2);
+check("F19: tolerates a missing origins list",
+  staleManagedOrigins(setA1, undefined).length === 0);
+
+// ------------------------------------------- upgrade notice (F18 migration)
+// The notice is driven ENTIRELY by this predicate, which is why it is pure
+// and lives here rather than as a version check in popup.js. The property
+// that matters is not "does it show" but "can it stop showing": every path
+// to true requires a legacy grant, and granting clears it permanently.
+
+check("F18 migration: a v0.1.3-era grant needs re-approval",
+  isLegacyOnlyGrant("example.com",
+    { legacyGranted: true, currentGranted: false }));
+check("F18 migration: SELF-EXPIRES — re-granting clears it forever",
+  !isLegacyOnlyGrant("example.com",
+    { legacyGranted: true, currentGranted: true }));
+check("F18 migration: a never-granted domain is not a migration",
+  !isLegacyOnlyGrant("example.com",
+    { legacyGranted: false, currentGranted: false }));
+check("F18 migration: unreachable on a fresh install (no legacy grant)",
+  ["example.com", "a.b.test", "localhost"].every((d) =>
+    !isLegacyOnlyGrant(d, { legacyGranted: false, currentGranted: false })));
+check("F18 migration: an IP literal never migrates — the shapes are equal",
+  !isLegacyOnlyGrant("192.168.1.5",
+    { legacyGranted: true, currentGranted: false }));
+check("F18 migration: legacyOriginsForDomain is the exact v0.1.3 output",
+  legacyOriginsForDomain("example.com").join(" ") === "*://example.com/*");
+check("F18 migration: the legacy pattern is a subset of the current set",
+  legacyOriginsForDomain("example.com").every((o) =>
+    originsForDomain("example.com").includes(o)));
 
 // ------------------------------------------- header syntax (finding 3, A2)
 // Provenance: RFC 9110 token set for names; NUL/CR/LF plus the remaining C0
