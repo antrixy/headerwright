@@ -34,7 +34,13 @@ To run from source instead, see [Development](#development).
 
 HeaderWright does not request access to any site at install time. When you
 add a profile scoped to a domain, the browser prompts for permission on that
-domain only — one extra click per new domain, not once for everything.
+domain and its subdomains only — one extra click per new domain, not once
+for everything.
+
+Subdomains are part of the grant because they are part of the rule: a profile
+on `example.com` also applies to `api.example.com`, and the permission has to
+cover the same hosts the rule does. Through v0.1.3 it didn't, and headers
+silently failed to apply on subdomains — see finding 18.
 
 Why:
 
