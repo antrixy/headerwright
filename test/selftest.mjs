@@ -59,7 +59,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 195;
+const EXPECTED_CHECKS = 205;
 
 let passed = 0;
 let failed = 0;
@@ -441,13 +441,98 @@ check("F19: a partial v0.1.3-era grant is retained, not swept",
     ["*://a.test/*"]).length === 0);
 check("F19: user-granted all-hosts is left alone",
   staleManagedOrigins([], ["*://*/*", "<all_urls>"]).length === 0);
-check("F19: an empty profile set sweeps every managed grant",
+check("F19: a scheme-specific grant is outside the sweep",
+  staleManagedOrigins([], ["https://a.test/*", "http://a.test/*"]).length === 0);
+// PINS A KNOWN LIMITATION, not a desired behaviour. The sweep cannot tell a
+// grant it requested from one the user made, because getAll() carries no
+// provenance. This check records that an unreferenced managed-SHAPE origin
+// is removed regardless of origin-of-origin; if a provenance ledger ever
+// lands, this is the check that must change and the reason it existed.
+check("F19: an unreferenced managed-shape grant is swept (provenance unknown)",
   staleManagedOrigins([], ["*://a.test/*", "*://*.a.test/*"]).length === 2);
 check("F19: tolerates a missing origins list",
   staleManagedOrigins(setA1, undefined).length === 0);
 
-// ------------------------------------------- upgrade notice (F18 migration)
-// The notice is driven ENTIRELY by this predicate, which is why it is pure
+// ------------------------------------- legacy-only revocation (finding 20)
+// REGRESSION SUITE for a bug THIS RELEASE INTRODUCED and caught before
+// shipping. v0.1.3 revoked correctly on
+// delete; the strict grant check added for finding 18 was then fed to the
+// revoke path too, and a mid-migration domain fell through both branches —
+// not granted enough to use, not granted enough to release. These pin the
+// two sets apart so collapsing them again fails here rather than in the
+// field. The legacy install is the ONLY state where they differ, which is
+// exactly why the original suite could not see it.
+
+const legacyProf = [prof(1, ["example.com"])];
+
+check("F20: delete releases a legacy-only grant (strict-only leaked it)",
+  diffDomainGrants({
+    previousProfiles: legacyProf,
+    nextProfiles: [],
+    grantedDomains: [],
+    heldDomains: ["example.com"],
+  }).toRevoke.join(",") === "example.com");
+check("F20: editing a domain out releases its legacy-only grant",
+  diffDomainGrants({
+    previousProfiles: legacyProf,
+    nextProfiles: [prof(1, ["other.test"])],
+    grantedDomains: [],
+    heldDomains: ["example.com"],
+  }).toRevoke.join(",") === "example.com");
+check("F20: import replace-all releases legacy-only grants it drops",
+  diffDomainGrants({
+    previousProfiles: legacyProf,
+    nextProfiles: [prof(9, ["other.test"])],
+    grantedDomains: [],
+    heldDomains: ["example.com"],
+  }).toRevoke.join(",") === "example.com");
+check("F20: a legacy-only domain still in use is RETAINED",
+  diffDomainGrants({
+    previousProfiles: legacyProf,
+    nextProfiles: legacyProf,
+    grantedDomains: [],
+    heldDomains: ["example.com"],
+  }).toRevoke.length === 0);
+check("F20: a legacy-only domain another profile references is RETAINED",
+  diffDomainGrants({
+    previousProfiles: [prof(1, ["example.com"]), prof(2, ["example.com"])],
+    nextProfiles: [prof(2, ["example.com"])],
+    grantedDomains: [],
+    heldDomains: ["example.com"],
+  }).toRevoke.length === 0);
+check("F20: MIGRATION PATH SURVIVES — a legacy domain is still re-requested",
+  diffDomainGrants({
+    previousProfiles: legacyProf,
+    nextProfiles: legacyProf,
+    grantedDomains: [],
+    heldDomains: ["example.com"],
+  }).toRequest.join(",") === "example.com");
+check("F20: the two sets are read from opposite sides, not interchangeable",
+  (() => {
+    const d = diffDomainGrants({
+      previousProfiles: [prof(1, ["gone.test"]), prof(2, ["kept.test"])],
+      nextProfiles: [prof(2, ["kept.test"])],
+      grantedDomains: ["kept.test"],
+      heldDomains: ["gone.test", "kept.test"],
+    });
+    // gone.test is held but never fully granted: revoke it, never request it.
+    return d.toRevoke.join(",") === "gone.test" && d.toRequest.length === 0;
+  })());
+check("F20: heldDomains defaults to grantedDomains for untaught callers",
+  diffDomainGrants({
+    previousProfiles: legacyProf,
+    nextProfiles: [],
+    grantedDomains: ["example.com"],
+  }).toRevoke.join(",") === "example.com");
+check("F20: nothing held means nothing to revoke",
+  diffDomainGrants({
+    previousProfiles: legacyProf,
+    nextProfiles: [],
+    grantedDomains: [],
+    heldDomains: [],
+  }).toRevoke.length === 0);
+
+// ------------------------------------------- upgrade notice (F18 migration)// The notice is driven ENTIRELY by this predicate, which is why it is pure
 // and lives here rather than as a version check in popup.js. The property
 // that matters is not "does it show" but "can it stop showing": every path
 // to true requires a legacy grant, and granting clears it permanently.

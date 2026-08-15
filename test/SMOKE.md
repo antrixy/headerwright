@@ -520,7 +520,7 @@ anything renders, which is the entire point of this part.
 
 ---
 
-## Part 11 — Subdomain application and upgrade path (findings 18/19, fixed in v0.1.4)
+## Part 11 — Subdomain application and upgrade path (findings 18/19/20, fixed in v0.1.4)
 
 **This is the part the selftest structurally cannot do.** The suite now
 proves the permission set and the DNR host set cover the same hosts, but
@@ -600,6 +600,49 @@ record which was used.
 
 ---
 
+## Part 12 — Revocation under migration, and sweep provenance (findings 20/4, v0.1.4)
+
+Part 11 covers the migration path forward — re-approve and headers apply.
+This covers the path SIDEWAYS: a user who upgrades and then removes the
+profile without ever re-approving. An earlier cut of this release leaked the
+old grant there, and it
+is the one case that contradicts the README's "released immediately" claim.
+
+Continues from Part 11 step 6, with a legacy-only domain still gray.
+
+1. **Delete releases the legacy grant.** With the domain gray, delete the
+   profile and confirm. Check `chrome://extensions` -> Site access: the
+   old apex grant is GONE, without a browser restart.
+2. **Edit releases it too.** Restore the profile, re-gray it (reload the
+   v0.1.3 build over it again, or revoke via Site access), then EDIT the
+   domain to something else and save. The old grant is gone.
+3. **Import replace-all releases it.** Same setup, then import a config that
+   does not reference the domain. Gone.
+4. **A shared legacy domain is RETAINED.** Two profiles on the same gray
+   domain; delete one. The grant stays, because the other still references
+   it. This is finding 1b's invariant holding under migration.
+5. **The migration path still works after all that.** Re-create the profile
+   and click the chip. Dialog appears, grant completes, green.
+
+### Sweep provenance — an OBSERVATION, not a pass/fail
+
+`isManagedOrigin()` is a shape test. It cannot know whether a grant came from
+this extension or from the user. The open question is whether Chrome's own
+Site Access UI even produces the shape the sweep matches. Find out:
+
+6. In `chrome://extensions`, set Site access to "On specific sites" and add
+   a site the extension has no profile for. Then in the service worker
+   console run `chrome.permissions.getAll()` and RECORD THE EXACT PATTERN.
+   - If it is scheme-specific (`https://x.test/*`), the sweep already cannot
+     touch it and finding 4 is largely theoretical.
+   - If it is `*://x.test/*`, the sweep WILL remove it on restart, and the
+     provenance ledger becomes worth building.
+7. Reload the extension and check whether the site survives. Record either
+   way. This single observation decides whether finding 4 is design work or
+   a comment fix.
+
+---
+
 ## Recording template
 
     Date:            YYYY-MM-DD
@@ -633,4 +676,9 @@ record which was used.
                      8 orphaned grant swept, console line seen = ?
                      9 "On all sites" survived reload = ?
                      10 IP-literal profile still applies = ?  (n/a if unused)
+    Part 12:         1-3 legacy grant released on delete/edit/import = ?
+                     4 shared legacy domain retained = ?
+                     5 re-grant still works afterwards = ?
+                     6 pattern Chrome's Site Access UI produced = "..."
+                     7 that site survived extension reload = ?
     Notes:
