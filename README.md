@@ -107,6 +107,10 @@ verification also includes a manual smoke test against a live endpoint. Those
 steps are written down in [test/SMOKE.md](./test/SMOKE.md) rather than left to
 memory.
 
+Defects found so far, what caused them, and what changed are recorded in
+[FINDINGS.md](./FINDINGS.md) — including the ones introduced by earlier fixes
+and the limitations that are known rather than solved.
+
 ## Versioning
 
 Each minor version adds exactly one feature; patch versions are fixes only,
