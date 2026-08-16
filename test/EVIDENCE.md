@@ -303,6 +303,74 @@ so the end state is indistinguishable from a grant that never went away.
 **Part 0's revocation rows resolve as DOCUMENTED**, with the sharper
 description: release works; re-acquisition is silent.
 
+### O-2 resolved — and O-2 was wrong
+
+O-2's full text was dropped when this file was restructured for v0.1.4; it is
+restored here with its resolution. As originally recorded:
+
+> **O-2. The `chrome://extensions` Details panel UNDER-REPORTS the granted
+> set.** With both patterns held, Site access listed only `*://*.hw.test/*`.
+> Ground truth from the extension's own service worker returned
+> `["*://*.hw.test/*", "*://hw.test/*"]`, length 2. Chrome appears to collapse
+> the display, showing the broader pattern because `*.hw.test` covers the
+> apex. [...] **Verify granted sets with `permissions.getAll()` in the service
+> worker console, not by reading the Details panel.**
+
+**The panel was correct.** It was not collapsing a display or under-reporting.
+`*://*.hw.test/*` genuinely IS the whole grant — the apex pattern adds no
+coverage, so there is no second thing to show. O-2 guessed the right mechanism
+("`*.hw.test` covers the apex") and then drew the wrong conclusion from it.
+
+The operational advice survives anyway, for a different reason:
+`permissions.getAll()` reports the literal held set while the panel reports
+effective access, and this run needed the literal set to distinguish legacy
+from current grants. Use `getAll()` because it answers a different question,
+not because the panel lies.
+
+---
+
+## Follow-up: wildcard subsumption CONFIRMED
+
+Run after sitting B to settle candidate finding 4. Predictions were registered
+before testing: if `*://*.host/*` covers the apex, then `contains()` on the
+apex returns true, no dialog fires when a profile is created on the apex, and
+the header applies on the wire.
+
+Method: `wild.test` and `sub.wild.test` added to `/etc/hosts` — hosts never
+approved in this Chrome profile, so the approval cache could not contaminate
+the result. Only the wildcard was granted, via a direct `request()` that
+bypassed `originsForDomain()`.
+
+| Check | Result |
+| --- | --- |
+| Dialog for a wildcard-only request | "Read and change your data on all wild.test sites" — one clause, no apex clause |
+| Granted set | `['*://*.wild.test/*']` — one pattern |
+| `contains()` apex / sub / wildcard | `true` / `true` / `true` |
+| Profile created on `wild.test` | **no dialog** — `reconcileGrants()` found nothing to request |
+| Wire, apex | `[02:23:12] wild.test:8080/ -> x-hw-smoke: wild` |
+| Wire, subdomain | `[02:23:53] sub.wild.test:8080/ -> x-hw-smoke: wild` |
+
+Both also applied on `favicon.ico`. The server log carries its own control:
+the same URL returned no injected header at `02:16:57`, `02:19:16` and
+`02:22:12`, before the profile existed.
+
+**Conclusion.** `*://*.host/*` subsumes `*://host/*` at every layer —
+`contains()`, `reconcileGrants()`, and the DNR matcher. The apex pattern
+`originsForDomain()` requests is redundant. It is not harmful: coverage is
+correct either way, so v0.1.4 is right, just wordier than it needs to be. The
+visible cost is one extra clause in the permission dialog.
+
+**Not established:** whether subsumption runs the other direction. Nothing here
+tests an apex-only grant against a subdomain request, and finding 18 implies it
+does not. Do not read this as "the two patterns are interchangeable."
+
+**Method error worth recording.** The first two attempts at the wire check used
+`curl`, which produced no header and briefly read as a falsification. `curl`
+does not route through Chrome, so `declarativeNetRequest` rules cannot apply to
+it. The echo server's own log, read while browsing in Chrome, is the oracle —
+as it was in sitting A. Any wire claim in this file rests on that log, never on
+`curl`.
+
 ---
 
 ## Findings raised (candidates — belong in FINDINGS.md, not here)
@@ -331,14 +399,12 @@ on v0.1.3 code paths and are therefore pre-existing, not v0.1.4 regressions.
    which implies a per-domain deliberate act. Combined with the approval cache
    above, the prompt may not appear at all, and the broadening is then
    invisible.
-4. **A wildcard pattern may subsume the apex pattern. NEEDS CONFIRMATION.**
-   `remove({origins:["*://*.hw.test/*","*://*.keep.test/*"]})` returned `true`
-   and left `0 []` — it took the apex patterns with it. If `*://*.host/*`
-   covers the apex, then `originsForDomain()` returning both patterns is
-   redundant, which would affect dialog wording and the meaning of
-   `heldOrigins`. O-2 independently suspected this from the Details panel
-   collapsing the display. Inferred from one `remove()` result; test it before
-   treating it as fact.
+4. **A wildcard pattern subsumes the apex pattern. CONFIRMED.**
+   `*://*.host/*` covers `*://host/*` at every layer, verified on the wire —
+   see "Follow-up" above. `originsForDomain()` therefore requests a redundant
+   pattern, which costs an extra clause in the permission dialog for no
+   coverage gain. Not a correctness bug; a simplification for v0.1.5. Also
+   resolves O-2.
 
 ---
 
@@ -394,13 +460,15 @@ Setup carried over from sitting B, still valid:
 Environment must be re-verified rather than assumed, particularly the Chrome
 version.
 
-## Corrections owed to SMOKE.md
+## Corrections applied to SMOKE.md
 
-- **Part 12 step 2's re-gray method is wrong as written.** Removing only the
+Both committed after this run, before this record was finalised.
+
+- **Part 12 step 2's re-gray method was wrong as written.** Removing only the
   wildcard yields `0 []`, not legacy-only state, because the wildcard subsumes
-  the apex. The working sequence is remove-then-request: remove
-  `*://*.<domain>/*`, then request `*://<domain>/*`.
-- **Part 12 needs a stated precondition** that it requires a Chrome profile
-  with no approval history for the test hosts. Without it the gray state
-  cannot be held and re-grant dialogs will not fire, which is what blocked
-  five rows in this run.
+  the apex (now confirmed — see "Follow-up"). Corrected to remove-then-request.
+- **Part 12 gained a stated PRECONDITION**: it requires a Chrome profile with
+  no approval history for the test hosts. Without it the gray state cannot be
+  held and re-grant dialogs will not fire, which is what blocked five rows in
+  this run. Cross-referenced from Part 11, which hits the same constraint at
+  step 6.
