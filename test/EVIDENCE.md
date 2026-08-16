@@ -10,41 +10,98 @@ from.
 
 ---
 
-## v0.1.4 — PARTIAL (Part 11 steps 1–5)
+# v0.1.4 — INCOMPLETE
 
-**STATUS: INCOMPLETE. Do not ship on this record alone.**
-Part 11 steps 6–10 and all of Part 12 have not been run. See "Resume" below.
+**STATUS: DO NOT SHIP ON THIS RECORD.** Five rows are BLOCKED on a Chrome
+behavior discovered mid-run, not merely unrun. They need a Chrome profile with
+no permission-approval history for the test hosts. See "Blocked" and "Resume".
 
-### Environment
+Run across two sittings, both 2026-08-15. Sitting A covered v0.1.4's own
+behavior; sitting B covered the v0.1.3 -> v0.1.4 upgrade path.
+
+## Row status
+
+| Row | Status | Sitting |
+| --- | --- | --- |
+| Part 11 steps 1–5 | PASS / recorded | A |
+| Part 11 step 6 — non-consuming bullets | PASS | B |
+| Part 11 step 6 — last bullet (re-grant, wire check) | **BLOCKED** | — |
+| Part 11 step 6b — notice self-expires | **BLOCKED** | — |
+| Part 11 step 6c — fresh-install false positive | not run | — |
+| Part 11 step 6d — shared-domain render | not run | — |
+| Part 11 step 7 — legacy grants retained | PASS | B |
+| Part 11 step 8 — orphaned grant swept | PASS | B |
+| Part 11 step 9 — "On all sites" survives reload | not run | — |
+| Part 11 step 10 — IP literal | not run | — |
+| Part 12 step 1 — delete releases legacy grant | PASS | B |
+| Part 12 step 2 — edit releases | **BLOCKED** | — |
+| Part 12 step 3 — import releases | **BLOCKED** | — |
+| Part 12 step 4 — shared domain retained | PASS (contaminated) | B |
+| Part 12 step 5 — re-grant works after | **BLOCKED** | — |
+| Part 12 steps 6–7 — sweep provenance | not run | — |
+
+Nothing in sitting B was observed on the wire. Sitting B evidence is
+permission-state and UI observation only; the wire check for the migration
+path lives in step 6's last bullet, which is blocked.
+
+## Environment
+
+Re-verified at the start of sitting B rather than carried forward. No drift:
+identical Chrome build, OS build, profile, and extension set. The v0.1.4
+record is therefore a single environment, not two.
 
 | Field | Value |
 | --- | --- |
-| Build | v0.1.4, unpacked from `~/hw/fresh` |
-| Extension id | `ddgomchkggjoehcoeibmmnfaakjanmce` (unpacked; path-derived) |
+| Build | v0.1.4 |
+| Extension id — `~/hw/fresh` | `ddgomchkggjoehcoeibmmnfaakjanmce` (unpacked; path-derived) |
+| Extension id — `~/hw/upgrade` | `hgpjoejhkalmdljiiicimonmokljpgn` (unpacked; path-derived) |
 | Chrome | 151.0.7922.138 (Official Build) (arm64) |
 | OS | macOS 26.5.2 (Build 25F84) |
 | Profile | dedicated `hw-test` profile, NOT signed in |
 | Other extensions | Google Docs Offline 1.109.1 (Chrome default; no DNR rules, no header modification) |
-| Launch flags | `--origin-trial-disabled-features=CanvasTextNg|WebAssemblyCustomDescriptors` — non-stock launch, neither flag touches DNR or permissions |
+| Launch flags | `--origin-trial-disabled-features=CanvasTextNg|WebAssemblyCustomDescriptors`, with an EMPTY `--flag-switches-begin`/`--flag-switches-end` pair — confirming no `chrome://flags` overrides are active at all |
 | Date | 2026-08-15 |
 
-Profile isolation was verified before starting: `chrome://extensions` in the
-`hw-test` profile listed no HeaderWright, confirming the Web Store copy of
-v0.1.3 in the main profile did not sync in. Two enabled copies would both
-register DNR rules and no observation would be attributable.
+The two extension ids differ because the id is path-derived. That is what
+makes the upgrade test valid: `~/hw/upgrade` has its own storage and its own
+grant store, independent of the `~/hw/fresh` copy used in sitting A.
 
-### Fixture
+Profile isolation held throughout. In sitting B it was confirmed a second way:
+the v0.1.3 card carried Chrome's "Unpacked extension" marker, which a synced
+Web Store install would not, and only one HeaderWright copy was ever enabled.
 
-Local echo endpoint on `:8080`, `/etc/hosts` mapping `hw.test`,
-`sub.hw.test`, `a.b.hw.test` and `nothw.test` to `127.0.0.1`. Server sends
+## Fixture
+
+Local echo endpoint on `:8080`. `/etc/hosts` maps `hw.test`, `sub.hw.test`,
+`a.b.hw.test`, `nothw.test` (sitting A) and `alt.test`, `sub.alt.test`,
+`orphan.test`, `keep.test` (sitting B) to `127.0.0.1`. Server sends
 `no-store`; a cached 200 could otherwise let a stale header survive a
 configuration change and read as a pass. `.test` is IANA-reserved, so nothing
 resolves off-machine.
 
-Profile under test: name `hw-test`, domain `hw.test`, one header
+All five hosts were confirmed reachable (`200` from each) before sitting B
+began, since the endpoint had to survive the break between sittings.
+
+Sitting A profile: name `hw-test`, domain `hw.test`, header
 `X-HW-Smoke: v014` (set), master toggle ON.
 
-### Results — Part 11 steps 1–5
+Sitting B legacy fixture, created and granted under **v0.1.3** in
+`~/hw/upgrade`, sized so no domain would need rebuilding mid-run:
+
+| Profile | Domain | Purpose |
+| --- | --- | --- |
+| L1a, L1b, L1c | `hw.test` | shared-domain retention (12.4), render cost (6d) |
+| L2 | `alt.test` | the delete/edit/import cycle (12.1–12.3) |
+| L3 | `orphan.test` | orphaned in storage pre-upgrade, for the step 8 sweep |
+| L4 | `keep.test` | retention control for step 7, held untouched |
+
+L1a's header value is `V014`; the rest are `v014`. Deliberate, left as-is.
+Header values are case-sensitive on the wire, so this is a fixture property,
+not a discrepancy.
+
+---
+
+## Sitting A — Part 11 steps 1–5
 
 | # | Step | Result | Evidence |
 | --- | --- | --- | --- |
@@ -83,67 +140,267 @@ Chrome names both patterns — "all hw.test sites" for `*://*.hw.test/*` and
 "hw.test" for `*://hw.test/*`. This is the user-visible cost of finding 18:
 under v0.1.3 the dialog named only the apex.
 
-### Unplanned observations
+---
 
-Both were found while verifying something else, and both change how later
-parts must be read.
+## Sitting B — the upgrade path
 
-**O-1. A host grant SURVIVES profile deletion in Chrome 151.** This is SMOKE
-Part 0's question, answered incidentally. A profile on `hw.test` was granted,
-the profile was deleted, and a later re-create of the same profile produced
-NO permission dialog — the corollary check in Part 0. Confirmed against
-ground truth: after deletion and re-create,
-`chrome.permissions.getAll().origins` returned both patterns.
+### Pre-upgrade ground truth (v0.1.3)
 
-Consequence: Part 12's revocation steps must be read against this. If Chrome
-retains grants after a correct `remove()`, Part 12 rows become DOCUMENTED
-rather than FAILED, exactly as the Part 0 table specifies. Not yet
-distinguished from the alternative — that `remove()` was never called — which
-Part 12 step 1 is designed to separate.
-
-**O-2. The `chrome://extensions` Details panel UNDER-REPORTS the granted
-set.** With both patterns held, Site access listed only `*://*.hw.test/*`.
-Ground truth from the extension's own service worker:
+Granted set under v0.1.3, read from the extension's own service worker:
 
 ```
-chrome.permissions.getAll().then(p => console.log(p.origins))
-["*://*.hw.test/*", "*://hw.test/*"]   // length 2
+4 ["*://alt.test/*","*://hw.test/*","*://keep.test/*","*://orphan.test/*"]
 ```
 
-Chrome appears to collapse the display, showing the broader pattern because
-`*.hw.test` covers the apex. The permission state is correct; the panel is a
-summary.
+**Four apex patterns, zero `*://*.` wildcards.** This is what makes the
+migration real rather than a fresh install wearing a version number, and it is
+the "before" half the sweep is measured against. The v0.1.3 dialogs matched:
+each named only the bare domain ("Read and change your data on hw.test"), with
+no "and its subdomains" — the direct contrast to sitting A's step 5.
 
-This matters beyond cosmetics. Finding 18 existed because a UI surface
-asserted something the wire did not support, and the Details panel is a UI
-surface with the same failure mode. **Verify granted sets with
-`permissions.getAll()` in the service worker console, not by reading the
-Details panel.** Anyone debugging a permission question from that panel will
-reach a wrong conclusion.
+L3 was then orphaned by dropping every reference to `orphan.test` from
+storage, leaving `5 L1a,L1b,L1c,L2,L4` and the grant count still at 4. A held
+grant that no profile references is invisible to `diffDomainGrants()`, because
+it never appeared in a profile-set change — precisely the condition step 8
+exists to sweep.
 
-### Resume — what is left and what state it needs
+The upgrade was an in-place overwrite of `~/hw/upgrade`
+(`cp -R ~/hw/fresh/ ~/hw/upgrade/`), preserving the path and therefore the
+extension id, storage, and grants. Both cards read 0.1.4 afterwards.
 
-Not yet run: **Part 11 steps 6, 6b, 6c, 6d, 7, 8, 9, 10** and **all of Part
-12**.
+### Step 8 — orphaned grant swept — PASS
 
-The remaining steps are the upgrade path, and they need setup the completed
-steps did not:
+Captured at install time with the service worker console already open and
+Preserve log enabled. Verbatim:
 
-- `~/hw/upgrade` (v0.1.3) and `~/hw/fresh` (v0.1.4) are already unpacked and
-  version-verified. Step 6 requires loading v0.1.3 from `~/hw/upgrade` FIRST,
-  granting under it, and then overwriting that SAME DIRECTORY with v0.1.4 and
-  reloading. Copying to a new folder changes the path, which changes the
-  extension id, which discards both storage and the grant — and step 6 then
-  silently tests nothing.
-- Step 6c needs an extension that never ran v0.1.3. The currently loaded
-  `~/hw/fresh` copy has an active `hw.test` grant, so it is NOT clean for
-  that purpose. Remove it (which drops its permissions and storage) and
-  re-add, or use a third directory.
-- Only ONE HeaderWright copy should be enabled at a time. Two copies both
-  register DNR rules and no result is attributable.
-- Part 12 continues from Part 11 step 6 with a legacy-only domain still gray.
-  Do not re-grant it before Part 12 step 1.
+```
+HeaderWright: revoking 1 host grant(s) no profile references — *://orphan.test/*   sw.js:202
+```
 
-Environment above must be re-verified rather than assumed on resume —
-particularly the Chrome version, since an auto-update between sittings would
-split the record across two builds.
+Count 1, singular agreement correct, and the pattern is the orphan and only
+the orphan.
+
+### Step 7 — legacy grants retained — PASS
+
+```
+3 ["*://alt.test/*","*://hw.test/*","*://keep.test/*"]
+```
+
+Both halves of one sweep: `orphan.test` taken because nothing references it,
+the other three retained because they are inside v0.1.4's wanted set. Still
+apex-only — nothing had been re-granted yet. Observing swept and retained in
+the same pass is stronger than either alone. Had the retained three been
+dropped, every upgrading user would have silently lost their grants.
+
+### Step 6 — migration surface — PASS (non-consuming bullets)
+
+| Check | Observed |
+| --- | --- |
+| Profiles survived | 5 (L1a, L1b, L1c, L2, L4) |
+| Dots | all GRAY |
+| Chips | dashed underline, clickable |
+| Notice | present, above the list, counts **3** domains, plural agreement correct |
+| Status line | `5 profiles · 0/3 domains granted · applying` |
+| Tooltip | correct (see below) |
+
+**Migration notice, verbatim:**
+
+> HeaderWright now requests access to subdomains, so headers set for
+> example.com also apply on api.example.com. 3 domains granted under an
+> earlier version do not cover this yet, and their headers will not apply
+> until re-approved. Click any gray domain below to re-approve it.
+
+**Tooltip, read from the DOM** (`document.querySelector('.domain.migrating').title`):
+
+> hw.test: this domain was granted under an older version that did not cover
+> subdomains. Headers will not apply until you click to re-approve.
+
+Distinct from the never-granted string, which is what step 6c is meant to
+prove cannot false-positive.
+
+The status line is the finding-18 row. Master toggle ON, `applying`, and yet
+`0/3 granted` with three gray dots. Under v0.1.3 this same state showed green.
+Three independent surfaces agree on the count — notice says 3, status says
+0/3, `getAll()` returned 3 — and `orphan.test` appears in none of them.
+
+### Part 12 step 1 — delete releases the legacy grant — PASS
+
+`chrome.permissions.remove` was wrapped in BOTH the service worker and the
+popup context before acting. The revoke runs in `popup.js`, so the service
+worker wrapper alone would have caught nothing.
+
+Deleting L2 while `alt.test` was legacy-gray:
+
+```
+REMOVE CALLED ["*://alt.test/*"]    VM152:3
+REMOVE RESULT true                  VM152:4
+```
+
+**Exactly one pattern, apex shape** — `heldOrigins` returned what was actually
+held. The failure this step exists to catch (calling `remove()` with
+`*://*.alt.test/*`, which succeeds vacuously while the real legacy grant stays
+behind) did not occur. `*://alt.test/*` was absent from `getAll()` afterwards.
+
+**Verdict is PASS, not DOCUMENTED. O-1 does not reproduce as a retention
+failure.** See "O-1 resolved" below.
+
+### Part 12 step 4 — shared legacy domain retained — PASS (contaminated)
+
+Deleting L1a left `*://hw.test/*` held, with L1b and L1c still referencing it.
+Finding 1b's invariant holds under migration.
+
+**Contamination:** by the time this ran, `hw.test` and `keep.test` had been
+re-granted to the full v0.1.4 pattern set — once by an accepted dialog, once
+silently. The narrow claim (a shared domain is not released when one of
+several referencing profiles is deleted) is unaffected, but the row was not
+observed against a clean legacy-only state.
+
+---
+
+## The central finding of sitting B: Chrome caches permission approval
+
+Discovered while trying to restore legacy-gray state, and it is the reason
+five rows are blocked.
+
+**Observed sequence.** After the wildcards were removed and the apex
+re-granted (`2 ["*://hw.test/*","*://keep.test/*"]`, legacy-only), deleting
+profile L1a — with **no dialog shown and no user interaction** — produced:
+
+```
+4 ["*://*.hw.test/*","*://*.keep.test/*","*://hw.test/*","*://keep.test/*"]
+```
+
+The extension's host access silently widened from apex-only to
+apex-plus-all-subdomains during a delete.
+
+**Discriminating test.** A profile was created on `novel.test`, a host never
+approved in this Chrome profile. The dialog **did** appear:
+
+> Read and change your data on all novel.test sites and novel.test
+
+Denied. `getAll()` afterwards showed no `novel.test` residue in any form, and
+deleting the test profile prompted nothing — `remove()` does not prompt, and
+nothing unapproved remained to request.
+
+**Conclusion.** Chrome caches permission approval per origin, per browser
+profile, and that cache survives `permissions.remove()`. A subsequent
+`request()` for a previously-approved origin is granted silently, with no
+prompt. A never-approved origin still prompts normally. This is Chrome
+behavior, not a HeaderWright defect.
+
+### O-1 resolved
+
+O-1 recorded that a host grant appeared to SURVIVE profile deletion, and that
+re-creating the profile produced no dialog. Both observations are explained,
+and the first was wrong about the mechanism.
+
+The grant **is** released on delete. Step 1 verified it directly: `remove()`
+called with the correct single pattern, result `true`, origin gone from
+`getAll()`. What survives is Chrome's record that the user once approved that
+origin. Re-creating the profile fires `request()`, which is granted silently —
+so the end state is indistinguishable from a grant that never went away.
+
+**Part 0's revocation rows resolve as DOCUMENTED**, with the sharper
+description: release works; re-acquisition is silent.
+
+---
+
+## Findings raised (candidates — belong in FINDINGS.md, not here)
+
+Four observations about the product rather than about this run. Two were seen
+on v0.1.3 code paths and are therefore pre-existing, not v0.1.4 regressions.
+
+1. **Popup header and footer scroll out of view.** With six profiles, the
+   master toggle and the status line both leave the viewport. The toggle is
+   the primary control and the status line is the honesty surface findings 3
+   and 8 exist to protect. Seen on v0.1.3. Not covered by SCOPE.md; the
+   closest entry is a v0.2 note that a second header list "needs a layout
+   answer that does not turn the popup into a form."
+2. **Native tooltip never renders on hover.** The `title` attribute is
+   constructed correctly — confirmed via the DOM — but no tooltip appeared on
+   hover in this environment, so the text is reachable only through DevTools.
+   Same shape as finding 18 and O-2: a surface asserting something the user
+   cannot actually get at.
+3. **Any profile mutation re-requests every remaining legacy domain.**
+   Deleting L2 prompted for `hw.test` and `keep.test`, domains unrelated to
+   the deleted profile. This is `reconcileGrants()` working as designed — a
+   legacy-only domain is wanted-but-not-fully-granted, so it lands in
+   `toRequest` by construction, and the FINDING 20 comment shows the tracking
+   is deliberate. The unexamined consequence is that it contradicts the
+   notice's own framing ("Click any gray domain below to re-approve it"),
+   which implies a per-domain deliberate act. Combined with the approval cache
+   above, the prompt may not appear at all, and the broadening is then
+   invisible.
+4. **A wildcard pattern may subsume the apex pattern. NEEDS CONFIRMATION.**
+   `remove({origins:["*://*.hw.test/*","*://*.keep.test/*"]})` returned `true`
+   and left `0 []` — it took the apex patterns with it. If `*://*.host/*`
+   covers the apex, then `originsForDomain()` returning both patterns is
+   redundant, which would affect dialog wording and the meaning of
+   `heldOrigins`. O-2 independently suspected this from the Details panel
+   collapsing the display. Inferred from one `remove()` result; test it before
+   treating it as fact.
+
+---
+
+## Blocked
+
+These five rows cannot produce clean evidence in the `hw-test` Chrome profile,
+because every test host now carries a cached approval.
+
+| Row | Requires | Why blocked |
+| --- | --- | --- |
+| 11 step 6, last bullet | a gray domain, a dialog on chip click, and a wire check | previously-approved domains re-grant silently; the dialog will not fire |
+| 11 step 6b | notice self-expiring after the LAST re-grant | needs held gray state; any mutation can silently restore the full grant |
+| 12 step 2 | a legacy-gray domain to edit | same |
+| 12 step 3 | a legacy-gray domain to import over | same; `alt.test` is also gone entirely, L2 having been deleted at step 1 |
+| 12 step 5 | re-grant working after a release | needs an observable grant prompt |
+
+The synthetic re-gray used during this sitting (remove wildcards, re-request
+apex) reproduces legacy-only state but does **not** hold it: the state was
+observed reverting to a full grant on the next unrelated mutation. It is not a
+substitute for the precondition.
+
+---
+
+## Resume
+
+**The blocked rows need a Chrome profile that has never approved these
+hosts.** That is a new environment, not a continuation — a fresh profile means
+re-establishing the launch flags and the extension load, and the evidence for
+those rows must carry its own environment block.
+
+Two ways to get there, either acceptable if recorded:
+
+- A new dedicated Chrome profile, or
+- The same profile with hostnames never approved in it (e.g. `hw2.test`,
+  `alt2.test`), which is cheaper but leaves the old approval cache in place
+  and should be noted as such.
+
+Setup carried over from sitting B, still valid:
+
+- `~/hw/upgrade` currently holds v0.1.4. Rebuilding a legacy fixture means
+  restoring v0.1.3 there FIRST, granting under it, then overwriting that same
+  directory again. The path must not change or the extension id changes with
+  it and both storage and grant are discarded.
+- Step 6c needs an extension that never ran v0.1.3. Use a third directory
+  (`~/hw/clean`); `~/hw/fresh` and `~/hw/upgrade` both carry history.
+- Only ONE HeaderWright copy enabled at a time.
+- Wrap `chrome.permissions.remove` in the POPUP context, not just the service
+  worker, before any Part 12 step. Re-arm after any popup close — the context
+  is destroyed with it, and a wrapper that died silently reads identically to
+  a genuine failure.
+- Deny the re-request prompt (finding 3) unless the step calls for granting.
+
+Environment must be re-verified rather than assumed, particularly the Chrome
+version.
+
+## Corrections owed to SMOKE.md
+
+- **Part 12 step 2's re-gray method is wrong as written.** Removing only the
+  wildcard yields `0 []`, not legacy-only state, because the wildcard subsumes
+  the apex. The working sequence is remove-then-request: remove
+  `*://*.<domain>/*`, then request `*://<domain>/*`.
+- **Part 12 needs a stated precondition** that it requires a Chrome profile
+  with no approval history for the test hosts. Without it the gray state
+  cannot be held and re-grant dialogs will not fire, which is what blocked
+  five rows in this run.
