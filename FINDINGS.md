@@ -485,3 +485,67 @@ ambiguous meaning, refuse it rather than letting Chrome decide.
 
 Scheduled as its own release. It is design work, and it should not ride along
 with a regression fix.
+
+**FINDING-022 — the popup's header and footer scroll out of view.** With six
+profiles the list overflows, and both the master toggle and the status line
+leave the viewport. The toggle is the primary control, and the status line is
+the honesty surface FINDING-003 and FINDING-008 exist to protect — a status
+line that cannot be seen while looking at the chips is a weaker guarantee than
+one that can.
+
+Observed on v0.1.3 during the v0.1.4 smoke run, so it predates the release and
+is not a regression. SCOPE.md does not cover it; the nearest entry is a v0.2
+note that a second header list "needs a layout answer that does not turn the
+popup into a form," which makes popup layout an already-acknowledged open
+question. Fixing both together is the obvious move.
+
+**FINDING-023 — the domain chip's tooltip never renders.** `chip.title` is
+constructed correctly for all three states, confirmed by reading
+`.domain.migrating` from the DOM. No tooltip appeared on hover in the test
+environment, so the text is reachable only through DevTools.
+
+This is the FINDING-018 shape again, one layer up: a surface that asserts
+something the user cannot actually get at. It matters most for the migration
+state, where the tooltip carries the only explanation of WHY a chip is gray —
+the distinction between "granted under an older version" and "never granted"
+exists in the string and nowhere else in the UI. Whether this is a Chrome
+behaviour for `<button title>` inside extension popups or something in the
+markup is not yet established.
+
+**FINDING-024 — any profile mutation re-requests every remaining legacy
+domain.** Deleting a profile on `alt.test` produced a permission dialog naming
+`hw.test` and `keep.test` — domains unrelated to the profile being deleted.
+
+This is `reconcileGrants()` behaving as designed. A legacy-only domain is
+wanted-but-not-fully-granted, so it lands in `toRequest` by construction, and
+FINDING-020's fix makes that tracking deliberate. The unexamined consequence is
+that it contradicts the migration notice's own framing — "Click any gray domain
+below to re-approve it" implies a per-domain deliberate act, while in practice
+any edit, delete, or import re-requests all of them at once.
+
+Worse in combination with the Chrome behaviour recorded in
+`test/EVIDENCE.md`: approval is cached per origin per browser profile and
+survives `permissions.remove()`, so for a previously-approved domain the
+request is granted SILENTLY. The observed end state was host access widening
+from apex-only to apex-plus-subdomains during a profile delete, with no dialog
+and no user interaction. The reconciliation is correct; its trigger is too
+broad, and the silence makes the breadth invisible.
+
+**FINDING-025 — `originsForDomain()` requests a redundant pattern.**
+`*://*.host/*` subsumes `*://host/*`. Confirmed at every layer:
+`permissions.contains()` on the apex returns true with only the wildcard held;
+`reconcileGrants()` opens no dialog for a profile on the apex; and the header
+applies on both apex and subdomain on the wire. Evidence in
+`test/EVIDENCE.md`, "Follow-up: wildcard subsumption".
+
+Not a correctness defect — coverage is right either way, and FINDING-018's fix
+is unaffected. The cost is a permission dialog one clause longer than it needs
+to be ("Read and change your data on all hw.test sites and hw.test" versus
+"...on all hw.test sites"), which for an extension whose thesis is permission
+minimalism is worth removing. It also simplifies `heldOrigins`, which currently
+tracks a distinction that does not exist in Chrome's coverage model.
+
+The direction is untested: nothing establishes whether an apex-only grant
+covers subdomains, and FINDING-018 implies it does not. Verify before
+simplifying — the redundancy runs one way, and treating the two patterns as
+interchangeable would re-introduce FINDING-018.
