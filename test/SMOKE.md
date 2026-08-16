@@ -556,6 +556,12 @@ retention control. Verify every granted set with `permissions.getAll()` in the
 service worker console, NOT the Details panel — that panel collapses the
 patterns and under-reports.
 
+**Read Part 12's PRECONDITION before starting.** Step 6's last bullet needs a
+re-grant dialog to fire, and in a Chrome profile that has already approved
+these hosts it will not — the grant is issued silently and the step cannot be
+observed. The same constraint governs 6b. Choose the browser profile and the
+hostnames accordingly, before building the fixture rather than after.
+
 1. **Apex still applies (regression control).** Profile on `<apex>`, granted
    fresh in v0.1.4, master ON. Header present on `<apex>`. This is Part 1
    step 1 re-run against the new pattern set — if it fails, the wildcard
@@ -634,6 +640,33 @@ is the one case that contradicts the README's "released immediately" claim.
 
 Continues from Part 11 step 6, with a legacy-only domain still gray.
 
+### PRECONDITION — a Chrome profile with no approval history
+
+**Chrome caches permission approval per origin, per browser profile, and that
+cache SURVIVES `permissions.remove()`.** Once a user has approved an origin
+for this extension, a later `request()` for it is granted SILENTLY, with no
+dialog. A never-approved origin still prompts normally.
+
+Consequences, all of which invalidate this part if ignored:
+
+- Gray state cannot be HELD. Any profile mutation runs `reconcileGrants()`,
+  which re-requests every wanted-but-not-fully-granted domain — and those
+  requests are granted silently. A domain re-gray'd by hand reverts to a full
+  grant on the next unrelated delete or save, with nothing shown to the user.
+- Re-grant dialogs do not fire, so any step that observes one fails to
+  reproduce.
+- Nothing about this is visible while it happens. The failure looks like the
+  test passing.
+
+Run this part in a Chrome profile that has NEVER approved the test hosts, or
+against hostnames never approved in the current profile (`hw2.test`,
+`alt2.test`). If reusing a profile with different hostnames, record that —
+the old approval cache is still present and constrains what can be re-run.
+
+Cheap verification that a host is genuinely unapproved: create a throwaway
+profile on it and confirm the dialog appears. No dialog means the cache is
+already primed and this part cannot produce clean evidence for that host.
+
 ### Instrument the revoke path before running steps 1-3
 
 Without this, a retained grant is ambiguous between two very different
@@ -679,18 +712,28 @@ exactly like the FAIL row above.
    genuine path but is slow, and revoking via Site access is unreliable
    because that panel collapses the two patterns. `isLegacyOnlyGrant()` is a
    pure state test — apex held, current set not held — so the state is
-   reachable directly from the service worker console:
+   reachable from the service worker console, but it takes TWO calls:
 
-       // drop ONLY the wildcard; keep the apex
+       // 1. remove the wildcard. NOTE: this takes the apex with it —
+       //    "*://*.host/*" SUBSUMES "*://host/*" in Chrome match-pattern
+       //    semantics, so the domain is left with no grant at all.
        await chrome.permissions.remove({ origins: ["*://*.<domain>/*"] });
+       // 2. request the apex back on its own
+       await chrome.permissions.request({ origins: ["*://<domain>/*"] });
        await chrome.permissions.getAll().then(p => console.log(p.origins));
        // expect: holds "*://<domain>/*", does NOT hold "*://*.<domain>/*"
 
-   `remove()` needs no user gesture, so this works from the console. Reopen
-   the popup: gray chip, dashed underline, notice count incremented. RECORD
-   THAT THE RE-GRAY WAS SYNTHETIC wherever it is used — it reproduces the
-   state, not the upgrade that produces the state. Part 11 steps 6 and 6b
-   still require a genuine v0.1.3 -> v0.1.4 overwrite.
+   `remove()` needs no user gesture. `request()` does — enable "Treat code
+   evaluation as user action" in the console settings, or it will reject.
+   Removing ONLY the wildcard and stopping there does not work: it yields an
+   empty grant set, not a legacy-only one. Verify with `getAll()` rather than
+   assuming; a domain with no grant and a domain with a legacy grant both
+   render as a gray chip, and only one of them is the state this part needs.
+
+   RECORD THAT THE RE-GRAY WAS SYNTHETIC wherever it is used — it reproduces
+   the state, not the upgrade that produces the state. Part 11 steps 6 and 6b
+   still require a genuine v0.1.3 -> v0.1.4 overwrite. Note also that
+   synthetic re-gray does not HOLD: see the precondition above.
 3. **Import replace-all releases it.** Same setup, then import a config that
    does not reference the domain. Gone.
 4. **A shared legacy domain is RETAINED.** Two profiles on the same gray
@@ -751,7 +794,8 @@ Site Access UI even produces the shape the sweep matches. Find out:
                      8 orphaned grant swept, console line seen = ?
                      9 "On all sites" survived reload = ?
                      10 IP-literal profile still applies = ?  (n/a if unused)
-    Part 12:         wrapper armed = ?  re-armed after each SW restart = ?
+    Part 12:         browser profile approval history for test hosts = none / primed
+                     wrapper armed in POPUP context = ?  re-armed after each close = ?
                      1 delete: REMOVE CALLED = "..."  result = ?  after = ?
                      2 edit:   REMOVE CALLED = "..."  result = ?  after = ?
                      3 import: REMOVE CALLED = "..."  result = ?  after = ?
