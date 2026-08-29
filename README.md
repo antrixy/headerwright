@@ -30,6 +30,15 @@ description.
 
 To run from source instead, see [Development](#development).
 
+## Compared to other header extensions
+
+If you are here because ModHeader was removed from the store, or you are
+weighing this against Requestly or Header Editor, see
+[COMPARISON.md](./COMPARISON.md). It explains the one architectural axis that
+distinguishes these tools — whether the extension's code can observe your
+traffic — and is honest about what HeaderWright does not do yet, including
+the open findings that would matter to you.
+
 ## Permissions
 
 HeaderWright does not request access to any site at install time. When you
