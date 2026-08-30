@@ -531,6 +531,17 @@ from apex-only to apex-plus-subdomains during a profile delete, with no dialog
 and no user interaction. The reconciliation is correct; its trigger is too
 broad, and the silence makes the breadth invisible.
 
+Confirmed on a clean profile (sitting C, 2026-08-29). The silent re-grant
+reproduces on TWO independent paths — a delete-then-re-add, and an
+import that re-adds a previously-approved domain — which places the cause in
+Chrome's per-origin approval cache rather than any single code path. The cache
+is populated by ACCEPTANCE only: a denied origin still prompts on the next
+request, and every never-approved origin prompted normally. So the sharpened
+user-facing statement is: a same-session-approved origin cannot be fully
+"revoked" by deleting or re-importing its profile — access returns without a
+prompt — whereas a never-approved or denied origin always prompts. Release
+works; re-acquisition of a previously-accepted origin is silent.
+
 **FINDING-025 — `originsForDomain()` requests a redundant pattern.**
 `*://*.host/*` subsumes `*://host/*`. Confirmed at every layer:
 `permissions.contains()` on the apex returns true with only the wildcard held;
