@@ -10,14 +10,246 @@ from.
 
 ---
 
-# v0.1.4 — INCOMPLETE
+# v0.1.4 — COMPLETE
 
-**STATUS: DO NOT SHIP ON THIS RECORD.** Five rows are BLOCKED on a Chrome
-behavior discovered mid-run, not merely unrun. They need a Chrome profile with
-no permission-approval history for the test hosts. See "Blocked" and "Resume".
+**STATUS: CLEARED TO SHIP.** The five rows sitting B left BLOCKED, and the four
+it left unrun, were completed in sitting C (2026-08-29) in a fresh Chrome
+profile with no approval history — the precondition sitting B's "Resume"
+section named. The DO-NOT-SHIP condition is lifted. Sitting C is recorded
+first, below; sittings A and B follow unchanged.
 
-Run across two sittings, both 2026-08-15. Sitting A covered v0.1.4's own
-behavior; sitting B covered the v0.1.3 -> v0.1.4 upgrade path.
+Run across three sittings. Sitting A (2026-08-15) covered v0.1.4's own
+behavior; sitting B (2026-08-15) covered the v0.1.3 -> v0.1.4 upgrade path but
+hit a Chrome approval-cache behavior that blocked five rows; sitting C
+(2026-08-29) cleared them.
+
+---
+
+## Sitting C — clearing the blocked rows (newest)
+
+Run in one sitting, 2026-08-29. Sitting C exists to clear the five rows sitting
+B left BLOCKED and the four it left unrun. It was run in a NEW Chrome profile
+`hw-clean` with hostnames never approved anywhere, which is exactly the
+precondition sitting B's "Resume" section named. Every wire claim rests on the
+echo server's own log read while browsing in Chrome, never on `curl`.
+
+## Row status — sitting C
+
+| Row | Status | Sitting |
+| --- | --- | --- |
+| Part 11 step 6 — last bullet (re-grant, wire check) | **PASS** | C |
+| Part 11 step 6b — notice self-expires | **PASS** | C |
+| Part 11 step 6c — fresh-install false positive | **PASS** | C |
+| Part 11 step 6d — shared-domain render | **PASS** | C |
+| Part 11 step 9 — "On all sites" survives reload | **N/A by design** | C |
+| Part 11 step 10 — IP literal | **PASS** | C |
+| Part 12 step 2 — edit releases | **PASS** | C |
+| Part 12 step 3 — import releases | **PASS** | C |
+| Part 12 step 5 — re-grant works after | **PASS** | C |
+| Part 12 steps 6–7 — sweep provenance | **recorded** | C |
+
+With these, every row in the v0.1.4 table above is now pass, documented, N/A,
+or recorded. The DO-NOT-SHIP condition is lifted.
+
+## Environment — sitting C (re-verified, not carried forward)
+
+| Field | Value |
+| --- | --- |
+| Build under test | v0.1.4 (`~/hw/fresh`), upgraded in place from v0.1.3 (`~/hw/upgrade`) |
+| v0.1.3 source | GitHub `v0.1.3` release ZIP, restored into `~/hw/upgrade` before load |
+| `~/hw/upgrade` manifest | no `"key"` field — unpacked id is path-derived; the step-8 overwrite reused the same path |
+| Chrome | 151.0.7922.174 (Official Build) (arm64) — newer than sittings A/B (`.138`); Chrome auto-updated in the two-week gap |
+| OS | macOS 26.5.2 (Build 25F84) — same as sittings A/B |
+| Extension id — `~/hw/upgrade` (hw-clean) | `ngdghcfocifikljohnikblmaepohecjo` (unpacked; path-derived; differs from A/B, new profile+path) |
+| Launch flags | empty `--flag-switches-begin`/`--flag-switches-end` pair (no `chrome://flags` overrides), `--origin-trial-disabled-features=CanvasTextNg|WebAssemblyCustomDescriptors` — identical to sittings A/B |
+| Profile | NEW dedicated `hw-clean` (Chrome "Profile 9"), created this sitting, NOT signed in |
+| Fixture hosts | all fresh, none reused from A/B: `up1.test`, `sub.up1.test`, `up2.test`, `ed1.test`, `ed1b.test`, `im1.test`, `fresh1.test`, `shared1.test`, `prov1.test`, `probe1.test`, `127.0.0.1` -> `127.0.0.1` |
+| Echo server | `:8080`, reflects request headers as JSON. Ports 5000/7000 avoided — held by macOS Control Center (AirPlay) |
+| Date | 2026-08-29 |
+
+The new profile is the whole point: in a primed profile a silent re-grant reads
+identically to a legitimate dialog-less pass, which is why sitting B could not
+produce these rows. `hw-clean` was proven clean before use (see Probe).
+
+## Probe — the fixture is valid, and a denial does not prime
+
+Before any row, `probe1.test` was granted in `hw-clean`: **the dialog appeared**,
+confirming the profile carries no approval history. The probe grant/profile was
+then removed.
+
+A denial sub-check was run in the same breath: after denying `probe1.test`,
+clicking the chip re-fired the dialog rather than granting silently. **Chrome's
+approval cache records accepted grants only, not decisions.** This sharpens
+sitting B's central finding: the cache is populated by acceptance, so a denied
+origin stays clean. It is also why step 6c (below) is trustworthy on a denied
+host.
+
+---
+
+## Part 11 step 6 — migration re-grant, on the wire — PASS
+
+The row sitting B could not reach. v0.1.3 loaded from `~/hw/upgrade`, `up1.test`
+and `up2.test` each granted under it (both dialogs fired; 2/2 granted). Baseline
+captured on the OLD build:
+
+```
+up1.test:8080/       -> xheader: True      (apex applies on v0.1.3)
+sub.up1.test:8080/   -> (no xheader)        (finding-18 subdomain failure, live on the store build)
+```
+
+`~/hw/upgrade` then overwritten in place with v0.1.4 (same path, id preserved);
+extension reloaded. Post-upgrade popup: both dots GRAY, `0/2 domains granted`,
+migration notice present and PLURAL (2 domains). Reload preserved the install —
+grants recognised, not wiped — confirming the path-derived id held across the
+overwrite.
+
+**P-CACHE — registered prediction was WRONG.** Before clicking, the prediction
+on record was that the chip click would grant SILENTLY (per-host cache),
+because the earlier follow-up had seen a wildcard granted silently for an
+apex-approved host. Observed instead: clicking the gray `up1.test` chip
+produced a **dialog**. Accepting it turned the dot green.
+
+```
+up1.test:8080/       -> xheader: True
+sub.up1.test:8080/   -> xheader: True       (THE FIX, on the wire)
+```
+
+**Conclusion.** On the genuine legacy-upgrade path, Chrome's approval cache is
+per-PATTERN, not per-host: the v0.1.4 request carries the never-approved
+`*://*.up1.test/*` wildcard, so Chrome prompts. The migration notice is
+therefore truthful — it tells the user to re-approve and a re-approval dialog
+genuinely appears. The earlier silent-widening observation (sitting B) came
+from a contaminated profile where the wildcard forms had likely been approved
+before; it does not generalise to a clean upgrade. This is the pass/fail the
+release turns on, and it passes.
+
+## Part 11 step 6b — notice self-expires on the last re-grant — PASS
+
+After `up1.test` went green the notice tracked the count down: text became
+SINGULAR ("1 domain ... its headers"). Re-granting the LAST gray domain
+(`up2.test`, dialog fired, 2/2) made the migration notice **vanish in the same
+render**. It stayed gone across popup close+reopen AND a full extension reload.
+Migration state is cleared and persisted, not merely hidden.
+
+## Part 11 step 6c — fresh-install false positive — PASS
+
+A profile for `fresh1.test` was added in a fresh v0.1.4 install (`~/hw/fresh`,
+never ran v0.1.3) and the permission dialog was DENIED. Resulting chip: gray
+dot, **no** migration notice, **no** dashed underline (plain text). This is the
+distinguishing test finding-18/O-2 shape motivated: a never-granted domain is
+visually distinct from a legacy-needs-reapproval domain (gray + dashed
+underline + notice). The never-granted state does not false-positive as
+migrating.
+
+## Part 11 step 6d — shared-domain render — PASS
+
+Two profiles ("Test", "Test2") both scoped to `shared1.test`, granted once.
+Both chips render green, both cards clean, and the status line reads
+`1/1 domain granted` — the unique domain counted once, not once per profile.
+Grant accounting dedupes by domain across profiles. (A transient first-render
+flicker was suspected but could not be reproduced on demand; recorded as
+unconfirmed, not a defect.)
+
+## Part 11 step 10 — IP literal — PASS
+
+Profile scoped to `127.0.0.1`, granted (dialog appeared), header confirmed at
+`127.0.0.1:8080/`. Exercises the `originsForDomain()` IP branch: an IP literal
+emits only the exact pattern, no `*://*.<host>/*` wildcard. The absent wildcard
+does not break the grant or the wire match.
+
+## Part 11 step 9 — "On all sites" survives reload — N/A by design
+
+Chrome's Details -> Site access offers HeaderWright no on-click/specific/all-
+sites radio. Because `*://*/*` is declared only as an OPTIONAL host permission
+and hosts are requested individually, Chrome renders the per-domain
+"Automatically allow access on the following sites" list instead. The row as
+written targets a control this permission model deliberately does not expose;
+the minimal-permission design is the reason it is absent. Recorded N/A with
+cause rather than skipped.
+
+## Part 12 steps 6–7 — sweep provenance — recorded
+
+The open question from `grants.js` (what pattern shape Chrome actually stores
+for a user-visible grant) is now answered by observation. Chrome's Site access
+list showed the granted patterns verbatim:
+
+```
+*://*.up1.test/*   *://*.shared1.test/*   *://*.ed1b.test/*   ...   *://127.0.0.1/*
+```
+
+The wildcard-subdomain form, scheme-agnostic (`*://`), exactly what
+`originsForDomain()` emits — NOT scheme-specific (`https://...`). These patterns
+MATCH `isManagedOrigin()`, so they are inside the sweep and reconciliation acts
+on them; and they are not the all-hosts `*://*/*`, so the "On all sites"
+carve-out is untouched. For user-visible grants of this shape the "shape
+confined" guarantee holds.
+
+## Part 12 step 2 — edit releases — PASS
+
+Run from a virgin host to keep dialogs interpretable. `ed1b.test` granted
+(dialog, header confirmed at `ed1b.test:8080/`), then the profile EDITED to
+point away. After the edit:
+
+```
+ed1b.test:8080/   -> (no xheader)     (released, verified twice)
+```
+
+Chrome's Site-access list retains a `*://*.ed1b.test/*` ROW in an inactive
+state rather than deleting it — a Chrome UI artifact, not a live stale grant.
+The wire is authoritative: released. Cross-check that inactive-looking rows in
+that list were merely dim, not revoked: `shared1.test:8080/` still returned
+`xheader: A` throughout, confirming still-granted domains stayed active.
+
+## Part 12 step 3 — import releases — PASS
+
+`im1.test` granted and applying. An exported config with `im1.test` OMITTED was
+imported. Import showed a confirm dialog ("Replace your 5 profiles with 4
+profiles from ...?" — counts both sides before replacing). After Replace:
+`im1.test` gone from the popup, status dropped `4/4 -> 3/3 domains granted`
+(orphan reconciled away), and on the wire `im1.test:8080/` showed no xheader.
+Import-path reconciliation matches the edit path.
+
+## Part 12 step 5 — re-grant works after release — PASS, silent
+
+The original 5-profile export was re-imported (re-adds `im1.test`). Replace
+confirm dialog appeared; **no permission prompt** for `im1.test`. Wire:
+`im1.test:8080/` shows `xheader: True` again. The reconciled-away grant is
+re-established SILENTLY, because `im1.test` is a primed origin (approved earlier
+this sitting; the approval cache persists across the step-3 revoke). Round trip
+proven: grant -> release via import (step 3) -> re-grant via import (step 5).
+
+---
+
+## Silent re-grant confirmed on a SECOND path (delete/re-add)
+
+Independently of step 5, a delete-then-re-add of `ed1.test` (approved earlier
+this sitting) re-granted with **no dialog**. Two independent routes — import
+(step 5) and delete/re-add — reach the same silent re-grant, which confirms the
+cause is Chrome's per-origin approval cache and not a path-specific quirk. The
+user-facing consequence: a user cannot fully "revoke" a same-session-approved
+origin by removing or re-importing it; access returns without a prompt. Raised
+in FINDINGS.md (finding 24 neighbourhood).
+
+## Stray registered pattern — `ed2.test`
+
+`*://*.ed2.test/*` appeared in the Site-access list although `ed2.test` is not
+in `/etc/hosts` and no exported profile references it (the round-trip export in
+step 3 confirms no `ed2` profile exists). Almost certainly registered during
+delete/re-add experimentation. Harmless — the host does not resolve — but a
+registered pattern with no referencing profile is residue worth a cleanup pass;
+possibly F024-adjacent (mutation churn leaving patterns behind). Recorded, not
+yet a finding.
+
+## O-1 / approval-cache, restated for the clean profile
+
+Sitting B concluded Chrome caches approval per origin and that a `request()`
+for a previously-approved origin is silent. Sitting C both confirms this (steps
+5, delete/re-add) AND bounds it: on a CLEAN origin the request prompts (probe,
+step 6c, step 6, step 10 all fired dialogs), and the cache is populated by
+ACCEPTANCE only (denials do not prime). The refined statement: release works;
+re-acquisition of a previously-accepted origin is silent; a never-accepted
+origin always prompts.
+
 
 ## Row status
 
