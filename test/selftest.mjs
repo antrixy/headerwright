@@ -56,10 +56,18 @@ import {
   BADGE_FAILED,
   DEFAULT_SYNC_STATE,
 } from "../extension/lib/status.js";
+import {
+  domainsOverlap,
+  domainListsOverlap,
+  headerNamesFor,
+  findCollisions,
+  collidingProfileIds,
+  describeCollisions,
+} from "../extension/lib/collisions.js";
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 205;
+const EXPECTED_CHECKS = 241;
 
 let passed = 0;
 let failed = 0;
@@ -731,9 +739,17 @@ check("count agreement holds across profiles sharing a domain",
 // accepted and silently truncated at the wire. Counted in profiles because
 // grant state is unknowable here — see the comment in parseProfilesFile.
 
+// HEADER NAMES ARE DISTINCT PER PROFILE, AND THAT CHANGED IN v0.1.5. Until
+// FINDING-021 these were all `X-A` on `a.com`, which is now a 5000-way
+// collision and would be refused before the cap check could be reached. The
+// cap fixtures were never about collisions, so the fixture moved rather than
+// the checks. Distinct NAMES rather than distinct DOMAINS on purpose:
+// findCollisions() buckets by header name first, so distinct names give 5000
+// buckets of one and the fixture stays fast, while distinct domains sharing
+// one header name would give one bucket of 5000 and a quadratic domain scan.
 const bulk = (n, from = 1) => Array.from({ length: n }, (_, i) => ({
   id: from + i, name: `p${from + i}`, domains: ["a.com"],
-  headers: [{ name: "X-A", operation: "set", value: "1" }],
+  headers: [{ name: `X-A-${from + i}`, operation: "set", value: "1" }],
 }));
 
 check("the cap constant is 5000, the unsafe-rule limit not the 30000 one",
@@ -792,6 +808,201 @@ checkThrows("the refusal says how many profiles to remove (singular)",
 checkThrows("the overage scales, and pluralises",
   () => parseProfilesFile(validDoc(bulk(MAX_UNSAFE_DYNAMIC_RULES + 3))),
   "at least 3 profiles from");
+
+// ------------------------------------ cross-profile collisions (FINDING-021)
+// Two profiles whose domains overlap and which both write the same header have
+// no defined winner; v0.1.5 refuses the configuration rather than letting
+// Chrome pick. OBS-C10 is the banked before-state — one silent winner on the
+// wire — and it deliberately does NOT establish which mechanism chose it,
+// which is precisely why refusal was taken over precedence.
+
+const validEntry = (entry) => validateHeaderEntry(entry).valid;
+const cProf = (id, name, domains, headers) => ({ id, name, domains, headers });
+const setH = (name, value = "1") => ({ name, operation: "set", value });
+const rmH = (name) => ({ name, operation: "remove" });
+
+// --- domain overlap, which is label-suffix containment and not string suffix
+
+check("F021: a domain overlaps itself",
+  domainsOverlap("example.com", "example.com"));
+check("F021: an apex overlaps its subdomain (DNR matches both)",
+  domainsOverlap("example.com", "api.example.com"));
+check("F021: overlap is symmetric",
+  domainsOverlap("api.example.com", "example.com"));
+check("F021: an apex overlaps a deep subdomain",
+  domainsOverlap("example.com", "a.b.c.example.com"));
+
+// THE CHECK THIS GROUP EXISTS FOR. "notexample.com".endsWith("example.com") is
+// true, and a string-suffix test would refuse two configurations that cover
+// disjoint hosts. The leading dot is the whole fix. Part 11 step 4's
+// confusable control is the wire version of this.
+check("F021: a SUFFIX CONFUSABLE does not overlap",
+  !domainsOverlap("example.com", "notexample.com"));
+check("F021: the confusable case is symmetric too",
+  !domainsOverlap("notexample.com", "example.com"));
+check("F021: unrelated domains do not overlap",
+  !domainsOverlap("example.com", "example.org"));
+check("F021: sibling subdomains do not overlap",
+  !domainsOverlap("a.example.com", "b.example.com"));
+check("F021: an IP literal overlaps only itself",
+  domainsOverlap("127.0.0.1", "127.0.0.1") &&
+  !domainsOverlap("127.0.0.1", "127.0.0.2"));
+check("F021: domain LISTS overlap if any pair does",
+  domainListsOverlap(["a.test", "example.com"], ["z.test", "api.example.com"]));
+check("F021: disjoint domain lists do not overlap",
+  !domainListsOverlap(["a.test", "b.test"], ["c.test", "d.test"]));
+
+// --- which header names count
+
+check("F021: header names are compared case-insensitively",
+  headerNamesFor(cProf(1, "p", ["a.test"], [setH("X-Api-Key")]), validEntry)
+    .has("x-api-key"));
+// An entry profileToRule() would filter out never reaches DNR, so it cannot
+// collide with anything. Counting it would refuse a configuration over a
+// header that was never going to apply.
+check("F021: an INVALID header entry does not count toward a collision",
+  headerNamesFor(cProf(1, "p", ["a.test"], [setH("bad header name")]), validEntry)
+    .size === 0);
+
+// --- the pairwise scan
+
+const collidingPair = [
+  cProf(1, "Alpha", ["example.com"], [setH("X-H", "A")]),
+  cProf(2, "Beta", ["example.com"], [setH("X-H", "B")]),
+];
+const found = findCollisions(collidingPair, validEntry);
+check("F021: two profiles writing one header on one domain collide",
+  found.length === 1 && found[0].header === "x-h");
+check("F021: the collision names BOTH profiles, lower id first",
+  found[0].profileIds[0] === 1 && found[0].profileIds[1] === 2);
+check("F021: both sides are marked, never one",
+  collidingProfileIds(found).has(1) && collidingProfileIds(found).has(2));
+
+// The FINDING-018 surface: these two did not overlap before subdomain
+// matching shipped and do now, which is what makes existing 0.1.4 installs
+// reachable by this and why the build-time half is not optional.
+check("F021: apex and subdomain profiles collide (the 018-enlarged surface)",
+  findCollisions([
+    cProf(1, "Alpha", ["example.com"], [setH("X-H")]),
+    cProf(2, "Beta", ["api.example.com"], [setH("X-H")]),
+  ], validEntry).length === 1);
+check("F021: suffix-confusable domains do NOT collide",
+  findCollisions([
+    cProf(1, "Alpha", ["example.com"], [setH("X-H")]),
+    cProf(2, "Beta", ["notexample.com"], [setH("X-H")]),
+  ], validEntry).length === 0);
+check("F021: different headers on the same domain do not collide",
+  findCollisions([
+    cProf(1, "Alpha", ["example.com"], [setH("X-A")]),
+    cProf(2, "Beta", ["example.com"], [setH("X-B")]),
+  ], validEntry).length === 0);
+
+// STRICT, by decision 2026-09-01. Both of these have an order-independent
+// outcome and are refused anyway, because "two profiles disagree about this
+// header" is a rule that fits in the popup and stays honest. If the false
+// positive is ever reported, THESE are the two checks that change.
+check("F021 (strict): two REMOVES of the same header collide",
+  findCollisions([
+    cProf(1, "Alpha", ["example.com"], [rmH("X-H")]),
+    cProf(2, "Beta", ["example.com"], [rmH("X-H")]),
+  ], validEntry).length === 1);
+check("F021 (strict): IDENTICAL set values still collide",
+  findCollisions([
+    cProf(1, "Alpha", ["example.com"], [setH("X-H", "same")]),
+    cProf(2, "Beta", ["example.com"], [setH("X-H", "same")]),
+  ], validEntry).length === 1);
+
+// One profile may name a header twice — set-then-append is supported and
+// canonical.js freezes header order to preserve it. Within one profile the
+// entries land in one rule's ordered array, so DNR applies them
+// deterministically and there is nothing ambiguous to refuse.
+check("F021: a repeat WITHIN one profile is not a collision",
+  findCollisions([
+    cProf(1, "Alpha", ["example.com"], [setH("X-H", "a"), setH("X-H", "b")]),
+  ], validEntry).length === 0);
+
+// ADDED BECAUSE A MUTATION PASS FOUND IT UNPINNED. Removing the `a.id === b.id`
+// guard in findCollisions() failed ZERO checks, which first read as an
+// equivalent mutant: headerNamesFor() returns a SET, so a profile enters each
+// bucket at most once and the guard is unreachable for well-formed input.
+// Probing it directly showed that reading was wrong — the guard DOES change
+// behaviour when the caller passes a duplicate id, and nothing exercised that
+// path. parseProfilesFile() rejects duplicate ids, so this is storage-shaped
+// input, which A2 says to treat as untrusted. A profile must never be refused
+// for colliding with itself.
+check("F021: a duplicate id does not collide with itself",
+  findCollisions([
+    cProf(1, "Alpha", ["example.com"], [setH("X-H", "a")]),
+    cProf(1, "Alpha again", ["example.com"], [setH("X-H", "b")]),
+  ], validEntry).length === 0);
+
+// THE TWO-INPUTS PROPERTY (the FINDING-020 lesson, applied ahead of time).
+// The same profiles asked about GRANTED domains rather than configured ones
+// produce no collision, because no rule would register. Collapsing the two
+// questions into one is what this pins.
+check("F021: the same pair does not collide when the granted set is empty",
+  findCollisions(collidingPair.map((p) => ({ ...p, domains: [] })), validEntry)
+    .length === 0);
+
+const multi = findCollisions([
+  cProf(2, "Beta", ["example.com"], [setH("X-B"), setH("X-A")]),
+  cProf(1, "Alpha", ["example.com"], [setH("X-A"), setH("X-B")]),
+], validEntry);
+check("F021: collisions are sorted deterministically by header then id",
+  multi.length === 2 && multi[0].header === "x-a" && multi[1].header === "x-b" &&
+  multi[0].profileIds[0] === 1);
+
+// --- the sentence the user reads
+
+const sentence = describeCollisions(found, 1, (id) => ({ 1: "Alpha", 2: "Beta" })[id]);
+// Anchored on what was DECIDED — the header and the other profile's name are
+// what make the state actionable. FINDING-006's lesson: do not freeze prose
+// nobody chose on purpose.
+check("F021: the marker names the header", sentence.includes('"x-h"'));
+check("F021: the marker names the OTHER profile", sentence.includes('"Beta"'));
+check("F021: the marker says the profile is not applying",
+  sentence.toLowerCase().includes("not applying"));
+check("F021: an unresolvable name falls back to the id, never 'undefined'",
+  describeCollisions(found, 1, () => null).includes("profile 2"));
+check("F021: a profile in no collision gets no marker",
+  describeCollisions([], 1, () => "Alpha") === "");
+
+// --- the import refusal
+
+const collidingDoc = validDoc([
+  { id: 1, name: "Alpha", domains: ["example.com"], headers: [setH("X-H", "A")] },
+  { id: 2, name: "Beta", domains: ["api.example.com"], headers: [setH("X-H", "B")] },
+]);
+checkThrows("F021: a colliding import is REFUSED", () =>
+  parseProfilesFile(collidingDoc), "overlapping domains");
+checkThrows("F021: the import refusal names the header", () =>
+  parseProfilesFile(collidingDoc), '"x-h"');
+check("F021: a non-colliding import is still accepted",
+  attempt(() => parseProfilesFile(validDoc([
+    { id: 1, name: "Alpha", domains: ["example.com"], headers: [setH("X-A")] },
+    { id: 2, name: "Beta", domains: ["example.com"], headers: [setH("X-B")] },
+  ])).length) === 2);
+// Unnormalized case would miss its own overlap if the check ran on raw input.
+checkThrows("F021: the import check normalizes case before comparing", () =>
+  parseProfilesFile(validDoc([
+    { id: 1, name: "Alpha", domains: ["EXAMPLE.com"], headers: [setH("X-H", "A")] },
+    { id: 2, name: "Beta", domains: ["example.com"], headers: [setH("x-h", "B")] },
+  ])), "overlapping domains");
+
+// REASON PRECEDENCE. A file with a malformed header should be rejected for the
+// malformed header, and an over-cap file for the cap — not for a collision
+// computed from either. Same ordering the cap refusal already follows.
+checkThrows("F021: a malformed header outranks a collision as the reason", () =>
+  parseProfilesFile(validDoc([
+    { id: 1, name: "Alpha", domains: ["example.com"], headers: [setH("X-H", "A")] },
+    { id: 2, name: "Beta", domains: ["example.com"], headers: [{ name: "bad name", operation: "set", value: "B" }] },
+  ])), "header name");
+checkThrows("F021: the cap outranks a collision as the reason", () =>
+  parseProfilesFile(validDoc([
+    ...bulk(MAX_UNSAFE_DYNAMIC_RULES + 1),
+    { id: 99991, name: "Alpha", domains: ["example.com"], headers: [setH("X-H", "A")] },
+    { id: 99992, name: "Beta", domains: ["example.com"], headers: [setH("X-H", "B")] },
+  ])), "The most that can be applied");
 
 // ------------------------------- static popup wiring (finding 10 motivated)
 // The suite cannot execute popup.js — it needs chrome.* — but it CAN read it.
