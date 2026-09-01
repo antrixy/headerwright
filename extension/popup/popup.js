@@ -25,6 +25,11 @@ import {
   legacyOriginsForDomain,
   isLegacyOnlyGrant,
 } from "../lib/grants.js";
+import {
+  findCollisions,
+  collidingProfileIds,
+  describeCollisions,
+} from "../lib/collisions.js";
 import { describeSync, DEFAULT_SYNC_STATE } from "../lib/status.js";
 import { createSerialQueue, createDebounced } from "../lib/queue.js";
 
@@ -277,8 +282,23 @@ async function renderListNow() {
   const grants = await grantStateFor(referencedDomains(profiles));
   renderMigrationNotice(grants);
 
+  // FINDING-021, marked per profile. Computed ONCE for the whole render rather
+  // than per card, both because it is a property of the pair and because a
+  // per-card recomputation would be O(n^2) renders deep.
+  //
+  // CONFIGURED domains, not granted ones — the other half of the two-inputs
+  // split in lib/collisions.js. A collision is a defect in the configuration,
+  // so the marker should be stable rather than appearing and vanishing as the
+  // user grants and denies domains. sw.js asks the narrower question when it
+  // decides what to actually register.
+  const collisions = findCollisions(
+    profiles,
+    (entry) => validateHeaderEntry(entry).valid
+  );
+  const nameById = new Map(profiles.map((p) => [p.id, p.name]));
+
   for (const profile of profiles) {
-    list.appendChild(renderProfileCard(profile, grants));
+    list.appendChild(renderProfileCard(profile, grants, collisions, nameById));
   }
 
   // Retract a pending question whose subject no longer exists. Reachable now
@@ -339,7 +359,7 @@ async function updateStatusLine(profiles, grants) {
   line.classList.toggle("sync-failed", !sync.ok);
 }
 
-function renderProfileCard(profile, grants) {
+function renderProfileCard(profile, grants, collisions, nameById) {
   const card = document.createElement("div");
   card.className = "profile";
 
@@ -378,6 +398,28 @@ function renderProfileCard(profile, grants) {
   }
 
   card.append(row1, meta, domains);
+
+  // FINDING-021's honesty surface. Without it the card shows green dots and
+  // the status line reads "applying" while this profile's header silently
+  // loses to another — the same class of false assertion as FINDING-004's
+  // badge and FINDING-001a's Details panel. Removing a false assertion is a
+  // FIX by the patch policy, so this marker is NOT a deviation the way
+  // FINDING-010's confirmation was.
+  //
+  // textContent, never innerHTML: profile names are user-supplied and reach
+  // this string through describeCollisions().
+  const collisionText = describeCollisions(
+    collisions,
+    profile.id,
+    (id) => (nameById ? nameById.get(id) : null)
+  );
+  if (collisionText) {
+    const warning = document.createElement("div");
+    warning.classList.add("collision");
+    warning.textContent = collisionText;
+    card.appendChild(warning);
+  }
+
   return card;
 }
 
@@ -631,6 +673,7 @@ async function saveProfile() {
   // than mutating in place is what makes that snapshot meaningful.
   const previousProfiles = await getProfiles();
   let nextProfiles;
+  let savedId;
   if (editingProfileId === null) {
     // FINDING 15, found during the 0.1.2 smoke run. Import refuses an over-cap
     // file, but the ADD path had no count check at all — so importing 5,000
@@ -678,11 +721,48 @@ async function saveProfile() {
       return;
     }
     nextProfiles = [...previousProfiles, { id: nextId, ...data }];
+    savedId = nextId;
   } else {
     nextProfiles = previousProfiles.map((p) =>
       p.id === editingProfileId ? { id: editingProfileId, ...data } : p
     );
+    savedId = editingProfileId;
   }
+
+  // FINDING-021, the form half of the write-path refusal. Diffed against the
+  // RESULTING profile set, never against the profile being saved alone — that
+  // is FINDING-001b's exact mistake, and a collision is by definition a
+  // property of a pair.
+  //
+  // SCOPED TO THE SAVED PROFILE DELIBERATELY. Refusing any save while ANY
+  // collision exists anywhere would trap a user who already has a colliding
+  // pair from v0.1.4: editing an unrelated third profile would be blocked by a
+  // conflict it has nothing to do with, and the user would have no way out
+  // except delete. Same reasoning as FINDING-015's editing exemption — a guard
+  // that refuses the escape route is worse than the bug. Editing one of the
+  // colliding profiles to resolve the overlap is allowed and is the fix path;
+  // editing it in a way that keeps the collision is what gets refused, with
+  // the other profile named so the user knows where to look.
+  const wouldCollide = findCollisions(
+    nextProfiles.map((p) => ({
+      id: p.id,
+      name: p.name,
+      domains: normalizeDomains(p.domains),
+      headers: p.headers,
+    })),
+    (entry) => validateHeaderEntry(entry).valid
+  );
+  const nameById = new Map(nextProfiles.map((p) => [p.id, p.name]));
+  const savedProfileCollision = describeCollisions(
+    wouldCollide,
+    savedId,
+    (id) => nameById.get(id)
+  );
+  if (savedProfileCollision) {
+    showFormError(savedProfileCollision);
+    return;
+  }
+
   await setProfiles(nextProfiles);
 
   // Popup UI state, in case we survive the request (already granted, or

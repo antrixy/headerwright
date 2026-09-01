@@ -95,6 +95,17 @@
     background: var(--surface); border: 1px solid var(--line);
     border-radius: 5px; padding: 2px 8px;
   }
+  /* FINDING-021's per-profile marker. Danger register rather than the neutral
+     .notice one, because unlike the migration notice this is not "something
+     changed, act when you can" — the profile is NOT applying right now, and
+     the card's green dots would otherwise say the opposite. Sits at the bottom
+     of the card, after the domain chips, so the chips it contradicts are read
+     first. */
+  .profile .collision {
+    color: var(--danger); background: var(--danger-soft);
+    font-size: 12px; line-height: 1.35; margin-top: 7px;
+    border-radius: 5px; padding: 6px 8px;
+  }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--off); flex: none; }
   .dot.granted { background: var(--on); box-shadow: 0 0 0 3px var(--on-soft); }
   /* A domain carrying a pre-0.1.4 grant. Deliberately NOT a third dot colour:
