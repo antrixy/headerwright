@@ -7,12 +7,17 @@
 import {
   profileToRule,
   normalizeDomains,
+  validateHeaderEntry,
   MAX_UNSAFE_DYNAMIC_RULES,
 } from "../lib/rules.js";
 import {
   originsForDomain,
   staleManagedOrigins,
 } from "../lib/grants.js";
+import {
+  findCollisions,
+  collidingProfileIds,
+} from "../lib/collisions.js";
 import { computeBadge } from "../lib/status.js";
 import { createSerialQueue } from "../lib/queue.js";
 
@@ -69,8 +74,58 @@ async function buildRules(profiles) {
   const rules = [];
   const skippedProfileIds = [];
 
+  // Grant state is resolved for every profile FIRST, because the collision
+  // question at this call site is "would two rules actually both register",
+  // which is a question about GRANTED domains rather than configured ones.
+  // popup.js asks the other question with the same predicate — see the
+  // two-inputs note in lib/collisions.js.
+  const resolved = [];
   for (const profile of profiles) {
-    const grantedDomains = await grantedDomainsFor(profile.domains);
+    resolved.push({
+      profile,
+      grantedDomains: await grantedDomainsFor(profile.domains),
+    });
+  }
+
+  // FINDING-021. This half is the one that reaches an EXISTING install, and it
+  // is why the write-path refusals in popup.js and canonical.js are not
+  // sufficient on their own. FINDING-018 enlarged the collision surface —
+  // profiles on example.com and api.example.com did not overlap before
+  // subdomain matching and do now — so there are v0.1.4 installs already
+  // holding a colliding pair, created by a fix that shipped. No write is
+  // happening in those installs, so no write-time check can see them.
+  const collisions = findCollisions(
+    resolved.map(({ profile, grantedDomains }) => ({
+      id: profile.id,
+      domains: grantedDomains,
+      headers: profile.headers,
+    })),
+    (entry) => validateHeaderEntry(entry).valid
+  );
+  const colliding = collidingProfileIds(collisions);
+
+  if (colliding.size > 0) {
+    // The popup carries the user-facing account of this, per profile. This
+    // line exists for the same reason the truncation warning does: if it ever
+    // appears without the popup showing markers, the two surfaces disagree and
+    // that is worth knowing.
+    console.warn(
+      `HeaderWright: ${colliding.size} profile${colliding.size === 1 ? "" : "s"} ` +
+        `not applied — overlapping domains write the same header with no ` +
+        `defined winner (FINDING-021): ` +
+        collisions
+          .map((c) => `${c.header} [${c.profileIds.join(", ")}]`)
+          .join("; ")
+    );
+  }
+
+  for (const { profile, grantedDomains } of resolved) {
+    // BOTH sides are skipped, never one. Registering either would be picking a
+    // winner by another name, which is the thing this release refuses to do.
+    if (colliding.has(profile.id)) {
+      skippedProfileIds.push(profile.id);
+      continue;
+    }
     const rule = profileToRule(profile, grantedDomains);
     if (rule) {
       rules.push(rule);
