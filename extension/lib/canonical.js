@@ -37,6 +37,7 @@ import {
   MAX_RULE_ID,
   MAX_UNSAFE_DYNAMIC_RULES,
 } from "./rules.js";
+import { findCollisions, describeCollisions } from "./collisions.js";
 
 export const FILE_FORMAT = "headerwright-profiles";
 export const FILE_VERSION = 1;
@@ -203,6 +204,35 @@ export function parseProfilesFile(text) {
       }
     });
   });
+
+  // FINDING-021, the import half of the write-path refusal. Runs AFTER every
+  // per-profile check, deliberately: a file with a malformed header should be
+  // rejected for the malformed header, not for a collision computed from it.
+  // Reason precedence, the same ordering the cap refusal already follows.
+  //
+  // Normalized domains are used because that is what reaches requestDomains —
+  // an unnormalized "EXAMPLE.com" would miss its own overlap. Note this runs
+  // on CONFIGURED domains: an import is a configuration, and grant state is a
+  // chrome.permissions question this file has no access to by construction.
+  const normalizedForCheck = doc.profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+    domains: normalizeDomains(profile.domains),
+    headers: profile.headers,
+  }));
+  const collisions = findCollisions(
+    normalizedForCheck,
+    (entry) => validateHeaderEntry(entry).valid
+  );
+  if (collisions.length > 0) {
+    const firstId = collisions[0].profileIds[0];
+    const nameById = new Map(normalizedForCheck.map((p) => [p.id, p.name]));
+    throw new Error(
+      `this file has profiles that would write the same header on ` +
+        `overlapping domains, which has no defined winner. ` +
+        describeCollisions(collisions, firstId, (id) => nameById.get(id))
+    );
+  }
 
   return canonicalizeProfiles(doc.profiles);
 }
