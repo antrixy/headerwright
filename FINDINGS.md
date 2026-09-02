@@ -465,26 +465,129 @@ Verified by re-collapsing the two sets, which fails four of them. SMOKE Part
 
 ---
 
-## Open
+## FINDING-021 — Overlapping profiles had no defined precedence
 
-**FINDING-021 — overlapping profiles have no defined precedence.** Every
-generated rule carries `priority: 1`, so two profiles setting the same header
-on the same request have no defined winner; Chrome states that ordering for
-rules with the same action and priority is not standardised.
+**Version:** v0.1.5
+**Severity:** high — silent, and enlarged by a shipped fix
+**Enlarged by:** FINDING-018's own fix, after release
 
-Not yet fixed, and it got WORSE with FINDING-018: profiles on `example.com`
-and `api.example.com` did not overlap before subdomain matching and do now.
-The fix enlarged the collision surface silently, which is what moves this
-from a theoretical edge to a consequence of shipped work.
+**Symptom.** Two profiles whose domains overlap and which both write the same
+header produced exactly one of the two values on the wire, with the popup
+showing green dots and the status line counting both as applying. Which one
+won was not knowable from the UI, from the file, or from the documentation.
 
-Two options. Encode an explicit precedence into DNR `priority`, or refuse
-configurations where overlapping profiles perform incompatible operations on
-the same header. Refusal is the better fit: it avoids inventing an ordering
-UI, and it matches the FINDING-006 instinct — if a configuration has
+**Cause.** Every generated rule carries `priority: 1`. Chrome states that
+ordering between rules with the same action and the same priority is not
+standardised, so the winner is whatever the implementation happens to do.
+
+The reach of this grew AFTER v0.1.4 shipped. Profiles on `example.com` and
+`api.example.com` did not overlap before subdomain matching and do now, so
+FINDING-018's fix silently enlarged the collision surface on installs that
+had never had one. That is what moved this from a theoretical edge to a
+consequence of shipped work, and it is why the fix could not be confined to
+the write paths — see below.
+
+**Fix.** Refusal, not precedence. `lib/collisions.js` detects cross-profile
+collisions and the configuration is refused at three points: `saveProfile()`,
+`parseProfilesFile()`, and `buildRules()`. A colliding pair applies NEITHER
+header, and the popup marks both profiles with the header name and the other
+profile's name.
+
+**Why refusal rather than a documented winner.** The obvious fix — assign DNR
+`priority` deterministically, "top of the list wins" — was tested against the
+export format and failed. The frozen v1 file stores profiles sorted by id and
+carries no ordering field, so list order is not expressible in it. Two
+configurations that would behave differently serialize to identical bytes, and
+an export/import round trip silently reassigns the winner. Measured with the
+project's own `serializeProfiles()` rather than argued:
+
+```
+bytes identical for the two list orders: true
+parsed order from the file: 1,2
+storage order that produced it: 2,1
+```
+
+The only round-trippable key is `id`, which `nextRuleId()` allocates
+lowest-free WITH REUSE — so deleting an unrelated profile could change who
+wins, with nothing on screen saying so. A new silent surprise in a release
+whose purpose is removing one.
+
+Refusal also makes the mechanism moot, which matters because the mechanism was
+never established. OBS-C10 observed a single winner but could not say what
+chose it: profile-slot order, creation order, rule-id tie-break and storage
+order all predicted the same answer in that configuration, so it has no
+discriminating power by construction. A precedence fix would have been built
+on an uncharacterised Chrome behaviour. Refusal never lets the ambiguous
+configuration reach Chrome.
+
+This is the FINDING-006 instinct applied again: if a configuration has
 ambiguous meaning, refuse it rather than letting Chrome decide.
 
-Scheduled as its own release. It is design work, and it should not ride along
-with a regression fix.
+**Fail-closed, matching FINDING-018's direction.** A colliding pair applies
+neither header rather than an arbitrary one of two values. Fewer headers than
+promised is the failure this project accepts; a value the user did not choose
+is not.
+
+**Why the build path is not optional.** The write-path refusals cannot reach an
+install that is ALREADY colliding, because no write is happening there — and
+FINDING-018 created exactly those installs. `buildRules()` is the only half
+that touches them.
+
+**Strict, by decision.** Any shared header name on overlapping domains
+collides, including two REMOVEs of the same header and two SETs of an
+identical value, neither of which is ambiguous in result. The outcome-based
+alternative was considered and set aside: "two profiles disagree about this
+header" fits in a 360px popup and stays honest, while "…in a way that changes
+the result" needs a table the user cannot see. The known cost is a false
+positive on identical-value sets, which is plausible when someone splits
+profiles by domain. Recorded as the revisit trigger.
+
+**On the patch policy.** NOT a deviation, and this was checked rather than
+assumed. Before v0.1.5 the popup showed green dots and counted a losing
+profile as applying — a false assertion. Removing one is a fix by the same
+test that classified FINDING-004's badge and FINDING-001a's Details panel.
+FINDING-010's delete confirmation remains the only recorded deviation.
+
+**Why the save refusal is scoped to the saved profile.** Refusing every save
+while ANY collision exists would trap a user who upgraded into one: editing an
+unrelated third profile would be blocked by a conflict it has nothing to do
+with, leaving delete as the only exit. Same reasoning as FINDING-015's editing
+exemption — a guard that refuses the escape route is worse than the bug.
+
+**Why a mutation pass was needed to trust the tests.** Removing the
+`a.id === b.id` guard in `findCollisions()` failed ZERO checks, and the
+tempting reading was "equivalent mutant — `headerNamesFor()` returns a Set, so
+a profile enters each bucket once and the guard is unreachable." Probing it
+directly showed that reading was wrong: the guard does change behaviour on
+duplicate-id input, and nothing exercised that path. `parseProfilesFile()`
+rejects duplicate ids, so this is storage-shaped input, which A2 says to treat
+as untrusted. A check was added rather than an equivalence claimed.
+
+**Cost, measured not reasoned about.** `findCollisions()` buckets by header
+name, then compares pairwise within a bucket. Node 22, 2026-09-01: 5000
+profiles with distinct header names ~3 ms; 5000 sharing one header name across
+distinct domains ~319 ms — one bucket, quadratic. The second needs a
+deliberate import at exactly the cap and is the same order as the sync cost
+already recorded at that profile count, so it is accepted rather than
+optimised. FINDING-016's lesson: the debounce window was chosen by reasoning
+and turned out wrong at scale.
+
+**Consequence for the test fixtures.** SMOKE Part 6's generator pointed every
+profile at one domain AND one header name, which v0.1.5 reads as a 5000-way
+collision. The 5000-profile fixture is now refused for a collision, and the
+5001 one still refuses but for the cap — reason precedence working as designed
+and, in doing so, hiding the problem. The header name now varies per profile;
+the shared domain, which is what keeps permission dialogs at zero, does not.
+
+**Evidence.** Selftest F021 group (36 checks), including the suffix-confusable
+negative control, the two-inputs property, both strict-decision checks, and
+reason precedence against both the cap and a malformed header. Eleven-mutation
+pass, all caught, re-runnable via `test/mutate-collisions.py`. SMOKE Part 13
+for the wire. OBS-C10 in `test/EVIDENCE.md` is the banked before-state.
+
+---
+
+## Open
 
 **FINDING-022 — the popup's header and footer scroll out of view.** With six
 profiles the list overflows, and both the master toggle and the status line
