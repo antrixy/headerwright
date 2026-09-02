@@ -879,6 +879,29 @@ three to 127.0.0.1. Use a profile with no prior approval for any of them.
      for the CAP. Reason precedence — a file should be rejected for the first
      thing wrong with it, and the cap is the cheaper thing to fix.
 
+7. **The refusal reaches an install CHROME UPDATED.** Steps 1–6 all reach the
+   colliding state through this machine — a save, an import, or a storage edit
+   followed by a reload. None of them exercise Chrome's own update mechanism,
+   which is how every real user will arrive at this release.
+
+   **THIS ROW IS ONLY RUNNABLE IN A NARROW WINDOW, AND ONLY ONCE PER RELEASE.**
+   It needs an install still on the PREVIOUS version, because a colliding pair
+   can only be created on a build without the write-path refusal. That window
+   opens when the new version publishes and closes when that install
+   auto-updates — hours, not days. Plan it for publish day or skip it.
+
+   - Before publish, on a store install of the previous version: create the
+     colliding pair, grant both domains, and record the wire. One value will
+     be present.
+   - After publish: `chrome://extensions` -> Update. Confirm the version
+     changed and the extension ID did NOT. Do not uninstall, do not reload an
+     unpacked copy, do not touch storage — the point is that Chrome did it.
+   - Expected: both profiles marked, dots still green, grants unchanged, and
+     NEITHER header on the wire. Compare against the step-4 result; any
+     difference between the two paths is the finding.
+
+   Run as OBS-D13 for v0.1.5. The two paths agreed exactly.
+
 ---
 
 ## Recording template
@@ -932,4 +955,7 @@ three to 127.0.0.1. Use a profile with no prior approval for any of them.
                      4 storage-written pair marked + not applying after reload = ?
                      5 unrelated profile still saveable = ?  collision editable away = ?
                      6 colliding import refused = ?  over-cap+colliding refused for CAP = ?
+                     7 POST-PUBLISH: before-value on old version = ?
+                       after Chrome update: version changed = ?  ID unchanged = ?
+                       both marked = ?  grants unchanged = ?  wire clean = ?
     Notes:

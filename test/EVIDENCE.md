@@ -10,11 +10,79 @@ from.
 
 ---
 
+## OBS-D13 — the refusal reaches an install CHROME UPDATED — post-publish row
+
+**2026-09-02, the day after sitting D.** Taken after v0.1.5 was published to
+the Chrome Web Store, on a real store install that Chrome updated itself. This
+is the row the whole "store CRX" question reduced to, and it is the only
+observation of the build-path refusal on Chrome's own update mechanism rather
+than a manual reload.
+
+**Provenance, stated plainly because it differs from the runbook.** The clean
+`hw-fixture` profile built in sitting D phase A was deleted before this could
+be run. The row was recovered on a WORKING Chrome profile — real everyday
+extensions installed, not a clean one — which still had HeaderWright 0.1.4 from
+the store, ID `ooapgilielelobkkcdlnkenkflbnnmhi`. The window existed only
+because 0.1.5 had just published and this install had not yet auto-updated: on
+0.1.4 a colliding pair can still be created, and on 0.1.5 it cannot.
+
+**Before, on 0.1.4, re-established on this profile immediately prior:**
+
+```
+sub.f1.test:8080   -> x-fix: B
+```
+
+Same pair as OBS-D1 (Test1 `f1.test` X-Fix=A, Test2 `sub.f1.test` X-Fix=B),
+reproducing the second-profile-wins result on a second independent install.
+
+**Updated via `chrome://extensions` -> Update.** Card flipped 0.1.4 -> 0.1.5,
+ID unchanged. No uninstall, no reload of an unpacked folder, no storage
+editing — Chrome's own update path.
+
+**After:**
+
+```
+popup      2 profiles · 2/2 domains granted · applying     badge ON
+           both cards marked, both dots GREEN
+           NO migration notice (expected — v0.1.5 adds no permissions)
+wire       f1.test:8080       -> (no x-fix)
+           sub.f1.test:8080   -> (no x-fix)
+```
+
+**BOTH SIDES SKIPPED.** Test1 was applying correctly and had no part in the
+change; it stopped applying too. Registered prediction was that this would be
+identical to OBS-D4's storage-written case in every respect — **right**.
+
+**What it settles.** OBS-D4 established the build-path refusal reaching an
+install where no write occurred, but reached that state by editing storage from
+the service worker console. Whether Chrome's real update path behaved the same
+was an assumption. It no longer is. The two paths produce identical popup state
+and identical wire results.
+
+**A note on how this row was managed, worth keeping.** It was carried as a ship
+BLOCKER across several sessions under the description "the smoke tests ran
+against an unpacked build rather than the store artifact." That description was
+overspecified. On inspection the only thing it could falsify was Chrome's
+auto-update mechanism versus a manual reload-in-place — the extension id does
+not enter any code path, and sitting C had deliberately preserved the id by
+reusing the folder. It was then argued to be permanently unrunnable, on the
+grounds that the store serves only the current version. That was also wrong:
+the release ZIPs are in the repo, and in the end the row was runnable on
+Chrome's update path for the cost of ten minutes on the day of publish. A
+requirement described by what it REPRESENTS rather than what it TESTS will
+outlive its usefulness and block work it was never protecting.
+
+---
+
 # Sitting D — v0.1.5 collision refusal — COMPLETE
 
 **2026-09-01.** Runbook: `test/RUNBOOK-2026-09-01-v015.md`, predictions frozen
 before Chrome opened. **13 of 15 predictions right, 2 wrong.** Both wrong ones
 are recorded below with their original text.
+
+**OBS-D13 above was taken 2026-09-02, after publish** — the post-publish row
+this sitting's phase A was built to enable. It carried its own registered
+prediction, which was right.
 
 ## Environment
 
@@ -525,8 +593,8 @@ v0.1.5 took refusal — see FINDING-021.
 
 **A note on how this was nearly lost.** OBS-C10 was the one observation in the
 sitting-C notes that never reached version control, because it was not a
-v0.1.4 row. In the interval, `handoffs/headerwright/ROADMAP-v0.2plus.md`
-described it as "already banked" and as the anchor for v0.1.5 "the same way
+v0.1.4 row. In the interval, the v0.1.5 planning notes described it as
+"already banked" and as the anchor for v0.1.5 "the same way
 the 0.1.3 subdomain failure anchored 0.1.4" — a comparison the observation does
 not support, since the subdomain failure WAS discriminating and this is one
 cell. A record referenced confidently from a planning file and absent from the

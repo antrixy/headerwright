@@ -1,6 +1,9 @@
 import subprocess, shutil, pathlib, sys, re
 
-ROOT = pathlib.Path("/home/claude/work/headerwright-main")
+# Repo root, derived from this file so the script runs anywhere. It was
+# committed with a hardcoded container path, which meant it could not run
+# for anyone — defeating the point of committing it.
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 COL = ROOT / "extension/lib/collisions.js"
 CAN = ROOT / "extension/lib/canonical.js"
 
