@@ -582,14 +582,87 @@ the shared domain, which is what keeps permission dialogs at zero, does not.
 **Evidence.** Selftest F021 group (36 checks), including the suffix-confusable
 negative control, the two-inputs property, both strict-decision checks, and
 reason precedence against both the cap and a malformed header. Eleven-mutation
-pass, all caught, re-runnable via `test/mutate-collisions.py`. SMOKE Part 13
-for the wire. OBS-C10 in `test/EVIDENCE.md` is the banked before-state.
+pass, all caught, re-runnable via `test/mutate-collisions.py`. On the wire:
+SMOKE Part 13, run as sitting D (2026-09-01), 13 of 15 predictions right —
+OBS-D3 through OBS-D11 in `test/EVIDENCE.md`.
+
+**A note on the before-state, added after sitting D.** OBS-C10 was the banked
+before-state and it is now known to be misleading, not merely
+non-discriminating. OBS-D1 re-took it on the genuine store 0.1.4 build with an
+apex/subdomain pair and got the OPPOSITE winner: the second-created profile,
+where OBS-C10's identical-domain pair gave the first. No order-based rule
+explains both cells. Had the original precedence plan gone ahead, its mutation
+test — reorder the profiles, confirm the winner follows the rule — would have
+been anchored to a baseline pointing the wrong way in exactly the apex/subdomain
+case FINDING-018 made common. Refusal makes the mechanism moot, which is why
+the release is unaffected.
 
 ---
 
 ## Open
 
-**FINDING-022 — the popup's header and footer scroll out of view.** With six
+**FINDING-026 — the collision message is reused verbatim on surfaces it was
+not written for.** `describeCollisions()` was written for the per-profile card
+marker, where every word is correct: the profile exists, is granted, and is not
+applying. It is reused unchanged in two write-path refusals where it is not.
+
+On the save form the message opens "Not applying:" — but nothing was saved and
+the profile does not exist. On import it opens the same way, and there the
+confusion is worse, because colliding profiles that genuinely are not applying
+may be visible on screen at the same time.
+
+The import message has two further defects, both from composing a new sentence
+around a helper written for a different surface. It states the problem twice —
+the wrapper says the file has profiles writing the same header on overlapping
+domains, then the helper says it again — and it ends in a double period,
+because the wrapper adds punctuation the helper already supplied.
+
+Observed in full as OBS-D3 and OBS-D8. The contrast that proves the diagnosis
+is the cap refusal message (OBS-D9), which was written for its own surface and
+reads cleanly.
+
+Severity: low. Both write-path messages are preceded by context that makes the
+outcome clear — the save form stays open with its buttons, and the import
+message leads with "Import failed:". This is confusing prose, not a false
+claim about system state, which is the distinction that keeps it out of the
+same class as FINDING-004's badge.
+
+Fix: a separate phrasing for write-path refusals, not a patch to the shared
+string. The card marker's wording is correct and should not change. Note that
+one selftest check pins "not applying" in `describeCollisions()` output; that
+check stays with the card marker and the new function needs its own.
+
+**FINDING-027 — a colliding configuration exports but cannot be re-imported.**
+`serializeProfiles()` does not validate. `parseProfilesFile()` now refuses
+collisions. So v0.1.5 can produce a file it will not accept, and the export
+button offers no warning.
+
+The path that matters is the one a user is most likely to take: upgrading from
+v0.1.4 into a collision created by FINDING-018's enlarged surface, seeing two
+red markers, and clicking Export — the obvious move when something looks wrong.
+The resulting file will not load back.
+
+Observed as OBS-D8.
+
+It is recoverable. The refusal names the header and the other profile, the
+configuration is still in storage, and editing either profile clears it. But
+the import model's contract is that the file is the config, and a
+configuration that exports and will not import is an asymmetry in it.
+
+Not obviously a bug, which is why it is recorded rather than fixed. Three
+shapes are available and they are not equivalent: refuse the export (loses the
+user's data-rescue path at the worst moment), warn on export and write the file
+anyway (honest, and the file still fails later), or accept colliding files on
+import and let the build path skip them (consistent with how an upgraded
+install is already treated, and it removes the asymmetry entirely). The third
+is the most coherent and is also the largest change, since it moves import from
+refusing to marking. Needs a decision entry before any of them is built.
+
+**FINDING-022 — the popup's header and footer scroll out of view.**
+**UPDATED 2026-09-01: v0.1.5 makes this fire at THREE profiles, not six.**
+FINDING-021's collision marker is roughly 110px per card and appears exactly
+when the user needs to reach Edit; two markers cost about a profile and a half
+of vertical space. Observed as OBS-D12. The original entry follows. With six
 profiles the list overflows, and both the master toggle and the status line
 leave the viewport. The toggle is the primary control, and the status line is
 the honesty surface FINDING-003 and FINDING-008 exist to protect — a status
