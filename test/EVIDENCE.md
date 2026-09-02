@@ -10,6 +10,322 @@ from.
 
 ---
 
+# Sitting D — v0.1.5 collision refusal — COMPLETE
+
+**2026-09-01.** Runbook: `test/RUNBOOK-2026-09-01-v015.md`, predictions frozen
+before Chrome opened. **13 of 15 predictions right, 2 wrong.** Both wrong ones
+are recorded below with their original text.
+
+## Environment
+
+- Chrome 151.0.0.0, macOS 10.15.7 (UA string).
+- Two Chrome profiles, never both active — store 0.1.4 and unpacked 0.1.5 would
+  each register DNR rules and make every wire reading uninterpretable.
+  - `hw-fixture` — HeaderWright 0.1.4 **from the Chrome Web Store**, id
+    `ooapgilielelobkkcdlnkenkflbnnmhi` confirmed before use.
+  - `hw-13` — 0.1.5 unpacked from the tagged tree, id
+    `ddgomchkggjoehcoeibmmnfaakjanmce` (path-derived, expected).
+- Fresh hostnames, none reused from sittings A–C: `f1.test sub.f1.test`,
+  `c1.test sub.c1.test`, `n1.test notn1.test`, `s1.test sub.s1.test`,
+  `e1.test`. All nine confirmed resolving to 127.0.0.1 before Chrome opened.
+- Echo server on `:8080`. Every wire reading taken by browsing in Chrome, never
+  by curl — curl does not carry the extension.
+
+## Prediction results
+
+| # | Result | Note |
+| --- | --- | --- |
+| P1 single winner on 0.1.4 | RIGHT | OBS-D1 |
+| P2 winner is the first-created profile | **WRONG** | OBS-D1 — B won. The most useful result in the sitting. |
+| P3 no header on the wire for a colliding pair | RIGHT | OBS-D4 |
+| P4 both cards marked | RIGHT | OBS-D4 |
+| P5 chips green, badge ON, count unchanged | RIGHT | OBS-D7 |
+| P6 one warning per sync, not per pair | RIGHT | OBS-D11 |
+| P7 identical-value save refused | RIGHT | arrived early, OBS-D3 |
+| P8 message overflows the form at 360px | **WRONG** | OBS-D3 — renders in four lines, legible |
+| P9 confusables both apply | RIGHT | OBS-D6 |
+| P10 storage-written pair stops applying | RIGHT | OBS-D4 |
+| P11 unrelated profile still saves | RIGHT | OBS-D10 |
+| P12 collision can be edited away | RIGHT | OBS-D10 |
+| P13 cap outranks collision as the reason | RIGHT | OBS-D9 |
+| P14 marker survives popup reopen | RIGHT (incidental) | held across ~12 opens; not a designed check |
+| P15 colliding export cannot be re-imported | RIGHT | OBS-D8 — new finding |
+
+---
+
+## OBS-D1 — the winner on 0.1.4 is NOT order-based — P2 WRONG
+
+Phase A, store 0.1.4, profile `hw-fixture`. Two profiles created in this order:
+
+```
+id 1  Test1  f1.test       X-Fix set "A"    (created first)
+id 2  Test2  sub.f1.test   X-Fix set "B"
+```
+
+Creation order, id order and storage order all coincide, deliberately — the
+same non-discriminating shape as OBS-C10.
+
+```
+f1.test:8080       -> x-fix: A      (control: only Test1 matches. Rules registered.)
+sub.f1.test:8080   -> x-fix: B      (both match. ONE value.)
+```
+
+**P1 right:** one winner, no concatenation, no duplicate header.
+
+**P2 wrong.** The registered prediction was that the first-created profile
+wins. It did not. All three order-based candidates favoured Test1 and all
+three are ruled out for this configuration.
+
+**THIS CONTRADICTS OBS-C10 ON DIRECTION, and the difference is diagnostic.**
+
+| | domains | first-created | winner |
+| --- | --- | --- | --- |
+| OBS-C10 | `shared1.test` / `shared1.test` — identical | Test = A | **A** — first wins |
+| OBS-D1 | `f1.test` / `sub.f1.test` — apex vs exact | Test1 = A | **B** — second wins |
+
+Same extension version, same creation order, same id order, same storage
+order, opposite outcome. **No single order-based rule explains both cells.**
+The one differing variable is the domain relationship, which makes specificity
+the leading hypothesis — when both rules match the host equally, something
+order-like decides; when one matches exactly and the other by subdomain, the
+exact match wins. Two cells is not a mechanism, and this is not a resolution.
+
+**Why it matters beyond the record.** The v0.1.5 roadmap originally planned to
+assign DNR priorities by list order and mutation-test the result by reordering
+profiles. OBS-C10 was described there as the banked before-state. Had that
+plan gone ahead, the mutation test would have been anchored to a baseline that
+points the WRONG WAY in the apex/subdomain case — which is precisely the case
+FINDING-018 made common. The oracle was not merely non-discriminating, as was
+argued when refusal was chosen; on this evidence it was misleading.
+
+The release does not depend on resolving it. Both configurations are refused
+by v0.1.5, so the mechanism never needs to be known. See FINDING-021.
+
+**Fixture preserved.** `hw-fixture` was closed after this reading and is not to
+be touched until 0.1.5 is live and Chrome updates it — see the post-publish row
+in the private handoff. A colliding pair cannot be created on 0.1.5, so this
+fixture cannot be rebuilt after publish.
+
+---
+
+## OBS-D2 — an apex grant silently covers subdomains for later profiles
+
+In `hw-13`, granting Test1 on `c1.test` and then adding Test2 on
+`sub.c1.test` produced **no permission dialog** for Test2; the footer went
+straight to `2/2 domains granted`.
+
+Cause: `originsForDomain("c1.test")` emits `*://*.c1.test/*`, and Chrome's
+`*.` form covers the apex and every subdomain. Chrome had nothing new to ask
+for. This is the same fact recorded from the extension's side in the
+FINDING-025 material (`*://*.hw.test/*` genuinely IS the whole grant), now
+observed from the user's side.
+
+**The contrast in the same session is what makes this solid.** Test4 on
+`notn1.test` DID produce a dialog, because `*://*.n1.test/*` does not cover it.
+Silent where coverage exists, prompting where it does not.
+
+This retires the UNCONFIRMED note from phase A, where the reporter was unsure
+whether Test2 prompted. Same shape, clean profile, unambiguous answer.
+
+---
+
+## OBS-D3 — the write path refuses at the form — P7 early, P8 WRONG
+
+Attempting to save a second profile on `sub.c1.test` writing the same header
+name as an existing profile on `c1.test` was refused in the form. Verbatim:
+
+```
+Not applying: header "x-collide" also written by "Test1" on an overlapping
+domain. Two profiles cannot write the same header on the same request, so
+neither applies. Change the header or the domains in one of them.
+```
+
+**P8 wrong.** The registered prediction was that the ~50-word message would
+overflow the form error area at 360px. It renders in four lines, fully
+legible, form usable underneath.
+
+**Consequence for SMOKE Part 13 step 1.** The step as written — create two
+colliding profiles through the UI, grant both, observe the wire — is
+UNREACHABLE on 0.1.5, because the write path refuses the second save. Steps 1
+and 4 collapse into the storage-write procedure. The document needs correcting.
+
+**Defect found by rendering it.** See FINDING-026: "Not applying" is false
+here, since nothing was saved.
+
+---
+
+## OBS-D4 — the build path refuses on the wire — P3, P4, P10 RIGHT
+
+The reachable route to a colliding pair on 0.1.5 is to create it non-colliding,
+grant it, then change one field in storage. Same profiles, same grants,
+one header name renamed from `X-Collide-2` to `X-Collide` from the service
+worker console:
+
+```
+BEFORE    c1.test:8080      -> x-collide: A
+          sub.c1.test:8080  -> x-collide-2: B, x-collide: A
+DURING    c1.test:8080      -> (nothing)
+          sub.c1.test:8080  -> (nothing)
+AFTER     c1.test:8080      -> x-collide: A
+          sub.c1.test:8080  -> x-collide-2: B, x-collide: A
+```
+
+All readings hard-reloaded; `Cache-Control: no-cache` / `Pragma: no-cache`
+present on the DURING readings, confirming they are not repaints. One stale
+reading was discarded during the run and retaken.
+
+**BOTH SIDES SKIPPED, NOT ONE.** Test1 was applying correctly and had no part
+in the change — Test2 moved underneath it — and Test1 stopped applying too.
+This is the assertion that distinguishes refusal from silently picking a
+winner, and `c1.test` showing nothing is what proves it.
+
+This exercises the BUILD path, not the write path: the storage write bypassed
+`saveProfile()` entirely. It is therefore the browser evidence for the half of
+the fix that reaches an install FINDING-018 pushed into a collision, where no
+write is happening and no write-time check can see it.
+
+---
+
+## OBS-D5 — the refusal is scoped to the colliding pair
+
+With Test1/Test2 marked and skipped, Test3 (`n1.test`), Test4 (`notn1.test`)
+and Test5 (`e1.test`) applied normally in the same profile set. A collision
+does not leak into unrelated profiles.
+
+---
+
+## OBS-D6 — suffix confusables are not a collision — P9 RIGHT
+
+Two profiles both writing `X-Confuse`, on `n1.test` and `notn1.test`:
+
+```
+n1.test:8080      -> x-confuse: A
+notn1.test:8080   -> x-confuse: B
+```
+
+Both saved, both granted, both applied, no markers on either card.
+
+`"notn1.test".endsWith("n1.test")` is TRUE, so a string-suffix test in
+`domainsOverlap()` would have refused this pair. The leading dot in
+`` a.endsWith(`.${b}`) `` is the whole difference, and this is its wire control.
+
+---
+
+## OBS-D7 — the honesty exception, observed — P5 RIGHT
+
+With both profiles colliding and applying nothing, the popup read:
+
+```
+2 profiles · 2/2 domains granted · applying          badge: ON
+```
+
+Both domain dots GREEN. The per-profile marker was the only surface telling
+the truth.
+
+**This is sharper than the README correction drafted before the run.** That
+draft covered the green dot and the granted count. The status line literally
+reads **`applying`**, and the badge reads **ON**. The README's "What you see is
+what's true" bullet needs to cover all four, not two.
+
+The behaviour is deliberate and consistent — `status.js` defers
+`activeRuleCount` and `skippedProfileIds` to a future minor on the grounds that
+new signal is a feature — but the README does not yet say so.
+
+---
+
+## OBS-D8 — a colliding configuration exports but will not re-import — P15 RIGHT
+
+Export of the colliding state SUCCEEDED and produced a file. Importing that
+same file was refused:
+
+```
+Import failed: this file has profiles that would write the same header on
+overlapping domains, which has no defined winner. Not applying: header
+"x-collide" also written by "Test2" on an overlapping domain. Two profiles
+cannot write the same header on the same request, so neither applies. Change
+the header or the domains in one of them..
+```
+
+`serializeProfiles()` does not validate; `parseProfilesFile()` now does. So
+v0.1.5 can produce a file it will not accept. See FINDING-027.
+
+---
+
+## OBS-D9 — reason precedence holds at scale — P13 RIGHT
+
+Imported a generated fixture of 5001 profiles (1.2 MB) containing a deliberate
+`X-Both` collision between `example.com` and `api.example.com`. Refused:
+
+```
+Import failed: this file has 5001 profiles. The most that can be applied is
+5000. Remove at least 1 profile from the file and try again.
+```
+
+The cap won; the collision was not mentioned. A file is rejected for the first
+thing wrong with it, and the cap is both cheaper to explain and cheaper to fix.
+
+**No perceptible delay** parsing 1.2 MB and running the collision scan over
+4999 distinct header names in the popup. This is the first Chrome-side data
+point against the cost note in `collisions.js`, whose 3 ms / 319 ms figures are
+Node's. The 319 ms worst case (one shared header name across distinct domains)
+was NOT exercised here.
+
+Profile list survived intact at `4 profiles · 4/4 domains granted` — a refused
+import changes nothing, because `parseProfilesFile()` throws before
+`setProfiles()` runs.
+
+---
+
+## OBS-D10 — the editing exemption works — P11, P12 RIGHT
+
+**Unrelated save, with a collision outstanding.** Test5 on `e1.test` saved
+normally while Test1/Test2 were still colliding. Without this an upgraded user
+would be locked out of every save with delete as the only exit — FINDING-015's
+reasoning, one release on.
+
+**The collision can be edited away.** Editing Test2's header name to
+`X-Collide-2` saved successfully — the fix path is not refused — and BOTH
+markers cleared, Test1's included. Storage confirmed the edit landed before the
+wire was read.
+
+---
+
+## OBS-D11 — the warning fires per sync and has no dedupe — P6 RIGHT
+
+```
+HeaderWright: 2 profiles not applied — overlapping domains write the same
+header with no defined winner (FINDING-021): x-collide [1, 2]
+```
+
+One line per sync, listing all collisions with both profile ids — not one line
+per pair, as registered.
+
+**No dedupe.** Six or seven identical lines accumulated across the run, one per
+storage write while the collision persisted (adding Test3, Test4, Test5 and
+their grants). Not a defect — the service worker console is developer-facing —
+but a long session with a standing collision produces a wall of identical
+lines.
+
+**It releases correctly.** After the collision was edited away, the console was
+cleared and a sync forced by toggling the master switch off and on. No warning.
+Nothing is keyed on stale state.
+
+---
+
+## OBS-D12 — v0.1.5 makes FINDING-022 fire sooner
+
+The Add profile button was pushed below the fold at **three profiles**, where
+FINDING-022 records six. Two collision markers at roughly 110px each cost about
+a profile and a half of vertical space, and the marker appears exactly when the
+user needs to reach Edit.
+
+Not a blocker — the list scrolls — but it raises the priority of the v0.1.6 UI
+pass and changes FINDING-022's trigger threshold.
+
+---
+
+---
+
 # v0.1.4 — COMPLETE
 
 **STATUS: CLEARED TO SHIP.** The five rows sitting B left BLOCKED, and the four

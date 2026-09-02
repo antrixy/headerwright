@@ -793,10 +793,28 @@ a single silent winner. It does NOT establish what chose the winner — four
 candidate mechanisms all predicted `A` in that configuration. Refusal is
 measured against the first fact and does not need the second.
 
-**RUN ORDER AND WHICH ROWS CARRY THE WEIGHT.** Step 1 is the headline and the
-weakest row in the part: a build that refused every configuration would pass
-it. Steps 2 and 3 are what distinguish a working refusal from a broken one.
-Run all three; if time is short, 2 and 3 are the ones that cannot be skipped.
+**CORRECTED AFTER SITTING D (2026-09-01), FIRST RUN.** Three changes, all
+found by running the part rather than reading it:
+
+- **Steps 1 and 4 collapse.** Step 1 as written has you create a colliding pair
+  through the UI. On v0.1.5 you CANNOT — the write path refuses the second
+  save, which is the thing being tested. The only route to a colliding pair is
+  step 4's storage write. Treat them as one procedure.
+- **Run steps 5 and 6 in the order 6 THEN 5.** Step 5 ends by editing the
+  collision away; step 6 needs it intact to export. In document order step 6
+  arrives with nothing left. Same consumable problem as Part 11.
+- **Step 4 needs a real before-state.** Writing a colliding pair straight into
+  storage leaves both domains UNGRANTED, so "no header on the wire" is
+  explained by the missing grant and the row proves nothing. Instead: create
+  the two profiles with DIFFERENT header names, grant both, confirm both apply,
+  then rename one header in storage so they match. Same profiles, same grants,
+  one field changed.
+
+**WHICH ROWS CARRY THE WEIGHT.** The headline row is the weakest in the part: a
+build that refused every configuration would pass it. Steps 2 and 3 are what
+distinguish a working refusal from a broken one, and step 3 in particular —
+`"notn1.test".endsWith("n1.test")` is true, so a string-suffix bug would refuse
+a pair covering disjoint hosts. If time is short, 2 and 3 cannot be skipped.
 
 Needs the echo server and two hostnames with a real parent/child relationship
 (`c1.test` and `sub.c1.test`), plus one suffix confusable (`notc1.test`). All
