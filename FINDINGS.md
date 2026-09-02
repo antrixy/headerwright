@@ -584,7 +584,11 @@ negative control, the two-inputs property, both strict-decision checks, and
 reason precedence against both the cap and a malformed header. Eleven-mutation
 pass, all caught, re-runnable via `test/mutate-collisions.py`. On the wire:
 SMOKE Part 13, run as sitting D (2026-09-01), 13 of 15 predictions right —
-OBS-D3 through OBS-D11 in `test/EVIDENCE.md`.
+OBS-D3 through OBS-D11 in `test/EVIDENCE.md`. Plus OBS-D13 (2026-09-02, after
+publish), which confirms the same behaviour on an install CHROME UPDATED rather
+than one reloaded by hand — so the build-path refusal is evidenced on three
+independent routes: the predicate by selftest and mutation, the build path via
+a storage write, and the build path via Chrome's own update mechanism.
 
 **A note on the before-state, added after sitting D.** OBS-C10 was the banked
 before-state and it is now known to be misleading, not merely

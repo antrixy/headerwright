@@ -59,6 +59,16 @@ Why:
   isn't and the headers will not apply. Both are read from Chrome at render
   time rather than remembered.
 
+  **One exception, as of v0.1.5.** A green dot means the GRANT is held, which
+  is not quite the same as the headers applying. If two profiles write the same
+  header on overlapping domains, neither applies — but the grant is still held,
+  so the dots stay green, the domains are still counted in the "domains
+  granted" total, the status line still reads "applying", and the badge still
+  reads ON. The per-profile collision marker on each card is the only surface
+  that reports it. That is a real gap between four surfaces and the truth, and
+  it is being closed in the next release; the marker is what to read in the
+  meantime (findings 21, 22 and 26).
+
   One caveat, found while verifying this: the site list under
   `chrome://extensions` → Details is *not* a reliable view of what is
   currently granted. It has been observed listing a domain that
