@@ -94,8 +94,33 @@ captured on the OLD build:
 
 ```
 up1.test:8080/       -> xheader: True      (apex applies on v0.1.3)
-sub.up1.test:8080/   -> (no xheader)        (finding-18 subdomain failure, live on the store build)
+sub.up1.test:8080/   -> (no xheader)        (finding-18 subdomain failure, on the v0.1.3 RELEASE ZIP loaded unpacked — NOT the store CRX; see the correction below)
 ```
+
+### CORRECTION 2026-09-01 — this row was not run on the store build
+
+As originally written this block said the subdomain failure was observed
+"live on the store build." It was not. The environment table three sections
+up records the v0.1.3 source as the GitHub `v0.1.3` release ZIP restored into
+`~/hw/upgrade` and loaded unpacked, with a path-derived id — which is why the
+step-8 overwrite had to reuse the same folder path. The store CRX was never
+installed in `hw-clean`.
+
+The error was authored at observation time, not introduced in transcription:
+the sitting-C session notes carry the same phrase in OBS-C3's heading, three
+lines below the environment block that contradicts it. The build was named by
+what it REPRESENTED rather than by where it came from. Both records are
+corrected; the session notes need the same edit.
+
+What this does and does not change. The FINDING-018 reproduction itself stands
+— the release ZIP is the v0.1.3 source and the subdomain failure is a property
+of that code, not of the packaging. What is NOT established is that the store
+CRX behaves identically on the upgrade path, because a store install has a
+stable extension id and an unpacked one has a path-derived id, and the
+approval cache is keyed per origin per extension. The genuine-upgrade and
+host-approval rows therefore remain OWED against a real store install:
+install 0.1.3 from the Chrome Web Store into `hw-clean`, upgrade to 0.1.4, and
+re-run only those two rows. Nothing else in sitting C depends on it.
 
 `~/hw/upgrade` then overwritten in place with v0.1.4 (same path, id preserved);
 extension reloaded. Post-upgrade popup: both dots GRAY, `0/2 domains granted`,
@@ -149,6 +174,47 @@ Both chips render green, both cards clean, and the status line reads
 Grant accounting dedupes by domain across profiles. (A transient first-render
 flicker was suspected but could not be reproduced on demand; recorded as
 unconfirmed, not a defect.)
+
+## OBS-C10 — overlapping profiles resolve to ONE winner — banked, not a v0.1.4 row
+
+**Not a v0.1.4 row.** Recorded in sitting C because the fixture was already
+standing, and transcribed here on 2026-09-01 as the before-state v0.1.5's
+FINDING-021 fix is measured against. It gated nothing in v0.1.4.
+
+Two profiles on `shared1.test` — the same "Test"/"Test2" pair as step 6d —
+both setting header `xheader`, Test to `A` and Test2 to `B`, master toggle ON.
+
+```
+shared1.test:8080/   -> xheader: A        (one value only)
+```
+
+One winner. No concatenation, no duplicate header, no error, nothing in the
+popup indicating that a second profile wanted a different value — both chips
+green, both cards clean.
+
+**WHAT THIS DOES NOT ESTABLISH, and the limit is structural rather than a gap
+in the run.** Why `A` won is not determined by this observation. It is equally
+consistent with profile-slot order, creation order, DNR rule-id tie-break (all
+rules carry `priority: 1`), and storage order. In this configuration all four
+predict `A`: the profiles were created in the order Test, Test2, so
+`nextRuleId()` gave them ids 1 and 2, `saveProfile()` appended them in that
+order, and the id order and the insertion order coincide. The observation has
+no discriminating power BY CONSTRUCTION, and separating the four would need a
+matrix varying one factor at a time.
+
+**Why it was nevertheless sufficient.** It is enough to justify refusal, which
+only needs "one silent winner" to be true, and not enough to justify a
+precedence rule, which would need the mechanism. That asymmetry is part of why
+v0.1.5 took refusal — see FINDING-021.
+
+**A note on how this was nearly lost.** OBS-C10 was the one observation in the
+sitting-C notes that never reached version control, because it was not a
+v0.1.4 row. In the interval, `handoffs/headerwright/ROADMAP-v0.2plus.md`
+described it as "already banked" and as the anchor for v0.1.5 "the same way
+the 0.1.3 subdomain failure anchored 0.1.4" — a comparison the observation does
+not support, since the subdomain failure WAS discriminating and this is one
+cell. A record referenced confidently from a planning file and absent from the
+repo is the shape worth watching for.
 
 ## Part 11 step 10 — IP literal — PASS
 

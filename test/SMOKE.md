@@ -311,8 +311,8 @@ browser is then a real disagreement, not a malformed file. From the repo root:
 
     node -e '
     import("./extension/lib/canonical.js").then(({serializeProfiles}) => {
-      const h = [{name:"X-HW-Test", operation:"set", value:"1"}];
-      const one = (id) => ({id, name:`p${id}`, domains:["postman-echo.com"], headers:h});
+      const one = (id) => ({id, name:`p${id}`, domains:["postman-echo.com"],
+        headers:[{name:`X-HW-Test-${id}`, operation:"set", value:"1"}]});
       const fs = require("fs");
       fs.writeFileSync("/tmp/hw-fixture-id-ceiling.json",
         serializeProfiles([{...one(1), id: 2147483647, name: "Ceiling"}]));
@@ -327,6 +327,21 @@ browser is then a real disagreement, not a malformed file. From the repo root:
 domain. Rules are one-per-profile regardless of domain count, so rule count
 scales with profile count while permission dialogs stay at ZERO. That is what
 makes a 5,000-rule test a one-click operation.
+
+**CHANGED IN v0.1.5, AND THE SHARED DOMAIN IS NOT THE PART THAT CHANGED.** The
+header NAME must now vary per profile. Until FINDING-021 every fixture profile
+carried the same `X-HW-Test` on the same domain, which v0.1.5 reads as a
+5000-way collision and refuses on import. Verified against the committed
+parser, not assumed:
+
+    cap-5000.json -> REFUSED: ...would write the same header on overlapping d...
+    cap-5001.json -> REFUSED: this file has 5001 profiles. The most that...
+
+Note the asymmetry, because it is the part that hides the problem: 5001 still
+refuses, but for the CAP. Reason precedence puts the cap check first, so Part 6
+step 2 would pass while step 1 failed, and the step-2 pass would no longer be
+testing anything — the file is refused either way. The shared domain is
+untouched, so dialogs stay at zero and the technique survives intact.
 
 ---
 
@@ -606,8 +621,9 @@ hostnames accordingly, before building the fixture rather than after.
    if it cannot fire for a user who never ran v0.1.3.
 6d. **Render cost did not regress.** The permission pass is now once per
    unique domain instead of once per chip. With three profiles referencing
-   the same domain, the popup renders without visible flicker and the chips
-   all agree. Finding 8's live-update path still works: change storage from
+   the same domain — **each writing a DIFFERENT header name, or v0.1.5 refuses
+   the configuration outright and there is nothing to render** — the popup
+   renders without visible flicker and the chips all agree. Finding 8's live-update path still works: change storage from
    the service worker console and the list corrects itself.
 7. **Sweep leaves the legacy grant alone until it is unreferenced.** After
    step 6 but BEFORE re-granting, check `chrome://extensions` → Site access.
@@ -737,8 +753,9 @@ exactly like the FAIL row above.
 3. **Import replace-all releases it.** Same setup, then import a config that
    does not reference the domain. Gone.
 4. **A shared legacy domain is RETAINED.** Two profiles on the same gray
-   domain; delete one. The grant stays, because the other still references
-   it. This is finding 1b's invariant holding under migration.
+   domain, **writing different header names** (same name is a v0.1.5 collision
+   and will not save); delete one. The grant stays, because the other still
+   references it. This is finding 1b's invariant holding under migration.
 5. **The migration path still works after all that.** Re-create the profile
    and click the chip. Dialog appears, grant completes, green.
 
@@ -758,6 +775,91 @@ Site Access UI even produces the shape the sweep matches. Find out:
 7. Reload the extension and check whether the site survives. Record either
    way. This single observation decides whether finding 4 is design work or
    a comment fix.
+
+---
+
+## Part 13 — Collision refusal (finding 21, fixed in v0.1.5)
+
+**What the selftest cannot do here.** The suite proves the predicate: which
+domain pairs overlap, which header names match, which configurations are
+refused. It cannot show that a refused pair applies NEITHER header on the
+wire, because "neither" is a claim about what Chrome did with the rules it was
+given, and the suite never registers a rule.
+
+**The before-state is banked, and it is thinner than it looks.** OBS-C10
+(`test/EVIDENCE.md`) recorded two profiles on one domain both setting
+`xheader`, values `A` and `B`, and `A` alone reaching the wire. It establishes
+a single silent winner. It does NOT establish what chose the winner — four
+candidate mechanisms all predicted `A` in that configuration. Refusal is
+measured against the first fact and does not need the second.
+
+**RUN ORDER AND WHICH ROWS CARRY THE WEIGHT.** Step 1 is the headline and the
+weakest row in the part: a build that refused every configuration would pass
+it. Steps 2 and 3 are what distinguish a working refusal from a broken one.
+Run all three; if time is short, 2 and 3 are the ones that cannot be skipped.
+
+Needs the echo server and two hostnames with a real parent/child relationship
+(`c1.test` and `sub.c1.test`), plus one suffix confusable (`notc1.test`). All
+three to 127.0.0.1. Use a profile with no prior approval for any of them.
+
+1. **A colliding pair applies NEITHER header.** Two profiles, one on
+   `c1.test` and one on `sub.c1.test`, both writing `X-Collide` with different
+   values. Grant both.
+   - Expected on the wire at `http://sub.c1.test:8080/`: **no `X-Collide` at
+     all.** Not one value, not both, not a concatenation.
+   - Expected in the popup: BOTH cards carry a collision marker naming the
+     header and the other profile by name. Neither is silently the loser.
+   - Expected in the service worker console: one `HeaderWright:` warning
+     naming the header and both profile ids.
+   - This is the FINDING-018-enlarged surface deliberately: apex and subdomain
+     did not overlap before v0.1.4 and do now.
+
+2. **The STRICT decision, on the wire.** Edit the second profile so both
+   profiles set `X-Collide` to the SAME value. The outcome no longer depends
+   on order, and v0.1.5 refuses it anyway.
+   - Expected: **the save is refused in the form**, with the message naming
+     `X-Collide` and the other profile.
+   - This row exists because it is the one a user is most likely to report as
+     wrong. If it is ever relaxed to outcome-based detection, THIS row and the
+     two matching selftest checks are what change. Record the exact message.
+
+3. **Suffix confusables are NOT a collision.** Two profiles, one on `c1.test`
+   and one on `notc1.test`, both writing `X-Collide`.
+   - Expected: both save, both grant, and **both apply** —
+     `http://c1.test:8080/` and `http://notc1.test:8080/` each show their own
+     value. No marker on either card.
+   - `"notc1.test".endsWith("c1.test")` is true, so a string-suffix test would
+     refuse two configurations that cover disjoint hosts. This is the wire
+     version of the selftest's confusable control and the reason the leading
+     dot in `domainsOverlap()` is the most load-bearing character in the file.
+
+4. **The build-path half reaches an install the write path cannot.** The
+   write-path refusals only fire on a save or an import; an install that is
+   ALREADY colliding never triggers either. Reproduce that state directly:
+   with the extension unloaded, write a colliding pair into
+   `chrome.storage.local` from the service worker console, then reload.
+   - Expected: both profiles present in the popup, both marked, neither
+     applying on the wire, and the console warning present.
+   - This is the row that stands in for a real v0.1.4 install that FINDING-018
+     pushed into a collision. If it is skipped, the half of the fix that
+     reaches existing users is untested in a browser.
+
+5. **An unrelated profile can still be edited while a collision exists.** With
+   the colliding pair from step 4 still in place, add a third profile on a
+   fresh domain with its own header, and save it.
+   - Expected: **it saves.** The collision it has nothing to do with does not
+     block it.
+   - Then edit one of the COLLIDING profiles to change its header name.
+     Expected: it saves, both markers clear, and both profiles apply.
+   - Without this the guard would trap an upgraded user with delete as the
+     only exit. This is finding 15's editing exemption, one release later.
+
+6. **A colliding import is refused, and refused for the right reason.**
+   Export the step-4 state, then re-import it.
+   - Expected: refused, message naming the header.
+   - Then import a file that is BOTH over-cap and colliding. Expected: refused
+     for the CAP. Reason precedence — a file should be rejected for the first
+     thing wrong with it, and the cap is the cheaper thing to fix.
 
 ---
 
@@ -805,4 +907,11 @@ Site Access UI even produces the shape the sweep matches. Find out:
                      5 re-grant still works afterwards = ?
                      6 pattern Chrome's Site Access UI produced = "..."
                      7 that site survived extension reload = ?
+    Part 13:         1 colliding pair: X-Collide on the wire = ?  (expect absent)
+                     1 markers on BOTH cards = ?  console warning seen = ?
+                     2 identical-value save refused = ?  message = "..."
+                     3 confusable pair BOTH applied = ?  (expect yes, no markers)
+                     4 storage-written pair marked + not applying after reload = ?
+                     5 unrelated profile still saveable = ?  collision editable away = ?
+                     6 colliding import refused = ?  over-cap+colliding refused for CAP = ?
     Notes:
