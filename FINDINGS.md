@@ -603,38 +603,176 @@ the release is unaffected.
 
 ---
 
-## Open
+## FINDING-022 — The popup's header and footer scrolled out of view
 
-**FINDING-026 — the collision message is reused verbatim on surfaces it was
-not written for.** `describeCollisions()` was written for the per-profile card
+**Version:** v0.1.6 — the NARROW fix only
+**Severity:** low — nothing false is displayed, but the honesty surface leaves
+the screen
+**Enlarged by:** FINDING-021's own fix, after release
+
+**Symptom.** With enough profiles the list overflowed and both the master
+toggle and the status line left the viewport. The toggle is the primary
+control; the status line is the `X/Y domains granted · applying` readout that
+FINDING-003 and FINDING-008 exist to protect. A user who cannot see whether
+headers are applying has this product's central claim off-screen.
+
+**Cause.** The popup was three elements in normal flow. Chrome sizes an action
+popup to its content up to a 600px ceiling and then scrolls the whole document,
+so the header and footer scrolled with everything else. Nothing was pinned
+because nothing had been asked to be.
+
+**The threshold moved after v0.1.5 shipped.** The original entry recorded six
+profiles. OBS-D12 measured THREE, because FINDING-021's collision marker costs
+roughly 110px per card and appears exactly where the user needs to reach Edit.
+Two markers cost about a profile and a half of vertical space. This is the
+second time a shipped fix enlarged an unrelated finding — FINDING-018 did it to
+FINDING-021 — and both times the enlargement was found by a browser sitting
+rather than predicted.
+
+**Fix.** Containment, not addition. The body became a bounded flex column
+(`max-height: min(600px, 100vh)`), `main` became the one scrolling region
+(`overflow-y: auto` plus `min-height: 0`), and the header and footer became
+`flex: none`. The list scrolls between two fixed elements. No new element, no
+extra vertical space, four declarations.
+
+**Why so small a fix, deliberately.** The v0.2.0 two-list card roughly doubles
+card height, which drops the scroll ceiling again, and the redesign that
+answers "how does this scale to many complex entries" is co-designed with
+response headers. That redesign has to be able to REPLACE this cleanly rather
+than unpick it, so the constraint on this fix was that it stay small enough to
+delete.
+
+**What is NOT fixed.** The scaling redesign — collapsing cards, a master/detail
+split, or tabbed request/response lists. Open, and belongs to v0.2.0 with the
+true card shape in front of whoever does it.
+
+**One term of the cap is unmeasured, and the comment says so.** 600px is
+Chrome's documented ceiling. `100vh` is there because on a short display Chrome
+sizes the popup below that ceiling, and a body taller than its own viewport
+would scroll bodily and reinstate the bug. What `100vh` resolves to inside an
+extension popup has not been measured here, so the two are combined rather than
+either being trusted: if `100vh` is honest it tightens the cap correctly, and if
+it is not, 600px still binds.
+
+**Evidence.** Selftest: six static declaration checks plus
+`F022: the toggle and the status line sit OUTSIDE the scrolling region`. **Those
+read the stylesheet as text — they prove the declarations exist and prove
+nothing about layout.** They are a tripwire, because `min-height: 0` looks
+redundant and is the one a tidying pass deletes. Six mutants, one per
+declaration plus the sibling structure, each killed. The layout evidence is
+SMOKE Part 14 steps 1–5, including the small-display falsifier at step 4.
+
+---
+
+## FINDING-023 — The domain chip's tooltip never renders
+
+**Version:** v0.1.6 — **the dependency was removed; the tooltip was NOT fixed**
+**Severity:** low
+**Root cause:** NOT ESTABLISHED
+
+**Symptom.** `chip.title` is constructed correctly for all three chip states,
+confirmed by reading `.domain.migrating` from the DOM. No tooltip appeared on
+hover, so the text was reachable only through DevTools.
+
+**Cause.** Unknown. Whether this is Chrome's handling of `title` inside
+extension popups or something in the markup was not established when the
+finding was raised and is not established now.
+
+**What actually mattered.** The tooltip carries the migration-state
+explanation — the distinction between "granted under an older version" and
+"never granted" — and that distinction existed IN THE TOOLTIP AND NOWHERE ELSE.
+For the other two states the dot colour and the status line already carry the
+answer and the tooltip is redundant.
+
+**Fix, and what kind of fix it is.** The distinction was moved into the DOM
+rather than the tooltip being repaired. The migration notice now closes with
+"Click any underlined domain below to re-approve it", and `.migrating` chips
+are the only ones carrying a dashed underline — an ordinary ungranted chip has
+a dashed BORDER and no underline. So the notice's wording picks out exactly the
+domains it is counting, and whether the tooltip renders no longer decides
+whether the user can reach the explanation.
+
+**This is a mitigation, and calling it a fix would be overclaiming.** The
+titles are still there and still may not render. What changed is that nothing
+load-bearing depends on them.
+
+**Why the root cause was not chased.** It is not diagnosable without a browser,
+and a repair that cannot be verified is the shape this project distrusts. A
+two-minute discriminator is scheduled instead — SMOKE Part 14 step 9 hovers a
+`<span title>`, a `<button title>`, the master toggle's `<label title>` shipped
+since v0.1.0, and the status line's `<footer title>`. If nothing shows a
+tooltip the cause is Chrome or the environment and this entry should be
+reclassified rather than carried; if some show and the chips do not, the cause
+is the markup and there is a real fix to scope. **Update this entry with that
+verdict after the sitting.**
+
+**Evidence.** Selftest: `F023: the migration notice names the visual marker`,
+`F023: .migrating is what carries the underline the notice names`, and
+`F023: a plain ungranted chip is marked by its BORDER, not an underline`. The
+second and third are the ones that matter — the notice's word is only true
+while the stylesheet agrees with it, and two call sites remembering to agree is
+what this codebase treats as a defect waiting to happen. Two mutants, both
+killed. Visual confirmation is SMOKE Part 14 step 8.
+
+---
+
+## FINDING-026 — The collision message was reused on surfaces it was not written for
+
+**Version:** v0.1.6
+**Severity:** low — confusing prose, not a false claim about system state
+
+**Symptom.** `describeCollisions()` was written for the per-profile card
 marker, where every word is correct: the profile exists, is granted, and is not
-applying. It is reused unchanged in two write-path refusals where it is not.
+applying. It was reused unchanged in two write-path refusals where it is not.
 
-On the save form the message opens "Not applying:" — but nothing was saved and
-the profile does not exist. On import it opens the same way, and there the
-confusion is worse, because colliding profiles that genuinely are not applying
-may be visible on screen at the same time.
+On the save form the message opened "Not applying:" — but nothing had been
+saved and the profile did not exist. On import it opened the same way, and
+there the confusion was worse, because colliding profiles that genuinely are
+not applying could be on screen at the same moment. The import message had two
+further defects: it stated the problem twice, because the wrapper sentence and
+the helper both said it, and it ended in a double period, because the wrapper
+added punctuation the helper already supplied.
 
-The import message has two further defects, both from composing a new sentence
-around a helper written for a different surface. It states the problem twice —
-the wrapper says the file has profiles writing the same header on overlapping
-domains, then the helper says it again — and it ends in a double period,
-because the wrapper adds punctuation the helper already supplied.
+**Cause.** One function served three surfaces. The facts a collision message
+must carry — which header, which other profile — genuinely are shared. The
+sentence is not, and sharing it was the defect. Composing a new wrapper around
+a helper written for a different surface is also what produced both grammar
+defects.
 
-Observed in full as OBS-D3 and OBS-D8. The contrast that proves the diagnosis
-is the cap refusal message (OBS-D9), which was written for its own surface and
-reads cleanly.
+**Fix.** `collisionFacts()` extracts the shared facts; three surfaces build
+their own sentence from them. `describeCollisions()` keeps the card marker
+wording unchanged — it was correct. `describeSaveRefusal()` reports a refused
+ACTION and names the way out, making no claim about application in either
+direction. `describeImportRefusal()` names both sides rather than speaking from
+one profile's vantage point (during an import there is no current profile),
+counts further collisions rather than listing them, states the problem once,
+and — like every other message thrown from `canonical.js` — **is an
+unterminated clause**, because `popup.js` renders every parse failure as
+`Import failed: ${err.message}.` and supplies the full stop itself.
 
-Severity: low. Both write-path messages are preceded by context that makes the
-outcome clear — the save form stays open with its buttons, and the import
-message leads with "Import failed:". This is confusing prose, not a false
-claim about system state, which is the distinction that keeps it out of the
-same class as FINDING-004's badge.
+**The card marker was verified unchanged rather than assumed unchanged.** Old
+and new `describeCollisions()` were run side by side over eight inputs covering
+plural headers, the name fallback, and quotes inside profile names: eight
+identical, zero differing. Lesson 3 — produce the artifact instead of arguing
+about it.
 
-Fix: a separate phrasing for write-path refusals, not a patch to the shared
-string. The card marker's wording is correct and should not change. Note that
-one selftest check pins "not applying" in `describeCollisions()` output; that
-check stays with the card marker and the new function needs its own.
+**Observed in full as OBS-D3 and OBS-D8.** The contrast that proved the
+diagnosis was the cap refusal message (OBS-D9), which was written for its own
+surface and reads cleanly.
+
+**Evidence.** Selftest: 21 checks across the two new functions and the
+real throw site, anchored on the decided parts only — which header, which
+profile, no claim about applying, the overlap stated once, no self-terminating
+punctuation, and the rendered `Import failed: …` string ending in exactly one
+full stop, which is OBS-D8's actual defect. Eleven mutants, each a deliberate
+reintroduction of one of the three defects, all killed — including
+`save refusal falls back to the CARD MARKER`, which is the finding itself and
+would fail four checks. Rendering evidence is SMOKE Part 14 steps 6 and 7;
+sitting D's P8 is the standing reminder that reading a string is not seeing it.
+
+---
+
+## Open
 
 **FINDING-027 — a colliding configuration exports but cannot be re-imported.**
 `serializeProfiles()` does not validate. `parseProfilesFile()` now refuses
@@ -661,36 +799,6 @@ import and let the build path skip them (consistent with how an upgraded
 install is already treated, and it removes the asymmetry entirely). The third
 is the most coherent and is also the largest change, since it moves import from
 refusing to marking. Needs a decision entry before any of them is built.
-
-**FINDING-022 — the popup's header and footer scroll out of view.**
-**UPDATED 2026-09-01: v0.1.5 makes this fire at THREE profiles, not six.**
-FINDING-021's collision marker is roughly 110px per card and appears exactly
-when the user needs to reach Edit; two markers cost about a profile and a half
-of vertical space. Observed as OBS-D12. The original entry follows. With six
-profiles the list overflows, and both the master toggle and the status line
-leave the viewport. The toggle is the primary control, and the status line is
-the honesty surface FINDING-003 and FINDING-008 exist to protect — a status
-line that cannot be seen while looking at the chips is a weaker guarantee than
-one that can.
-
-Observed on v0.1.3 during the v0.1.4 smoke run, so it predates the release and
-is not a regression. SCOPE.md does not cover it; the nearest entry is a v0.2
-note that a second header list "needs a layout answer that does not turn the
-popup into a form," which makes popup layout an already-acknowledged open
-question. Fixing both together is the obvious move.
-
-**FINDING-023 — the domain chip's tooltip never renders.** `chip.title` is
-constructed correctly for all three states, confirmed by reading
-`.domain.migrating` from the DOM. No tooltip appeared on hover in the test
-environment, so the text is reachable only through DevTools.
-
-This is the FINDING-018 shape again, one layer up: a surface that asserts
-something the user cannot actually get at. It matters most for the migration
-state, where the tooltip carries the only explanation of WHY a chip is gray —
-the distinction between "granted under an older version" and "never granted"
-exists in the string and nowhere else in the UI. Whether this is a Chrome
-behaviour for `<button title>` inside extension popups or something in the
-markup is not yet established.
 
 **FINDING-024 — any profile mutation re-requests every remaining legacy
 domain.** Deleting a profile on `alt.test` produced a permission dialog naming

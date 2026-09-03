@@ -65,9 +65,10 @@ Why:
   so the dots stay green, the domains are still counted in the "domains
   granted" total, the status line still reads "applying", and the badge still
   reads ON. The per-profile collision marker on each card is the only surface
-  that reports it. That is a real gap between four surfaces and the truth, and
-  it is being closed in the next release; the marker is what to read in the
-  meantime (findings 21, 22 and 26).
+  that reports it, and it is what to read. Closing the gap on the other four
+  means the status line and badge reporting how many profiles were skipped,
+  which is new signal rather than a corrected one, so it is queued rather than
+  patched (findings 21, 22 and 26).
 
   One caveat, found while verifying this: the site list under
   `chrome://extensions` → Details is *not* a reliable view of what is
