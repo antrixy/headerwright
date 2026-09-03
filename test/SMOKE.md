@@ -904,6 +904,112 @@ three to 127.0.0.1. Use a profile with no prior approval for any of them.
 
 ---
 
+## Part 14 — Popup containment and write-path wording (findings 22/23/26, v0.1.6)
+
+**THIS PART TOUCHES NO WIRE, AND THAT IS THE POINT.** Every row is about what
+the popup displays. No rule is built differently in v0.1.6, no grant is
+requested differently, no header changes — so Parts 1 and 13 are the wire
+regression and they cover unchanged code. Do not re-run them for this release
+unless something here suggests they are affected.
+
+**The oracle is weaker here than anywhere else in this document, and it is
+worth saying so plainly.** A wire row either shows a header or does not. A
+layout row is a judgement about whether something is visible. The rows below
+are therefore written to be answerable yes/no **at a stated profile count**,
+because "does the popup look better" is not an oracle and would pass against
+any build.
+
+**What the selftest covers, so these rows do not have to.** The two message
+contracts are pinned in `test/selftest.mjs` — which header, which profile, no
+claim about applying, the overlap stated once, no self-terminating punctuation
+— and a nineteen-mutant pass kills every deliberate reintroduction of the
+FINDING-026 and layout defects. The four layout declarations have static tripwires there
+too. **Those tripwires read the stylesheet as text: they prove the declarations
+are present and prove nothing about layout.** These rows are the only evidence
+that the popup actually lays out, and that the messages actually fit.
+
+Needs one Chrome profile with no approval history for the hostnames used. The
+hostnames do NOT need to resolve — the popup renders profiles and chips either
+way — so no echo server and no `/etc/hosts` work. Use `p1.test` … `p8.test`,
+none reused from sittings A–D.
+
+1. **The toggle and status line survive a long list.** Create eight profiles,
+   one header each. Grants are irrelevant to this row; skip or deny the
+   dialogs and record which.
+   - Expected: the master toggle visible without scrolling.
+   - Expected: the status line visible without scrolling.
+   - Expected: the profile list scrolls independently between them and reaches
+     the eighth profile.
+   - Record the popup height and whether the scrollbar is confined to the list.
+
+2. **The OBS-D12 configuration, before and after.** Reduce to three profiles
+   and give two of them the same header name on overlapping domains. **This
+   must be written from the service worker console** — the write path refuses
+   it, which is step 4's row. Reload the extension.
+   - Expected: with two collision markers on screen, **Add profile** is
+     reachable and the toggle stays visible while reaching it.
+   - This is the direct comparison against OBS-D12, which recorded Add profile
+     pushed below the fold at exactly three profiles on v0.1.5.
+
+3. **The confirmation row — an OBSERVATION, not a pass/fail.** At eight
+   profiles, click Delete on the first.
+   - Record whether the confirmation is visible without scrolling.
+   - Record whether anything indicates the popup continues below.
+   - Cancel. **Do not fix it during the run.** Containment bounds the visible
+     region permanently, so a confirmation can be off-screen sooner than
+     before; whether that matters is a design question for the v0.2.0 redesign,
+     where confirmation placement and card shape are decided together.
+
+4. **The small display.** Reproduce a display or window arrangement in which
+   Chrome sizes the popup below 600px and repeat step 1's three readings.
+   - Expected: toggle and status line still pinned.
+   - **If not reproducible, record NOT REACHED.** Do not record a pass.
+   - This is the falsifier for the `min(600px, 100vh)` cap in popup.html,
+     whose comment states that which term binds has not been measured. A
+     failure means `100vh` is not honest inside a popup and the cap needs a
+     different expression — not that containment is the wrong approach.
+
+5. **The editor at length.** Open a profile and add header rows to six.
+   - Expected: the form scrolls inside the list region with Save reachable.
+
+6. **The save refusal (FINDING-026).** With a profile on `p2.test` writing
+   `X-Dup`, create a second on `sub.p2.test` writing `X-Dup`. Save.
+   - **Transcribe the message verbatim.** That is the row.
+   - Expected: it does NOT contain "not applying" — nothing was saved.
+   - Expected: it names the header and the other profile by name.
+   - Expected: it fits the form's error area, as the v0.1.5 message did
+     (OBS-D3, where the prediction that it would overflow was wrong).
+
+7. **The import refusal (FINDING-026).** Export the step-2 colliding
+   configuration and import that same file. It will be refused — that is
+   FINDING-027, still open and not fixed in v0.1.6.
+   - **Transcribe the message verbatim.**
+   - Expected: the problem stated ONCE, not twice.
+   - Expected: exactly one full stop at the end. OBS-D8 ended in two.
+
+8. **The migration wording (FINDING-023).** On an install carrying a
+   pre-0.1.4 grant, open the popup.
+   - Expected: the notice's closing sentence names the underline, and the gray
+     chips it counts are visibly underlined while ordinary ungranted chips are
+     not.
+   - If no legacy grant is available, record NOT REACHED. The wording and the
+     stylesheet are pinned to agree in the selftest; this row is whether the
+     agreement is visible.
+
+9. **The tooltip discriminator — TWO MINUTES, and it decides whether a fix
+   exists.** v0.1.6 does not attempt to fix FINDING-023's tooltip; it removes
+   the dependency on it. The cause is still unestablished. Hover, in order:
+   a granted chip (`<span title>`), an ungranted chip (`<button title>`), the
+   master toggle (`<label title>`, shipped since v0.1.0), and the status line
+   after a failed sync (`<footer title>`).
+   - If NO tooltip appears anywhere in the popup: the cause is Chrome or the
+     environment, and FINDING-023 should be reclassified rather than carried.
+   - If some appear and the chips do not: the cause is the markup, and there
+     is a real fix to scope.
+   - Record the verdict either way.
+
+---
+
 ## Recording template
 
     Date:            YYYY-MM-DD
@@ -958,4 +1064,24 @@ three to 127.0.0.1. Use a profile with no prior approval for any of them.
                      7 POST-PUBLISH: before-value on old version = ?
                        after Chrome update: version changed = ?  ID unchanged = ?
                        both marked = ?  grants unchanged = ?  wire clean = ?
+    Part 14:         1 toggle visible at 8 profiles = ?  status line visible = ?
+                       list scrolls to p8 with both still visible = ?
+                       popup height = ?  scrollbar confined to the list = ?
+                     2 Add profile reachable at 3 profiles + 2 markers = ?
+                       (OBS-D12 recorded it below the fold on v0.1.5)
+                     3 delete confirmation visible without scrolling = ?
+                       any cue the popup continues below = ?   OBSERVATION only
+                     4 popup sized below 600px reproduced = ?  (else NOT REACHED)
+                       toggle + status line still pinned at that size = ?
+                     5 editor scrolls at 6 header rows, Save reachable = ?
+                     6 save refusal verbatim = "..."
+                       contains "not applying" = ?  (expect no)
+                       names header + other profile = ?  fits the error area = ?
+                     7 import refusal verbatim = "..."
+                       problem stated once = ?  terminal full stops = ?  (expect 1)
+                     8 notice names the underline = ?  chips underlined = ?
+                       (NOT REACHED if no legacy grant available)
+                     9 tooltip: granted chip = ?  ungranted chip = ?
+                       master toggle = ?  status line = ?
+                       verdict = chrome / markup / inconclusive
     Notes:

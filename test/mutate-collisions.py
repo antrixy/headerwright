@@ -6,6 +6,8 @@ import subprocess, shutil, pathlib, sys, re
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 COL = ROOT / "extension/lib/collisions.js"
 CAN = ROOT / "extension/lib/canonical.js"
+POP = ROOT / "extension/popup/popup.js"
+HTML = ROOT / "extension/popup/popup.html"
 
 MUTATIONS = [
     ("drop the leading dot (suffix-confusable guard removed)", COL,
@@ -46,6 +48,78 @@ MUTATIONS = [
     ("import collision check runs BEFORE per-profile validation", CAN,
      '  const seenIds = new Set();',
      '  if (findCollisions(doc.profiles.map((p) => ({ id: p.id, name: p.name, domains: normalizeDomains(p.domains || []), headers: p.headers })), (e) => validateHeaderEntry(e).valid).length > 0) { throw new Error("overlapping domains"); }\n  const seenIds = new Set();'),
+
+    # ---- v0.1.6, FINDING-026: the write-path refusals are their own sentences.
+    #
+    # THE FIRST ONE IS THE FINDING ITSELF. If reusing the card marker on the
+    # save path fails zero checks, then v0.1.6 has changed the prose without
+    # pinning the thing that was wrong with it, and the defect can walk back in
+    # on the next edit to either surface.
+    ("save refusal falls back to the CARD MARKER (the FINDING-026 defect)", COL,
+     '  const facts = collisionFacts(collisions, profileId, nameFor);\n  if (!facts) return "";\n  const { headers, others, headerList } = facts;\n  const one = headers.length === 1;',
+     '  return describeCollisions(collisions, profileId, nameFor);\n  const facts = collisionFacts(collisions, profileId, nameFor);\n  if (!facts) return "";\n  const { headers, others, headerList } = facts;\n  const one = headers.length === 1;'),
+    ("save refusal claims the profile is not applying", COL,
+     '`Not saved: ${one ? "header" : "headers"} ${headerList} ${one ? "is" : "are"} ` +',
+     '`Not applying: ${one ? "header" : "headers"} ${headerList} ${one ? "is" : "are"} ` +'),
+    ("save refusal omits the header name", COL,
+     '`Not saved: ${one ? "header" : "headers"} ${headerList} ${one ? "is" : "are"} ` +',
+     '`Not saved: ${one ? "header" : "headers"} ${one ? "is" : "are"} ` +'),
+    ("save refusal loses number agreement", COL,
+     '`Not saved: ${one ? "header" : "headers"} ${headerList} ${one ? "is" : "are"} ` +',
+     '`Not saved: ${one ? "header" : "headers"} ${headerList} is ` +'),
+    ("save refusal omits the other profile", COL,
+     '`also written by ${others.join(", ")} on an overlapping domain. Two ` +',
+     '`also written by another profile on an overlapping domain. Two ` +'),
+    ("save refusal omits the way out", COL,
+     '`profiles cannot write the same header on the same request. Change the ` +\n    `header or the domains, then save.`',
+     '`profiles cannot write the same header on the same request.`'),
+    ("import refusal terminates itself (the double-period defect)", COL,
+     '`the same header on the same request` +',
+     '`the same header on the same request.` +'),
+    ("import refusal omits the header name", COL,
+     '`"${first.header}" on overlapping domains, and two profiles cannot write ` +',
+     '`on overlapping domains, and two profiles cannot write ` +'),
+    ("import refusal names only ONE side", COL,
+     '`${nameOf(idA, nameFor)} and ${nameOf(idB, nameFor)} both write header ` +',
+     '`${nameOf(idA, nameFor)} writes header ` +'),
+    ("import refusal drops the further-collisions count", COL,
+     '    (remaining > 0',
+     '    (false'),
+    ("import throw re-adds the duplicated wrapper sentence", CAN,
+     '    throw new Error(describeImportRefusal(collisions, (id) => nameById.get(id)));',
+     '    throw new Error("this file has profiles that would write the same header on overlapping domains, which has no defined winner. " + describeImportRefusal(collisions, (id) => nameById.get(id)));'),
+
+    # ---- v0.1.6, FINDING-022: the popup containment tripwires.
+    #
+    # These mutants are the reason those checks exist. Each one leaves a popup
+    # that renders, works, and silently scrolls its master toggle away again.
+    # min-height is first because it is the declaration that looks redundant.
+    ("main can no longer shrink (min-height: 0 removed)", HTML,
+     '    min-height: 0;\n    overflow-y: auto;',
+     '    overflow-y: auto;'),
+    ("main no longer scrolls (overflow-y removed)", HTML,
+     '    min-height: 0;\n    overflow-y: auto;',
+     '    min-height: 0;'),
+    ("the header becomes shrinkable again", HTML,
+     '  header {\n    flex: none;',
+     '  header {'),
+    ("the status line becomes shrinkable again", HTML,
+     '  footer {\n    flex: none;',
+     '  footer {'),
+    ("the popup body is no longer height-bounded", HTML,
+     '    max-height: min(600px, 100vh);\n',
+     ''),
+    ("the status line moves INSIDE the scrolling region", HTML,
+     '  </main>\n\n  <footer id="status-line">&nbsp;</footer>',
+     '  <footer id="status-line">&nbsp;</footer>\n  </main>\n'),
+
+    # ---- v0.1.6, FINDING-023: the notice and the stylesheet must agree.
+    ("the migration notice stops naming the marker", POP,
+     '`Click any underlined domain below to re-approve it.`',
+     '`Click any gray domain below to re-approve it.`'),
+    ("the underline the notice names is removed from .migrating", HTML,
+     'text-decoration: underline dashed var(--ink-soft); text-underline-offset: 2px;',
+     ''),
 ]
 
 backup = {}

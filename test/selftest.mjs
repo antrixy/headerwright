@@ -63,11 +63,13 @@ import {
   findCollisions,
   collidingProfileIds,
   describeCollisions,
+  describeSaveRefusal,
+  describeImportRefusal,
 } from "../extension/lib/collisions.js";
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 241;
+const EXPECTED_CHECKS = 272;
 
 let passed = 0;
 let failed = 0;
@@ -1004,6 +1006,90 @@ checkThrows("F021: the cap outranks a collision as the reason", () =>
     { id: 99992, name: "Beta", domains: ["example.com"], headers: [setH("X-H", "B")] },
   ])), "The most that can be applied");
 
+// --- FINDING-026: the write-path refusals are their own sentences
+//
+// The card marker was reused verbatim on two surfaces it was not written for.
+// Every word of it is true on the card and two of its claims are false on the
+// write paths: nothing was saved, and nothing was imported. THE FACTS ARE
+// SHARED, THE SENTENCE IS NOT.
+//
+// WHAT IS PINNED HERE IS THE DECIDED PART, per FINDING-006. The two facts that
+// make a refusal actionable — which header, which other profile — plus the
+// three defects OBS-D3 and OBS-D8 recorded: a false claim about application,
+// the problem stated twice, and punctuation the caller supplies again. Prose
+// beyond that is free to change.
+
+const names2 = (id) => ({ 1: "Alpha", 2: "Beta" })[id];
+const saveMsg = describeSaveRefusal(found, 1, names2);
+
+check("F026: the save refusal names the header", saveMsg.includes('"x-h"'));
+check("F026: the save refusal names the OTHER profile", saveMsg.includes('"Beta"'));
+// The finding itself. On this surface either the profile does not exist yet or
+// the STORED version is unchanged and still applying, so any claim about
+// application is false whichever way it points.
+check("F026: the save refusal makes NO claim about applying",
+  !/appl(y|ies|ying|ied)/i.test(saveMsg));
+check("F026: the save refusal says it did not save",
+  /not saved/i.test(saveMsg));
+check("F026: the save refusal names the way out",
+  /change the/i.test(saveMsg));
+check("F026: the save refusal is NOT the card marker",
+  saveMsg !== describeCollisions(found, 1, names2));
+check("F026: an unresolvable name falls back to the id in the save refusal",
+  describeSaveRefusal(found, 1, () => null).includes("profile 2"));
+check("F026: a profile in no collision gets no save refusal",
+  describeSaveRefusal([], 1, names2) === "");
+// Grammar is in scope here rather than being fussiness: two of the three
+// defects this finding records ARE grammar, produced by composing a new
+// sentence around a helper written for a different surface.
+const savePlural = describeSaveRefusal(multi, 1, (id) => ({ 1: "A", 2: "B" })[id]);
+check("F026: the save refusal agrees in number with two headers",
+  savePlural.includes("headers") && savePlural.includes(" are "));
+
+const importMsg = describeImportRefusal(found, names2);
+
+check("F026: the import refusal names the header", importMsg.includes('"x-h"'));
+check("F026: the import refusal names BOTH profiles",
+  importMsg.includes('"Alpha"') && importMsg.includes('"Beta"'));
+check("F026: the import refusal makes NO claim about applying",
+  !/appl(y|ies|ying|ied)/i.test(importMsg));
+// popup.js renders every parse failure as `Import failed: ${err.message}.`, so
+// a message that terminates itself produces the observed "..".
+check("F026: the import refusal does not terminate itself",
+  !/[.!?]$/.test(importMsg));
+// The duplication defect, made decidable: the old message paired a wrapper
+// sentence with the card marker and said "overlapping domain(s)" in both.
+check("F026: the import refusal states the overlap ONCE",
+  (importMsg.match(/overlapping domain/g) || []).length === 1);
+check("F026: unresolvable names fall back to ids in the import refusal",
+  describeImportRefusal(found, () => null).includes("profile 1") &&
+  describeImportRefusal(found, () => null).includes("profile 2"));
+check("F026: no collisions produce no import refusal",
+  describeImportRefusal([], names2) === "");
+// One pair is named and the rest are counted. Listing every pair is what the
+// 360px popup cannot hold; saying nothing about them would overstate what the
+// message covers.
+const importMulti = describeImportRefusal(multi, (id) => ({ 1: "A", 2: "B" })[id]);
+check("F026: further collisions are counted, not silently dropped",
+  /1 further collision\b/.test(importMulti) && !/further collisions/.test(importMulti));
+
+// End to end through the real throw site, which is where the defect was seen.
+let importThrew = "";
+try { parseProfilesFile(collidingDoc); } catch (err) { importThrew = err.message; }
+check("F026: the THROWN import message makes no claim about applying",
+  importThrew !== "" && !/appl(y|ies|ying|ied)/i.test(importThrew));
+check("F026: the THROWN import message does not terminate itself",
+  importThrew !== "" && !/[.!?]$/.test(importThrew));
+// The duplication defect at the REAL throw site. The helper being clean does
+// not stop canonical.js pairing it with a wrapper sentence again, which is
+// exactly how the defect arose the first time.
+check("F026: the THROWN import message states the overlap ONCE",
+  (importThrew.match(/overlapping domain/g) || []).length === 1);
+// OBS-D8 verbatim ended "...one of them..". Rendered the way popup.js renders
+// it, the message must end in exactly one full stop.
+check("F026: rendered as popup.js renders it, there is one terminal period",
+  /[^.]\.$/.test(`Import failed: ${importThrew}.`));
+
 // ------------------------------- static popup wiring (finding 10 motivated)
 // The suite cannot execute popup.js — it needs chrome.* — but it CAN read it.
 // $("some-id") resolving to null is a silent failure: the listener is never
@@ -1059,6 +1145,62 @@ check("popup.js toggles at least four classes (the scan works)",
 check(`every class popup.js toggles is defined in popup.html${
   undefinedClasses.length ? " — undefined: " + undefinedClasses.join(", ") : ""}`,
   undefinedClasses.length === 0);
+
+// ------------------------------------------- popup containment (FINDING-022)
+//
+// WHAT THESE CHECKS ARE, STATED PLAINLY SO NOBODY MISTAKES THEM FOR THE
+// EVIDENCE. They read the stylesheet as text. They prove the declarations are
+// present; they do NOT prove the popup lays out correctly, because nothing
+// here renders anything. The oracle for FINDING-022 is visual and lives in
+// SMOKE.md Part 14 — toggle and status line visible at a profile count well
+// past the OBS-D12 threshold of three.
+//
+// They earn their place as a TRIPWIRE. The narrow fix is four declarations
+// spread across three rules, and any one of them going missing reinstates the
+// bug silently: the popup still renders, still works, and simply scrolls its
+// header away again at some profile count nobody is currently looking at.
+// min-height: 0 is the most fragile of the four — it looks redundant, it is
+// the one a tidying pass would delete, and without it overflow-y never
+// engages at all.
+
+check("F022: the popup body is height-bounded",
+  /body\s*\{[^}]*max-height:/.test(styleBlock));
+check("F022: the popup body is a flex COLUMN",
+  /body\s*\{[^}]*flex-direction:\s*column/.test(styleBlock));
+check("F022: main is the scrolling region",
+  /(?:^|[\s}])main\s*\{[^}]*overflow-y:\s*auto/.test(styleBlock));
+check("F022: main can shrink below its content (min-height: 0)",
+  /(?:^|[\s}])main\s*\{[^}]*min-height:\s*0/.test(styleBlock));
+check("F022: the header does not shrink",
+  /(?:^|[\s}])header\s*\{[^}]*flex:\s*none/.test(styleBlock));
+check("F022: the status line does not shrink",
+  /(?:^|[\s}])footer\s*\{[^}]*flex:\s*none/.test(styleBlock));
+// Structural, not stylistic: pinning works because these two are SIBLINGS of
+// the scrolling region. A footer moved inside <main> scrolls with the list and
+// every declaration above stays true while the fix stops working.
+check("F022: the toggle and the status line sit OUTSIDE the scrolling region",
+  /<header[\s\S]*<main[\s\S]*<\/main>[\s\S]*<footer/.test(popupHtml));
+
+// ------------------------------------------- migration wording (FINDING-023)
+//
+// The chip's `title` carries the only explanation of why a chip is gray under
+// migration, and it does not render on hover — so that explanation was
+// reachable through DevTools and nowhere else. The fix moves the distinction
+// into the notice, which names the visual marker.
+//
+// THE TWO HALVES MUST AGREE, and this is the whole reason it is checked here
+// rather than left to the browser row: the notice's word is only true while
+// `.migrating` is the thing carrying an underline. Change the stylesheet and
+// the sentence becomes a wrong instruction with nothing to catch it.
+check("F023: the migration notice names the visual marker",
+  /underlined domain/.test(popupJs));
+check("F023: .migrating is what carries the underline the notice names",
+  /\.migrating\s*\{[^}]*text-decoration:\s*underline/.test(styleBlock));
+// An ordinary ungranted chip must NOT be underlined, or "underlined" stops
+// picking out the migrating ones and the notice over-counts.
+check("F023: a plain ungranted chip is marked by its BORDER, not an underline",
+  /button\.domain\s*\{[^}]*border-style:\s*dashed/.test(styleBlock) &&
+  !/button\.domain\s*\{[^}]*text-decoration/.test(styleBlock));
 
 // ------------------------------------------ badge honesty (finding 4, A5)
 // The narrow half only: does the badge stop asserting ON when registration
