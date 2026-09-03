@@ -218,7 +218,49 @@ export function collisionsForProfile(collisions, profileId) {
 }
 
 /**
- * The user-facing sentence for a profile's collisions.
+ * A profile's display name for a message, or a stable fallback.
+ *
+ * Shared by every surface so an unresolvable id can never render "undefined"
+ * on one of them and `profile 3` on another.
+ */
+function nameOf(id, nameFor) {
+  const name = nameFor ? nameFor(id) : null;
+  return name ? `"${name}"` : `profile ${id}`;
+}
+
+/**
+ * The two facts every collision message must carry, extracted once.
+ *
+ * THE FACTS ARE SHARED; THE SENTENCE IS NOT — FINDING-026. Three surfaces ask
+ * about the same collision and only one of them is describing a profile that
+ * exists, is granted, and is not applying. Sharing the extraction keeps them
+ * agreeing about WHICH header and WHICH profile; sharing the prose is what
+ * made two of them false.
+ *
+ * Returns null when this profile is in no collision, so every caller has one
+ * empty-case branch rather than three.
+ */
+function collisionFacts(collisions, profileId, nameFor) {
+  const mine = collisionsForProfile(collisions, profileId);
+  if (mine.length === 0) return null;
+
+  const headers = [...new Set(mine.map((c) => c.header))].sort();
+  const others = [...new Set(mine.map((c) => c.otherId))]
+    .map((id) => nameOf(id, nameFor))
+    .sort();
+
+  return { headers, others, headerList: headers.map((h) => `"${h}"`).join(", ") };
+}
+
+/**
+ * The user-facing sentence for a profile's collisions, on the PER-PROFILE CARD.
+ *
+ * SURFACE-SPECIFIC, and the specificity is the point. Every word here is true
+ * only on the card: the profile exists, it is stored, its domains may be
+ * granted, and it is not applying right now. FINDING-026 was this string being
+ * reused on two write paths where nothing had been saved and nothing was
+ * applying — so do not reuse it. describeSaveRefusal() and
+ * describeImportRefusal() are the other two surfaces.
  *
  * ANCHORED ON THE DECIDED PART, not on incidental prose — the FINDING-006
  * lesson. What the suite asserts is that the message names the header and
@@ -229,22 +271,83 @@ export function collisionsForProfile(collisions, profileId) {
  * to the id so the sentence never renders "undefined".
  */
 export function describeCollisions(collisions, profileId, nameFor) {
-  const mine = collisionsForProfile(collisions, profileId);
-  if (mine.length === 0) return "";
+  const facts = collisionFacts(collisions, profileId, nameFor);
+  if (!facts) return "";
+  const { headers, others, headerList } = facts;
 
-  const headers = [...new Set(mine.map((c) => c.header))].sort();
-  const others = [...new Set(mine.map((c) => c.otherId))]
-    .map((id) => {
-      const name = nameFor ? nameFor(id) : null;
-      return name ? `"${name}"` : `profile ${id}`;
-    })
-    .sort();
-
-  const headerList = headers.map((h) => `"${h}"`).join(", ");
   return (
     `Not applying: ${headers.length === 1 ? "header" : "headers"} ` +
     `${headerList} also written by ${others.join(", ")} on an overlapping ` +
     `domain. Two profiles cannot write the same header on the same request, ` +
     `so neither applies. Change the header or the domains in one of them.`
+  );
+}
+
+/**
+ * The refusal shown in the EDITOR FORM when a save would create a collision.
+ *
+ * FINDING-026. Nothing has been written: the profile may not exist yet, and if
+ * it does, the stored version is unchanged and still applying. So the message
+ * may not say "not applying", and it may not describe a state — it describes a
+ * REFUSED ACTION and names the way out.
+ *
+ * Scoped to the profile being saved, matching saveProfile()'s own scoping: the
+ * user is told about the collision they just tried to create, not about every
+ * collision in storage.
+ *
+ * Ends in a full stop because showFormError() renders it as-is.
+ */
+export function describeSaveRefusal(collisions, profileId, nameFor) {
+  const facts = collisionFacts(collisions, profileId, nameFor);
+  if (!facts) return "";
+  const { headers, others, headerList } = facts;
+  const one = headers.length === 1;
+
+  return (
+    `Not saved: ${one ? "header" : "headers"} ${headerList} ${one ? "is" : "are"} ` +
+    `also written by ${others.join(", ")} on an overlapping domain. Two ` +
+    `profiles cannot write the same header on the same request. Change the ` +
+    `header or the domains, then save.`
+  );
+}
+
+/**
+ * The refusal thrown by parseProfilesFile() when a FILE contains a collision.
+ *
+ * FINDING-026, the worse of the two write-path cases: colliding profiles that
+ * genuinely are not applying can be on screen at the same moment this appears,
+ * so "Not applying:" reads as a report about them.
+ *
+ * THREE THINGS THIS FIXES, all observed as OBS-D8:
+ *  - it does not claim anything is or is not applying — nothing was imported;
+ *  - it states the problem ONCE. The old message paired a wrapper sentence
+ *    with the card marker, which said it again in different words;
+ *  - IT DOES NOT END IN PUNCTUATION. popup.js renders every parse failure as
+ *    `Import failed: ${err.message}.`, and every other message thrown by
+ *    canonical.js is an unterminated clause. The old one supplied its own
+ *    full stop and produced "..them..".
+ *
+ * NAMES BOTH SIDES, unlike the other two surfaces. There is no "current"
+ * profile during an import — neither of the two is the user's vantage point —
+ * and the file is refused whole, so picking one to speak from would be
+ * arbitrary. Further collisions are COUNTED rather than listed: the message
+ * has to fit a 360px popup, and one named pair plus an honest count is enough
+ * to find the file's problem.
+ */
+export function describeImportRefusal(collisions, nameFor) {
+  if (!collisions || collisions.length === 0) return "";
+
+  const [first] = collisions;
+  const [idA, idB] = first.profileIds;
+  const remaining = collisions.length - 1;
+
+  return (
+    `${nameOf(idA, nameFor)} and ${nameOf(idB, nameFor)} both write header ` +
+    `"${first.header}" on overlapping domains, and two profiles cannot write ` +
+    `the same header on the same request` +
+    (remaining > 0
+      ? `; ${remaining} further collision${remaining === 1 ? "" : "s"} in ` +
+        `this file ${remaining === 1 ? "is" : "are"} not listed`
+      : "")
   );
 }

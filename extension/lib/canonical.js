@@ -37,7 +37,7 @@ import {
   MAX_RULE_ID,
   MAX_UNSAFE_DYNAMIC_RULES,
 } from "./rules.js";
-import { findCollisions, describeCollisions } from "./collisions.js";
+import { findCollisions, describeImportRefusal } from "./collisions.js";
 
 export const FILE_FORMAT = "headerwright-profiles";
 export const FILE_VERSION = 1;
@@ -225,13 +225,14 @@ export function parseProfilesFile(text) {
     (entry) => validateHeaderEntry(entry).valid
   );
   if (collisions.length > 0) {
-    const firstId = collisions[0].profileIds[0];
+    // FINDING-026. This used to pair a wrapper sentence with the CARD marker,
+    // which stated the problem a second time, asserted "Not applying:" about
+    // profiles that had not been imported, and supplied a full stop the
+    // caller adds again. describeImportRefusal() is written for this surface
+    // and, like every other message thrown from this file, is an
+    // UNTERMINATED CLAUSE — popup.js punctuates.
     const nameById = new Map(normalizedForCheck.map((p) => [p.id, p.name]));
-    throw new Error(
-      `this file has profiles that would write the same header on ` +
-        `overlapping domains, which has no defined winner. ` +
-        describeCollisions(collisions, firstId, (id) => nameById.get(id))
-    );
+    throw new Error(describeImportRefusal(collisions, (id) => nameById.get(id)));
   }
 
   return canonicalizeProfiles(doc.profiles);
