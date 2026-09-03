@@ -29,6 +29,7 @@ import {
   findCollisions,
   collidingProfileIds,
   describeCollisions,
+  describeSaveRefusal,
 } from "../lib/collisions.js";
 import { describeSync, DEFAULT_SYNC_STATE } from "../lib/status.js";
 import { createSerialQueue, createDebounced } from "../lib/queue.js";
@@ -261,13 +262,24 @@ function renderMigrationNotice(grants) {
   // Describes what happened and what it costs. No apology, no reassurance,
   // no "click here" urgency — the chips are already the affordance, and the
   // notice's job is to explain the gray dots, not to sell the fix.
+  //
+  // FINDING-023, and this is the load-bearing half of that fix. The chip's
+  // `title` distinguishes "granted under an older version" from "never
+  // granted", and that distinction existed IN THE TOOLTIP AND NOWHERE ELSE —
+  // so a tooltip that does not render made it unreachable outside DevTools.
+  // Naming the marker here moves it into the DOM: `.migrating` chips are the
+  // only ones carrying the dashed underline (an ordinary ungranted chip has a
+  // dashed BORDER and no underline), so "underlined" picks out exactly the
+  // domains this notice is counting. Whether the tooltip itself renders is a
+  // separate question, and the answer no longer decides whether the user can
+  // reach the explanation.
   el.textContent =
     `HeaderWright now requests access to subdomains, so headers set for ` +
     `example.com also apply on api.example.com. ${n} domain` +
     `${n === 1 ? "" : "s"} granted under an earlier version ` +
     `${n === 1 ? "does" : "do"} not cover this yet, and ` +
     `${n === 1 ? "its" : "their"} headers will not apply until re-approved. ` +
-    `Click any gray domain below to re-approve it.`;
+    `Click any underlined domain below to re-approve it.`;
 }
 
 async function renderListNow() {
@@ -752,8 +764,13 @@ async function saveProfile() {
     })),
     (entry) => validateHeaderEntry(entry).valid
   );
+  //
+  // FINDING-026. describeSaveRefusal(), not describeCollisions(): on this
+  // surface nothing has been written, so the card marker's "Not applying:" is
+  // false — either the profile does not exist yet, or the stored version is
+  // unchanged and still applying. Same facts, different sentence.
   const nameById = new Map(nextProfiles.map((p) => [p.id, p.name]));
-  const savedProfileCollision = describeCollisions(
+  const savedProfileCollision = describeSaveRefusal(
     wouldCollide,
     savedId,
     (id) => nameById.get(id)
