@@ -49,19 +49,34 @@
      question. That is coupled to the card shape and is co-designed with
      response headers in v0.2.0.
 
-     WHICH TERM OF THE min() BINDS IS NOT ESTABLISHED. 600px is Chrome's
-     documented ceiling for an action popup. `100vh` is here because on a
-     short display Chrome sizes the popup below that ceiling, and a body
-     taller than its own viewport would scroll bodily — reinstating exactly
-     this bug. What `100vh` resolves to inside an extension popup is not
-     something this project has measured, so the two are combined rather than
-     either being trusted alone: if `100vh` is honest it tightens the cap
-     correctly, and if it is not, 600px still binds and the behaviour is no
-     worse than the ceiling alone. The falsifier is a small-display row —
-     pre-registered as P4 in test/RUNBOOK-2026-09-04-v016.md. */
+     THE CAP IS A PLAIN 600px, AND THE REASON IS MEASURED. It was briefly
+     `min(600px, 100vh)`, on the reasoning that a short display sizes the popup
+     below Chrome's ceiling and a body taller than its own viewport would
+     scroll bodily, reinstating this bug. That reasoning contained an error
+     that the first browser open caught (OBS-E1):
+
+       innerHeight 107 · body max-height "107px" · main 22px · content 141px
+
+     `vh` IS CIRCULAR IN A POPUP THAT SIZES TO ITS CONTENT. The viewport is
+     derived from the body height, the body height was capped by `100vh`, and
+     `min()` takes the SMALLER term — so a small viewport produced a smaller
+     cap, which produced a smaller viewport. It collapsed to 107px and clipped
+     everything below the first two pixels of the empty-state box, including
+     Add profile. The popup was unusable at ZERO profiles.
+
+     The comment this replaces claimed that if `100vh` were dishonest "600px
+     still binds". That is false for `min()` and was never measured. Do not
+     reintroduce a viewport unit here; the selftest pins its absence.
+
+     KNOWN LIMIT, ACCEPTED. On a display short enough that Chrome sizes the
+     popup below 600px, the body can still exceed its viewport and scroll
+     bodily — the pre-v0.1.6 behaviour, not a regression, and not fixed here.
+     Fixing it needs the height set from a viewport measured after layout,
+     which is script rather than style and is deferred with the v0.2.0
+     redesign. */
   body {
     width: 380px;
-    max-height: min(600px, 100vh);
+    max-height: 600px;
     display: flex;
     flex-direction: column;
     margin: 0;
