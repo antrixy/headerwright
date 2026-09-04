@@ -646,73 +646,100 @@ delete.
 split, or tabbed request/response lists. Open, and belongs to v0.2.0 with the
 true card shape in front of whoever does it.
 
-**One term of the cap is unmeasured, and the comment says so.** 600px is
-Chrome's documented ceiling. `100vh` is there because on a short display Chrome
-sizes the popup below that ceiling, and a body taller than its own viewport
-would scroll bodily and reinstate the bug. What `100vh` resolves to inside an
-extension popup has not been measured here, so the two are combined rather than
-either being trusted: if `100vh` is honest it tightens the cap correctly, and if
-it is not, 600px still binds.
+**THE CAP WAS BRIEFLY `min(600px, 100vh)` AND THAT BROKE THE POPUP
+COMPLETELY.** OBS-E1, found on the first browser open of the sitting, before
+any row: the popup rendered as a header, a footer, and a two-pixel sliver, with
+Add profile entirely clipped. Unusable at ZERO profiles.
 
-**Evidence.** Selftest: six static declaration checks plus
-`F022: the toggle and the status line sit OUTSIDE the scrolling region`. **Those
-read the stylesheet as text — they prove the declarations exist and prove
-nothing about layout.** They are a tripwire, because `min-height: 0` looks
-redundant and is the one a tidying pass deletes. Six mutants, one per
-declaration plus the sibling structure, each killed. The layout evidence is
-SMOKE Part 14 steps 1–5, including the small-display falsifier at step 4.
+    innerHeight 107 · body max-height "107px" · main 22px · content 141px
+
+`vh` is CIRCULAR in a popup that sizes to its content — Chrome derives the
+viewport from the body height, the body height was capped by `100vh`, and
+`min()` takes the smaller term, so each fed the other downward until it settled
+at 107px.
+
+**The reasoning that put it there was wrong in a way worth recording.** The
+comment claimed that if `100vh` were dishonest, "600px still binds". That is
+false for `min()`, which selects the SMALLER operand. It was reasoned rather
+than measured, and it propagated into this entry and the session handoff before
+a browser ever saw it. Fixed to a flat `600px`.
+
+**The known limit that motivated `100vh` turned out to be unobservable.** P4
+asked what happens when Chrome sizes the popup below 600px. Reducing the Chrome
+window to roughly 380px still reported a 600px popup viewport — **Chrome sizes
+an action popup independently of the parent window.** So a body taller than its
+own viewport may not be reachable by resizing at all, and the limit is recorded
+as untested rather than as a known defect.
+
+**Evidence.** Sitting E: P1, P2, P3 confirmed at eight profiles with
+`docScrollH == innerHeight` proving the document itself does not scroll; P6
+confirmed against OBS-D12's exact configuration, where v0.1.5 pushed Add
+profile below the fold and v0.1.6 does not; P5 confirmed the cap releases at one
+profile; P8 confirmed the editor scrolls with Save reachable at ten header rows.
+
+Selftest: seven static declaration checks including
+`F022: the body cap uses NO viewport unit`, added after OBS-E1. Seven mutants,
+each killed, one of them reinstating the circular cap verbatim.
+
+**THE STATIC CHECKS PASSED AGAINST THE BROKEN BUILD, AND THEY WERE RIGHT TO.**
+They read the stylesheet as text and prove declarations exist, which is what
+this entry and SMOKE Part 14 both say they do. 272/272 green, 30 mutants killed,
+committed — and unusable on first open. That gap is the argument for the browser
+sitting, and it is the reason the viewport-unit check exists: it was written
+because a browser said so, not because the suite could infer it.
 
 ---
 
-## FINDING-023 — The domain chip's tooltip never renders
+## FINDING-023 — WITHDRAWN: the domain chip's tooltip renders
 
-**Version:** v0.1.6 — **the dependency was removed; the tooltip was NOT fixed**
-**Severity:** low
-**Root cause:** NOT ESTABLISHED
+**Status:** WITHDRAWN 2026-09-04, NOT REPRODUCIBLE
+**Raised:** sitting D · **Withdrawn:** sitting E
 
-**Symptom.** `chip.title` is constructed correctly for all three chip states,
-confirmed by reading `.domain.migrating` from the DOM. No tooltip appeared on
-hover, so the text was reachable only through DevTools.
+**The claim.** "`chip.title` is constructed correctly for all three chip states
+but no tooltip appears on hover, so the text is reachable only through
+DevTools." Its stated harm was that the migration state's explanation — the
+distinction between "granted under an older version" and "never granted" —
+existed in the tooltip and nowhere else.
 
-**Cause.** Unknown. Whether this is Chrome's handling of `title` inside
-extension popups or something in the markup was not established when the
-finding was raised and is not established now.
+**It does not reproduce.** Sitting E hovered a migrating chip and the tooltip
+rendered:
 
-**What actually mattered.** The tooltip carries the migration-state
-explanation — the distinction between "granted under an older version" and
-"never granted" — and that distinction existed IN THE TOOLTIP AND NOWHERE ELSE.
-For the other two states the dot colour and the status line already carry the
-answer and the tooltip is redundant.
+> p9.test: this domain was granted under an older version that did not cover
+> subdomains. Headers will not apply until you click to re-approve.
 
-**Fix, and what kind of fix it is.** The distinction was moved into the DOM
-rather than the tooltip being repaired. The migration notice now closes with
+The master toggle's tooltip rendered too. **That is the exact case the finding
+was about** — the migration state, on a `<button>` chip — so this is not a
+near-miss on a different state.
+
+**What sitting D actually saw is unresolved, and is not guessed at here.**
+Candidates: a granted `<span>` rather than a `<button>`, DevTools holding
+focus during the hover, or too short a hover. None was tested. Recording the
+question openly is better than closing it with a plausible story.
+
+**What v0.1.6 shipped anyway, and why it stays.** The migration notice now ends
 "Click any underlined domain below to re-approve it", and `.migrating` chips
 are the only ones carrying a dashed underline — an ordinary ungranted chip has
-a dashed BORDER and no underline. So the notice's wording picks out exactly the
-domains it is counting, and whether the tooltip renders no longer decides
-whether the user can reach the explanation.
+a dashed BORDER and none. **The justification changes and the change stays.**
+It was written as a mitigation for an unreachable channel; it is now simply a
+second channel, in the DOM, for a distinction that matters. Cheap, verified,
+and it makes the notice's wording and the stylesheet answerable to each other.
 
-**This is a mitigation, and calling it a fix would be overclaiming.** The
-titles are still there and still may not render. What changed is that nothing
-load-bearing depends on them.
-
-**Why the root cause was not chased.** It is not diagnosable without a browser,
-and a repair that cannot be verified is the shape this project distrusts. A
-two-minute discriminator is scheduled instead — SMOKE Part 14 step 9 hovers a
-`<span title>`, a `<button title>`, the master toggle's `<label title>` shipped
-since v0.1.0, and the status line's `<footer title>`. If nothing shows a
-tooltip the cause is Chrome or the environment and this entry should be
-reclassified rather than carried; if some show and the chips do not, the cause
-is the markup and there is a real fix to scope. **Update this entry with that
-verdict after the sitting.**
-
-**Evidence.** Selftest: `F023: the migration notice names the visual marker`,
+**The three selftest checks stay for that reason** —
+`F023: the migration notice names the visual marker`,
 `F023: .migrating is what carries the underline the notice names`, and
 `F023: a plain ungranted chip is marked by its BORDER, not an underline`. The
-second and third are the ones that matter — the notice's word is only true
-while the stylesheet agrees with it, and two call sites remembering to agree is
-what this codebase treats as a defect waiting to happen. Two mutants, both
-killed. Visual confirmation is SMOKE Part 14 step 8.
+second and third are the load-bearing pair: the notice's word is only true
+while the stylesheet agrees, and two call sites remembering to agree is what
+this codebase treats as a defect waiting to happen. Two mutants, both killed.
+
+**The lesson is about the entry, not the tooltip.** This was written up for
+v0.1.6 asserting the cause was "not established" and the text "reachable only
+through DevTools". The first was honest; the second was an untested claim
+stated as fact, and it survived into a public repo because nobody hovered a
+chip until sitting E. **A finding is a claim, and an unreproduced claim is not
+evidence** — the same standard this file applies to fixes.
+
+**Evidence.** Sitting E, P14 falsified.
 
 ---
 
@@ -773,6 +800,71 @@ sitting D's P8 is the standing reminder that reading a string is not seeing it.
 ---
 
 ## Open
+
+**FINDING-028 — a DELETE path issues a permission REQUEST.** Observed as
+OBS-E5. With all grants denied, deleting a profile produced a host-permission
+request dialog; one approval granted the full origin set for every SURVIVING
+profile — four domains the user never approved, granted from a delete
+confirmation.
+
+The revoke direction is correct, which narrows this considerably: the service
+worker was later seen logging `revoking 4 host grant(s) no profile references`
+and doing it properly. Grants do not leak. `reconcileGrants()` appears to
+compute `toRequest` from every ungranted domain in the surviving set on ANY
+mutation, rather than only where a request is warranted. **Deleting should only
+ever revoke.**
+
+Not a status-line defect — `0/8` before and `4/4` after were both accurate. The
+defect is that the request was offered at all.
+
+Adjacent to FINDING-024, which describes this mechanism for LEGACY domains
+specifically; this is the general case, and the two may share a fix. **Needs a
+decision before a fix**: whether a mutation should ever request, or only the
+explicit chip click and the save path should. That is behaviour, not a bug fix,
+so it wants a `decisions.md` entry.
+
+**FINDING-029 — the header name is echoed in canonical form, not as typed.**
+Observed as OBS-E7, twice. A profile seeded with `X-Test` produces a card
+marker reading `"x-test"`, and the SAVE REFUSAL reads `"x-test"` while the form
+field directly above still shows `X-Test` as the user typed it.
+
+Lowercasing for COMPARISON is correct and is why collisions are detected at
+all. Echoing the canonical form back is the defect: a message quoting a header
+the user did not write is harder to match against their own configuration, and
+in the save-refusal case the contradiction is visible in one screenshot.
+
+Small, and the fix is not obviously safe: the message would need the ORIGINAL
+casing carried alongside the canonical form, and `findCollisions()` currently
+has no reason to retain it. Whether to thread it through or re-derive it at the
+message site is the open question.
+
+**FINDING-030 — the delete confirmation lands below the fold with no cue.**
+Observed as OBS-E3 / P7. At eight profiles, deleting the first renders the
+confirmation 378px below the viewport with nothing indicating the popup
+continues.
+
+**NOT A REGRESSION, and the distinction matters for whoever fixes it.** Before
+v0.1.6 the popup grew to Chrome's ceiling and then scrolled bodily, so the
+confirmation was also off-screen. What changed is that the pinned footer now
+sits flush at the bottom and READS as the end of the popup. **The defect is the
+missing cue, not the position.**
+
+Three candidate shapes, not equivalent and not yet chosen: scroll the
+confirmation into view, render it adjacent to the profile it concerns, or make
+it modal. The one-line `scrollIntoView()` is new behaviour under the patch
+policy. Queued for v0.1.7 or the v0.2.0 card redesign, where confirmation
+placement and card shape are decided together.
+
+**Note the pinned-add-bar idea is NOT a fix for this.** Pinning the add bar
+leaves the confirmation exactly where it is and costs permanent vertical space;
+raised separately.
+
+**FINDING-031 — the master toggle's label is not associated with its input.**
+Chrome's Issues panel, informational: the `.toggle` `<label>` wraps its
+`<input>` without a `for` attribute, so a screen reader may not announce the
+primary control. Not a regression and not raised by v0.1.6. Accessibility,
+small, and the first such item recorded for this project.
+
 
 **FINDING-027 — a colliding configuration exports but cannot be re-imported.**
 `serializeProfiles()` does not validate. `parseProfilesFile()` now refuses
