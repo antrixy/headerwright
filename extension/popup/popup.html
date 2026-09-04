@@ -68,12 +68,16 @@
      still binds". That is false for `min()` and was never measured. Do not
      reintroduce a viewport unit here; the selftest pins its absence.
 
-     KNOWN LIMIT, ACCEPTED. On a display short enough that Chrome sizes the
-     popup below 600px, the body can still exceed its viewport and scroll
-     bodily — the pre-v0.1.6 behaviour, not a regression, and not fixed here.
-     Fixing it needs the height set from a viewport measured after layout,
-     which is script rather than style and is deferred with the v0.2.0
-     redesign. */
+     THE LIMIT THAT MOTIVATED `100vh` IS NOT KNOWN TO EXIST. The worry was that
+     a short display sizes the popup below Chrome's ceiling, letting the body
+     exceed its own viewport. Sitting E tried to produce it: the Chrome window
+     was reduced to roughly 380px tall and the popup still reported a 600px
+     viewport, because CHROME SIZES AN ACTION POPUP INDEPENDENTLY OF THE PARENT
+     WINDOW — it is an overlay, not a constrained child. So the condition may
+     need an actual short display, and may not be reachable at all. It is
+     recorded as untested rather than as a known defect; claiming a limit
+     nobody has reproduced would be the same overclaiming the comment above
+     replaced. */
   body {
     width: 380px;
     max-height: 600px;
