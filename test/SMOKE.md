@@ -964,10 +964,17 @@ none reused from sittings A–D.
    Chrome sizes the popup below 600px and repeat step 1's three readings.
    - Expected: toggle and status line still pinned.
    - **If not reproducible, record NOT REACHED.** Do not record a pass.
-   - This is the falsifier for the `min(600px, 100vh)` cap in popup.html,
-     whose comment states that which term binds has not been measured. A
-     failure means `100vh` is not honest inside a popup and the cap needs a
-     different expression — not that containment is the wrong approach.
+   - **Sitting E could not produce this condition, and the reason is worth
+     knowing before anyone tries again.** Reducing the Chrome window to roughly
+     380px still reported a 600px popup viewport: Chrome sizes an action popup
+     INDEPENDENTLY of the parent window, as an overlay rather than a
+     constrained child. So this step likely needs an actual short display, and
+     may not be reachable at all. Record NOT REACHED rather than a pass.
+   - The cap is a flat `600px`. It shipped for one build as
+     `min(600px, 100vh)`, which collapsed the popup to 107px and clipped Add
+     profile entirely (OBS-E1) — `vh` is circular in a popup that sizes to its
+     content. `test/selftest.mjs` now pins the absence of viewport units, so
+     that specific failure cannot return silently.
 
 5. **The editor at length.** Open a profile and add header rows to six.
    - Expected: the form scrolls inside the list region with Save reachable.
