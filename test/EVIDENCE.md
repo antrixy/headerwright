@@ -10,6 +10,98 @@ from.
 
 ---
 
+# Sitting F — the store-CRX row, v0.1.5 -> v0.1.6
+
+**2026-09-04, after publication.** One row, run on the STORE-INSTALLED copy
+(`ooapgilielelobkkcdlnkenkflbnnmhi`) and updated by Chrome itself.
+
+**This closes a question carried since before v0.1.5.** Every layout reading in
+sitting E was taken on unpacked builds swapped by hand. This is the path a real
+user takes: Chrome replacing the code underneath a live install that already
+holds its own storage and grants. OBS-D13 closed the equivalent question for
+the collision refusal; nothing had closed it for containment.
+
+**The row was time-limited and nearly lost.** Chrome auto-updates on its own
+schedule, so the "before" reading exists only until it does. The install was
+found still on 0.1.5 and the baseline was taken before touching Update.
+
+---
+
+## OBS-F1 — FINDING-022 measured on a published build, before and after
+
+**Setup.** Store-installed v0.1.5, five profiles, one header each, on
+`sub.f1.test`, `f2.test`, `f3.test`, `f4.test`, `f5.test`. No collisions. Two
+profiles happen to share the display name `Test2`; duplicate names are
+permitted and are not part of this row.
+
+**Baseline, v0.1.5:**
+
+    version 0.1.5   origins []   rules 0
+    status line: "5 profiles · 0/5 domains granted · applying"
+
+    innerHeight 600   docScrollH 681   mainCanScroll false   headerTop 0
+    after scrolling the DOCUMENT to its end:
+    docScrollTop 81   headerTop -81   footerBottom 600.27
+
+**After Chrome's own Update, v0.1.6:**
+
+    innerHeight 600   docScrollH 600   mainCanScroll true    headerTop 0
+    (measured with `main` scrolled to its end)
+
+**All three indicators flip:**
+
+| | v0.1.5 | v0.1.6 |
+| --- | --- | --- |
+| `docScrollH` vs `innerHeight` | 681 vs 600 — the DOCUMENT scrolls | 600 vs 600 — it does not |
+| `mainCanScroll` | false — `main` is not a scroll container | true |
+| `headerTop` after scrolling | **-81**, the toggle is off-screen | **0**, pinned |
+
+`headerTop: -81` is the numeric form of the defect FINDING-022 describes, and
+it is the first time it was measured rather than observed. The status line was
+simultaneously pushed past the viewport bottom.
+
+**The update preserved everything it should.** Extension ID unchanged, storage
+intact, all five profiles present, grants unchanged by the update itself. No
+removal, no unpacked reload — Chrome's Update button and nothing else.
+
+**THE v0.1.5 THRESHOLD IS NOW MEASURED.** Six profiles with no collision
+markers overflowed a 600px popup by 81px. FINDING-022's original text estimated
+six; OBS-D12 measured three WITH two collision markers. The two numbers are
+consistent — the markers cost roughly the ~110px each that was estimated — and
+both now rest on readings rather than one on an estimate.
+
+---
+
+## OBS-F2 — one approval granted two domains, on a store build
+
+Before the update, a permission dialog was approved by mistake. The status line
+moved from `0/5` to `2/5` domains granted — **one approval, two domains.**
+
+That is FINDING-028's signature (`reconcileGrants()` requesting the full
+ungranted set rather than the domain acted upon), and this is the first time it
+has been seen on a STORE build rather than an unpacked one. Recorded as
+corroboration for that finding, not as a new one: the action that triggered the
+dialog was not recorded, so this does not establish which path requested.
+
+**What it does establish** is that the behaviour is not an artifact of unpacked
+loading, which was a live alternative explanation for OBS-E5.
+
+---
+
+## Correction found while running this row
+
+`handoffs/headerwright/NEXT.md` (planning repo) states the store fixture "holds
+one granted profile". At the start of this row it held one UNGRANTED profile
+(`origins: []`), and it now holds five with two granted. The fixture's purpose —
+the 0.1.2 re-prompt test — was discharged long ago, so this is bookkeeping
+rather than a problem.
+
+**It is a lesson 11 instance inside the file that carries lesson 11**, recorded
+on the same day that lesson was promoted. A file stating a fixture's contents
+needs a re-read when the fixture changes, and nothing prompted one.
+
+---
+
 # Sitting E — v0.1.6 popup pass — COMPLETE
 
 **2026-09-04.** Procedure: `test/SMOKE.md` Part 14. Predictions pre-registered
