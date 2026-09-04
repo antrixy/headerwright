@@ -10,6 +10,430 @@ from.
 
 ---
 
+# Sitting E — v0.1.6 popup pass — COMPLETE
+
+**2026-09-04.** Procedure: `test/SMOKE.md` Part 14. Predictions pre-registered
+in `test/RUNBOOK-2026-09-04-v016.md`, frozen before the browser opened.
+
+**THIS SITTING TOUCHED NO WIRE, AND THE RECORD SHOULD NOT BE READ AS IF IT
+DID.** Every reading below is about what the popup displays. No rule was built
+differently, no grant was requested differently, no header changed. The oracle
+is the screen, which is the weakest one this project has used — so every row is
+recorded with the measurement that produced it rather than a verdict alone.
+
+## Environment
+
+    Build under test    antrixy/headerwright, initially 7e138f1 (v0.1.6)
+                        AMENDED MID-SITTING — see OBS-E1
+    Extension           unpacked, Developer mode
+    Profiles            TWO Chrome profiles (deviation — see below)
+                        "clean"  : v0.1.6 only, no approval history
+                        "legacy" : v0.1.3 first, upgraded in place to v0.1.6
+    Hostnames           p1.test - p9.test, none reused from sittings A-D
+                        None resolve. No echo server, no /etc/hosts.
+
+**DEVIATION 1 — two profiles, not one.** The runbook's section 2 says one
+profile suffices, written when Phase C was assumed unreachable. C became
+reachable once the v0.1.3 tag was found to be fetchable, and a legacy grant
+makes the migration notice render inside the scrolling region on every popup
+open — which would have changed the layout P1-P3 were frozen against. A second
+profile keeps Phase A answering the question it was written to answer. No row's
+conditions were altered.
+
+**DEVIATION 2 — rows reordered.** A2 was run last rather than second, to avoid
+deleting five profiles and rebuilding them. A2's colliding configuration is
+what B2 imports, so running them adjacently is also cheaper. No row's
+conditions were altered.
+
+**DEVIATION 3 — the build was amended mid-sitting.** Unavoidable; see OBS-E1.
+Rows P1-P12 were all taken AFTER the amendment. Nothing was measured against
+the broken build except OBS-E1 itself.
+
+---
+
+## OBS-E1 — THE FIX BROKE THE POPUP. Found on first open, before any row.
+
+**The most important observation of the sitting, and it falsifies a design
+choice rather than a line of code.**
+
+v0.1.6 capped the popup with `max-height: min(600px, 100vh)`. On first open, at
+ZERO profiles, the popup rendered as a header, a footer, and a two-pixel sliver
+between them — the top border of the empty-state box. **Add profile was
+entirely clipped. The extension could not be used at all.**
+
+Measured in the popup console:
+
+    innerHeight       107
+    bodyMaxHeight     "107px"
+    bodyHeight        107
+    mainHeight         22
+    mainScrollHeight  141
+
+**Cause: `vh` IS CIRCULAR IN A POPUP THAT SIZES TO ITS CONTENT.** Chrome
+derives the popup viewport from the body height; the body height was capped by
+`100vh`; `min()` takes the SMALLER term. A small viewport produced a smaller
+cap, which produced a smaller viewport. It settled at 107px.
+
+**The source comment defending the choice was wrong, and wrong in a specific
+way worth recording.** It claimed that if `100vh` were dishonest, "600px still
+binds". That is false for `min()`, which selects the smaller operand — a
+dishonest small `100vh` binds TIGHTER, not looser. The claim was reasoned, not
+measured, and it was propagated into the FINDINGS entry and the session handoff
+before a browser ever saw it.
+
+**Fix applied mid-sitting: `max-height: 600px`.** Re-verified 273/273 with 31
+mutants killed, including a new mutant that reinstates the exact broken line.
+
+**What the suite did and did not do.** The selftest passed 272/272 against the
+broken build and all six FINDING-022 declaration checks passed. THEY WERE RIGHT
+TO. They read the stylesheet as text and prove the declarations exist; the
+source comment and SMOKE Part 14 both say so explicitly. A new check —
+`F022: the body cap uses NO viewport unit` — now pins the defect, but it exists
+only because a browser said so. Nothing in the suite could have predicted it.
+
+**This is the argument for browser sittings, stated in one observation.** A
+release that was code-complete, selftest-green, mutation-clean and committed
+was unusable on first open.
+
+---
+
+## Layout containment — P1, P2, P3 CONFIRMED
+
+Eight profiles, one header each, all grants denied.
+
+    innerHeight   600     mainH        514.06
+    mainScrollH   925     canScroll    true
+    docScrollH    600
+
+After scrolling `main` to its end (`scrollTop 411`):
+
+    headerTop     0       footerBottom 600
+
+**`docScrollH == innerHeight` is the reading that proves the mechanism** rather
+than the appearance: the document itself does not scroll. The list scrolls
+between a fixed header and a fixed footer, and the toggle and status line
+remain at the viewport extremes with the list fully scrolled.
+
+---
+
+## OBS-E2 / P6 CONFIRMED — the direct OBS-D12 comparison
+
+**This is the row the release exists for.** Three profiles, two of them
+colliding (`p2.test` and `sub.p2.test`, both writing `X-Test`), seeded from the
+service worker console because the write path refuses it. Two collision markers
+on screen — the exact configuration OBS-D12 measured on v0.1.5.
+
+    before   scrollTop 62    addTop 529.75   visibleNow true
+    after    addBottom 558.59   headerTop 0   footerBottom 600
+
+**OBS-D12 recorded Add profile pushed below the fold with the toggle scrolled
+away at exactly this configuration.** It is now reachable with both pinned
+elements held. FINDING-022's narrow fix does what it was scoped to do.
+
+Minor: the popup opened at `scrollTop 62` rather than 0. Not a defect; recorded
+because it was measured.
+
+---
+
+## OBS-E3 / P7 CONFIRMED — the delete confirmation lands below the fold
+
+Eight profiles, Delete clicked on the FIRST, list at top:
+
+    visible true    scrollTop 0    confirmTop 978
+    viewportH 600   offscreenBy 378.47
+
+The confirmation renders at the bottom of the list view, below all eight
+profiles and the Add profile bar. Nothing auto-scrolled. Nothing on screen
+indicated the popup continued below.
+
+**NOT A REGRESSION, and the distinction matters for whoever fixes it.** Before
+v0.1.6 the popup grew to Chrome's 600px ceiling and then scrolled bodily, so a
+confirmation this far down was also off-screen. What v0.1.6 changes is that the
+pinned footer now sits flush at the bottom, which READS as the end of the
+popup when it is not. **The defect is the missing cue, not the position.**
+
+Raised as FINDING-030. Not fixed — the runbook says record and leave, and the
+one-line remedy (`scrollIntoView()`) is new behaviour under the patch policy.
+
+---
+
+## P8 CONFIRMED — the editor scrolls, with the threshold recorded
+
+Two readings, because the first did not exercise the prediction:
+
+    6 header rows    mainScrollH 521   overflowed —      reachable true
+    10 header rows   mainScrollH 665   overflowed true   reachable true
+                     headerTop 0       footerBottom 600
+
+**At six rows the form never overflowed**, so the scrolling half of P8 was not
+tested; the runbook's estimate of six was wrong. At ten it overflowed and the
+form scrolled inside `main` with Save and Cancel reachable and both pinned
+elements held. Both readings are recorded because the threshold is more useful
+than the pass.
+
+---
+
+## P5 CONFIRMED — the cap releases when it should
+
+One profile:
+
+    innerHeight 246    bodyH 246.41    mainScrollH 160
+
+The popup sized to its content, nowhere near the cap. This is the other half of
+containment: a cap that never released would mean a mostly-empty 600px popup
+for the common single-profile case.
+
+---
+
+## OBS-E4 / P9, P10 CONFIRMED — the FINDING-026 write-path messages
+
+**P9, the save refusal, verbatim:**
+
+> Not saved: header "x-test" is also written by "Test2", "Test3" on an
+> overlapping domain. Two profiles cannot write the same header on the same
+> request. Change the header or the domains, then save.
+
+No "not applying". Names the header. Names BOTH other profiles. States the way
+out. Fits the error area at 380px without overflow — sitting D's P8 predicted
+the v0.1.5 message would overflow and was wrong, so this was a real test rather
+than a reused assumption.
+
+**P10, the import refusal, verbatim** (exporting the colliding configuration
+and re-importing it):
+
+> Import failed: "Test2" and "Test3" both write header "x-test" on overlapping
+> domains, and two profiles cannot write the same header on the same request.
+
+**The problem stated ONCE. One full stop.** OBS-D8 stated it twice and ended in
+two — `...one of them..`. All three defects closed.
+
+**The screenshot of P10 is the best evidence of why the finding mattered:** the
+import refusal appears directly beneath two card markers that legitimately read
+"Not applying:", and no longer echoes them. That contrast was the argument.
+
+FINDING-027 reproduced as expected — HeaderWright refused a file HeaderWright
+wrote. Known, open, unchanged, and the runbook says not to treat it as a
+regression.
+
+---
+
+## OBS-E5 — a DELETE path issued a permission REQUEST
+
+**Not predicted. Not in the runbook. The most substantive new defect found.**
+
+With all eight profiles' grants denied (`0/8 domains granted`), deleting
+profiles produced a host-permission REQUEST dialog. One approval granted the
+full v0.1.6 origin set for every surviving profile:
+
+    *://*.p1.test/*  *://*.p2.test/*  *://*.p3.test/*  *://*.p4.test/*
+    *://p1.test/*    *://p2.test/*    *://p3.test/*    *://p4.test/*
+
+Four domains the user never approved during setup, granted from a delete
+confirmation.
+
+**The revoke direction is CORRECT**, which narrows the diagnosis considerably.
+Later in the sitting the service worker logged:
+
+    HeaderWright: revoking 4 host grant(s) no profile references —
+    *://*.p3.test/*, *://*.p4.test/*, *://p3.test/*, *://p4.test/*
+
+So grants do not leak. `reconcileGrants()` appears to compute `toRequest` from
+every ungranted domain in the SURVIVING set on any mutation, rather than only
+on the paths where a request is warranted. Deleting should only ever revoke.
+
+**Not a status-line defect.** `0/8` was accurate before the grant and `4/4`
+accurate after; the honesty surface tracked correctly throughout. The defect is
+that the request was offered at all.
+
+Adjacent to FINDING-024, which describes the same mechanism for LEGACY domains
+specifically. This is the broader case. Raised as FINDING-028.
+
+---
+
+## OBS-E6 — popup flicker during a delete
+
+Observed during one delete, not reproduced deliberately. Recorded because it
+was seen, not because it is understood. Possibly the popup re-laying out as the
+list shrank, which is new surface area from the containment change. No
+measurement taken.
+
+---
+
+## OBS-E7 — the header name is echoed in canonical form, not as typed
+
+Two instances, both visible in single screenshots:
+
+- The card marker for a profile seeded with `X-Test` reads `"x-test"`.
+- The SAVE REFUSAL reads `"x-test"` while the form field directly above it
+  still shows `X-Test` as the user typed it.
+
+Lowercasing for COMPARISON is correct and is why collisions are detected at
+all. Echoing the canonical form back to the user is the defect: a message
+quoting a header they did not write is harder to match against their own
+configuration. Raised as FINDING-029.
+
+---
+
+## P11 CONFIRMED — the migration path, end to end
+
+Legacy profile: v0.1.3 installed, one profile `Legacy` on `p9.test`, grant
+APPROVED under v0.1.3. Verified narrow before upgrading:
+
+    origins: ["*://p9.test/*"]        <- one pattern, no wildcard sibling
+
+**C0 caught a setup error and is the reason this row exists.** The first
+attempt found `origins: []` and no `hw:profiles` — the Chrome profile had
+v0.1.3 loaded but no HeaderWright profile had ever been created, so no grant
+existed. Without the precondition check the upgrade would have shown no
+migration notice and P11 would have been recorded as FAILED on a fix that is
+fine.
+
+Upgraded by swapping the folder contents at the SAME path and reloading, so the
+extension ID was preserved (`bkhpnhlpfhjhahjkgaobkckpbjpkkmbh`). Notice
+verbatim:
+
+> HeaderWright now requests access to subdomains, so headers set for
+> example.com also apply on api.example.com. 1 domain granted under an earlier
+> version does not cover this yet, and its headers will not apply until
+> re-approved. Click any underlined domain below to re-approve it.
+
+Singular agreement throughout — "1 domain", "does not cover", "its headers" —
+a branch never previously exercised. The chip is visibly underlined; the notice
+names that marker.
+
+**The honesty surface holds across migration.** Status line read `0/1 domain
+granted` while Chrome still held the narrow grant. It counts COVERAGE, not
+permissions.
+
+**The grant was NOT silently widened.** After upgrade, before clicking:
+
+    origins: ["*://p9.test/*"]        <- unchanged
+
+After clicking the chip and approving:
+
+    origins: ["*://*.p9.test/*", "*://p9.test/*"]
+
+Notice gone, dot green, `1/1 domain granted`. Migration stays user-approved,
+which is FINDING-018's principle intact.
+
+---
+
+## P14 FALSIFIED — the tooltips render. FINDING-023 is NOT REPRODUCIBLE.
+
+**The prediction was that no tooltip would appear anywhere in the popup, at low
+confidence. It was wrong.** Both tooltips rendered on hover:
+
+- Master toggle: *Apply all profiles on or off*
+- The MIGRATING chip: *p9.test: this domain was granted under an older version
+  that did not cover subdomains. Headers will not apply until you click to
+  re-approve.*
+
+FINDING-023 is filed as "the domain chip's tooltip never renders", and its
+stated harm is that the migration explanation is reachable only through
+DevTools. **The chip tooltip rendered, on the migration state specifically —
+the exact case the finding is about.** Sitting D's observation was wrong or
+environment-specific.
+
+**Consequence: FINDING-023 is withdrawn as not reproducible.** The entry
+written for v0.1.6 asserted the cause was "not established" and the text
+"reachable only through DevTools". Both claims are now false and were corrected
+before tagging.
+
+**What survives.** The migration notice's wording and its three selftest checks
+stay. Naming the underline is still worth having — it is simply not repairing a
+defect, so the justification changes from "the only channel is unreachable" to
+"a second channel is cheap, and the notice and the stylesheet should agree".
+
+**Open and NOT guessed at in the entry:** what sitting D actually observed.
+Candidates include a granted `<span>` rather than a `<button>`, DevTools
+holding focus, or too short a hover. Unresolved.
+
+---
+
+## P12 CONFIRMED — no errors
+
+Console filtered to Errors only, both contexts: nothing. Issues panel reports
+**0 errors, 0 warnings, 1 informational**.
+
+The informational item is *"No label associated with a form field"* — the
+`.toggle` `<label>` wraps its `<input>` without a `for` attribute, so a screen
+reader may not announce the master toggle. **Not a v0.1.6 defect and not a
+regression**; static markup advice. Carried as an accessibility item for
+v0.1.7 rather than dropped.
+
+The issue COUNT rose from 1 to 19 to 31 during the sitting, which was
+initially read as errors accumulating. It is the same single informational item
+repeating per added header row. Recorded because the wrong reading was acted on
+before the filter was applied.
+
+---
+
+## P4 — CONFIRMED at 600px; THE SUB-600 CASE NOT REACHED
+
+    innerHeight 600   bodyMaxH "600px"   bodyH 600
+    docScrollH  600   headerTop 0        footerBottom 600
+
+`bodyMaxH` reads `600px`, confirming the circular cap is gone. `docScrollH ==
+innerHeight` with both elements pinned.
+
+**But the prediction's actual condition was never produced.** P4 asked what
+happens when Chrome sizes the popup BELOW 600px. The Chrome window was reduced
+to roughly 380px tall and the popup viewport still reported 600 — **Chrome
+sizes an action popup independently of the parent window**, as an overlay
+rather than a constrained child.
+
+**So the known limit documented in `popup.html` — that a viewport shorter than
+the cap would let the body scroll bodily — is not merely unfixed. It is
+UNOBSERVABLE on this hardware, and may require an actual short display.** The
+source comment was revised after this sitting: claiming a known limit that
+nobody can reproduce overstates what is known.
+
+The original P4, as written, was superseded by OBS-E1 — which was the same
+failure mode arriving universally rather than on small displays.
+
+---
+
+## Row status
+
+    P1  toggle pinned at 8 profiles            CONFIRMED
+    P2  status line pinned at 8 profiles       CONFIRMED
+    P3  list scrolls independently to p8       CONFIRMED
+    P4  pinned below 600px viewport            CONFIRMED at 600; sub-600 NOT REACHED
+    P5  popup sizes to content at 1 profile    CONFIRMED
+    P6  Add profile reachable (OBS-D12 cfg)    CONFIRMED
+    P7  delete confirmation below the fold     CONFIRMED — 378px
+    P8  editor scrolls, Save reachable         CONFIRMED at 10 rows
+    P9  save refusal, no "not applying"        CONFIRMED
+    P10 import refusal, one statement/one stop CONFIRMED
+    P11 notice names the marker, chip underlined CONFIRMED
+    P12 no new console errors                  CONFIRMED
+    P14 no tooltip anywhere                    FALSIFIED — tooltips render
+
+    OBS-E1  circular vh cap; popup unusable    FIXED mid-sitting
+    OBS-E5  delete path issues a request       -> FINDING-028
+    OBS-E6  popup flicker during delete        recorded, not diagnosed
+    OBS-E7  header echoed in canonical form    -> FINDING-029
+    P7      confirmation visibility            -> FINDING-030
+
+## Corrections applied after this run, before it was finalised
+
+- **`extension/popup/popup.html`** — the cap changed to `600px` and its comment
+  rewritten around the measurement. A second revision removed the overclaim
+  about the sub-600 limit, which P4 showed is unobservable here.
+- **`test/selftest.mjs`** — added `F022: the body cap uses NO viewport unit`.
+  272 -> 273.
+- **`test/mutate-collisions.py`** — added a mutant reinstating the circular cap.
+  30 -> 31, all killed.
+- **`FINDINGS.md`** — FINDING-023 rewritten as WITHDRAWN, not reproducible.
+  FINDING-022's "which term binds is not established" paragraph replaced with
+  the measurement. FINDING-028, 029, 030 raised.
+- **`test/RUNBOOK-2026-09-04-v016.md`** — two errors of mine, left in place as
+  the historical record and corrected here rather than edited: section 2 says
+  "on the tagged tree" when the release sequence tags AFTER the sitting, and
+  its preflight number is 272, now 273. The prediction table was NOT edited.
+
+---
+
 ## OBS-D13 — the refusal reaches an install CHROME UPDATED — post-publish row
 
 **2026-09-02, the day after sitting D.** Taken after v0.1.5 was published to
