@@ -107,8 +107,13 @@ MUTATIONS = [
      '  footer {\n    flex: none;',
      '  footer {'),
     ("the popup body is no longer height-bounded", HTML,
-     '    max-height: min(600px, 100vh);\n',
+     '    max-height: 600px;\n',
      ''),
+    # OBS-E1 itself. The cap that fed on its own output collapsed the popup to
+    # 107px at zero profiles, and every check below passed against it.
+    ("the circular vh cap is reintroduced (OBS-E1)", HTML,
+     '    max-height: 600px;',
+     '    max-height: min(600px, 100vh);'),
     ("the status line moves INSIDE the scrolling region", HTML,
      '  </main>\n\n  <footer id="status-line">&nbsp;</footer>',
      '  <footer id="status-line">&nbsp;</footer>\n  </main>\n'),

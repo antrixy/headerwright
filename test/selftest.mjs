@@ -69,7 +69,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 272;
+const EXPECTED_CHECKS = 273;
 
 let passed = 0;
 let failed = 0;
@@ -1165,6 +1165,18 @@ check(`every class popup.js toggles is defined in popup.html${
 
 check("F022: the popup body is height-bounded",
   /body\s*\{[^}]*max-height:/.test(styleBlock));
+// OBS-E1. The cap was `min(600px, 100vh)` and collapsed the popup to 107px at
+// ZERO profiles, clipping Add profile — because `vh` resolves against a
+// viewport this popup derives from its own content height, and `min()` takes
+// the smaller term. A cap that feeds on its own output is not a cap.
+//
+// STATED HONESTLY: this check exists because a browser said so. Nothing in
+// the suite could have predicted it, the six declaration checks below all
+// passed against the broken build, and they were right to — they read the
+// stylesheet as text. What this pins is the specific defect, so it cannot
+// return silently.
+check("F022: the body cap uses NO viewport unit",
+  !/body\s*\{[^}]*max-height:[^;]*\b\d*\.?\d*v(h|w|min|max)\b/.test(styleBlock));
 check("F022: the popup body is a flex COLUMN",
   /body\s*\{[^}]*flex-direction:\s*column/.test(styleBlock));
 check("F022: main is the scrolling region",
