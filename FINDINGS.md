@@ -621,10 +621,13 @@ popup to its content up to a 600px ceiling and then scrolls the whole document,
 so the header and footer scrolled with everything else. Nothing was pinned
 because nothing had been asked to be.
 
-**The threshold moved after v0.1.5 shipped.** The original entry recorded six
-profiles. OBS-D12 measured THREE, because FINDING-021's collision marker costs
-roughly 110px per card and appears exactly where the user needs to reach Edit.
-Two markers cost about a profile and a half of vertical space. This is the
+**The threshold moved after v0.1.5 shipped, and BOTH numbers are now measured.**
+The original entry estimated six profiles. OBS-D12 measured THREE, because
+FINDING-021's collision marker costs roughly 110px per card and appears exactly
+where the user needs to reach Edit. OBS-F1 later measured the plain case on a
+published build: six profiles with no markers overflowed a 600px popup by 81px.
+The two readings are consistent — two markers cost about a profile and a half
+of vertical space, which is what was estimated. This is the
 second time a shipped fix enlarged an unrelated finding — FINDING-018 did it to
 FINDING-021 — and both times the enlargement was found by a browser sitting
 rather than predicted.
@@ -672,7 +675,20 @@ an action popup independently of the parent window.** So a body taller than its
 own viewport may not be reachable by resizing at all, and the limit is recorded
 as untested rather than as a known defect.
 
-**Evidence.** Sitting E: P1, P2, P3 confirmed at eight profiles with
+**Evidence, and the strongest of it is OBS-F1.** The same store install,
+the same five profiles, measured before and after Chrome updated it on its own:
+
+    v0.1.5   docScrollH 681 vs innerHeight 600   mainCanScroll false
+             headerTop -81 after scrolling — the toggle is OFF-SCREEN
+    v0.1.6   docScrollH 600 vs innerHeight 600   mainCanScroll true
+             headerTop 0 — pinned
+
+`headerTop: -81` is the first numeric measurement of this defect; every earlier
+observation was visual. It was taken on a published build through Chrome's own
+update path, not a hand-swapped unpacked one, which is the question the
+store-CRX row existed to answer.
+
+Sitting E: P1, P2, P3 confirmed at eight profiles with
 `docScrollH == innerHeight` proving the document itself does not scroll; P6
 confirmed against OBS-D12's exact configuration, where v0.1.5 pushed Add
 profile below the fold and v0.1.6 does not; P5 confirmed the cap releases at one
@@ -803,7 +819,11 @@ sitting D's P8 is the standing reminder that reading a string is not seeing it.
 ## Open
 
 **FINDING-028 — a DELETE path issues a permission REQUEST.** Observed as
-OBS-E5. With all grants denied, deleting a profile produced a host-permission
+OBS-E5, and corroborated on a STORE build as OBS-F2, where one approval moved
+the status line from `0/5` to `2/5` — one dialog, two domains. That second
+observation rules out unpacked loading as an explanation, which was a live
+alternative. It does NOT establish which path requested, because the triggering
+action was not recorded. With all grants denied, deleting a profile produced a host-permission
 request dialog; one approval granted the full origin set for every SURVIVING
 profile — four domains the user never approved, granted from a delete
 confirmation.
