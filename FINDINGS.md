@@ -822,7 +822,7 @@ Adjacent to FINDING-024, which describes this mechanism for LEGACY domains
 specifically; this is the general case, and the two may share a fix. **Needs a
 decision before a fix**: whether a mutation should ever request, or only the
 explicit chip click and the save path should. That is behaviour, not a bug fix,
-so it wants a `decisions.md` entry.
+so it wants a recorded decision before anyone writes code.
 
 **FINDING-029 — the header name is echoed in canonical form, not as typed.**
 Observed as OBS-E7, twice. A profile seeded with `X-Test` produces a card
