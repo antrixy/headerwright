@@ -630,7 +630,8 @@ FINDING-021 — and both times the enlargement was found by a browser sitting
 rather than predicted.
 
 **Fix.** Containment, not addition. The body became a bounded flex column
-(`max-height: min(600px, 100vh)`), `main` became the one scrolling region
+(`max-height: 600px` — see below; it shipped briefly as `min(600px, 100vh)` and
+that broke the popup outright), `main` became the one scrolling region
 (`overflow-y: auto` plus `min-height: 0`), and the header and footer became
 `flex: none`. The list scrolls between two fixed elements. No new element, no
 extra vertical space, four declarations.
