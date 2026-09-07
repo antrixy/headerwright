@@ -816,152 +816,6 @@ sitting D's P8 is the standing reminder that reading a string is not seeing it.
 
 ---
 
-## Open
-
-**FINDING-028 — a DELETE path issues a permission REQUEST.** Observed as
-OBS-E5, and corroborated on a STORE build as OBS-F2, where one approval moved
-the status line from `0/5` to `2/5` — one dialog, two domains. That second
-observation rules out unpacked loading as an explanation, which was a live
-alternative. It does NOT establish which path requested, because the triggering
-action was not recorded. With all grants denied, deleting a profile produced a host-permission
-request dialog; one approval granted the full origin set for every SURVIVING
-profile — four domains the user never approved, granted from a delete
-confirmation.
-
-The revoke direction is correct, which narrows this considerably: the service
-worker was later seen logging `revoking 4 host grant(s) no profile references`
-and doing it properly. Grants do not leak. `reconcileGrants()` appears to
-compute `toRequest` from every ungranted domain in the surviving set on ANY
-mutation, rather than only where a request is warranted. **Deleting should only
-ever revoke.**
-
-Not a status-line defect — `0/8` before and `4/4` after were both accurate. The
-defect is that the request was offered at all.
-
-Adjacent to FINDING-024, which describes this mechanism for LEGACY domains
-specifically; this is the general case, and the two may share a fix. **Needs a
-decision before a fix**: whether a mutation should ever request, or only the
-explicit chip click and the save path should. That is behaviour, not a bug fix,
-so it wants a recorded decision before anyone writes code.
-
-**FINDING-029 — the header name is echoed in canonical form, not as typed.**
-Observed as OBS-E7, twice. A profile seeded with `X-Test` produces a card
-marker reading `"x-test"`, and the SAVE REFUSAL reads `"x-test"` while the form
-field directly above still shows `X-Test` as the user typed it.
-
-Lowercasing for COMPARISON is correct and is why collisions are detected at
-all. Echoing the canonical form back is the defect: a message quoting a header
-the user did not write is harder to match against their own configuration, and
-in the save-refusal case the contradiction is visible in one screenshot.
-
-Small, and the fix is not obviously safe: the message would need the ORIGINAL
-casing carried alongside the canonical form, and `findCollisions()` currently
-has no reason to retain it. Whether to thread it through or re-derive it at the
-message site is the open question.
-
-**FINDING-030 — the delete confirmation lands below the fold with no cue.**
-Observed as OBS-E3 / P7. At eight profiles, deleting the first renders the
-confirmation 378px below the viewport with nothing indicating the popup
-continues.
-
-**NOT A REGRESSION, and the distinction matters for whoever fixes it.** Before
-v0.1.6 the popup grew to Chrome's ceiling and then scrolled bodily, so the
-confirmation was also off-screen. What changed is that the pinned footer now
-sits flush at the bottom and READS as the end of the popup. **The defect is the
-missing cue, not the position.**
-
-Three candidate shapes, not equivalent and not yet chosen: scroll the
-confirmation into view, render it adjacent to the profile it concerns, or make
-it modal. The one-line `scrollIntoView()` is new behaviour under the patch
-policy. Queued for v0.1.7 or the v0.2.0 card redesign, where confirmation
-placement and card shape are decided together.
-
-**Note the pinned-add-bar idea is NOT a fix for this.** Pinning the add bar
-leaves the confirmation exactly where it is and costs permanent vertical space;
-raised separately.
-
-**FINDING-031 — the master toggle's label is not associated with its input.**
-Chrome's Issues panel, informational: the `.toggle` `<label>` wraps its
-`<input>` without a `for` attribute, so a screen reader may not announce the
-primary control. Not a regression and not raised by v0.1.6. Accessibility,
-small, and the first such item recorded for this project.
-
-
-**FINDING-027 — a colliding configuration exports but cannot be re-imported.**
-`serializeProfiles()` does not validate. `parseProfilesFile()` now refuses
-collisions. So v0.1.5 can produce a file it will not accept, and the export
-button offers no warning.
-
-The path that matters is the one a user is most likely to take: upgrading from
-v0.1.4 into a collision created by FINDING-018's enlarged surface, seeing two
-red markers, and clicking Export — the obvious move when something looks wrong.
-The resulting file will not load back.
-
-Observed as OBS-D8.
-
-It is recoverable. The refusal names the header and the other profile, the
-configuration is still in storage, and editing either profile clears it. But
-the import model's contract is that the file is the config, and a
-configuration that exports and will not import is an asymmetry in it.
-
-Not obviously a bug, which is why it is recorded rather than fixed. Three
-shapes are available and they are not equivalent: refuse the export (loses the
-user's data-rescue path at the worst moment), warn on export and write the file
-anyway (honest, and the file still fails later), or accept colliding files on
-import and let the build path skip them (consistent with how an upgraded
-install is already treated, and it removes the asymmetry entirely). The third
-is the most coherent and is also the largest change, since it moves import from
-refusing to marking. Needs a decision entry before any of them is built.
-
-**FINDING-024 — any profile mutation re-requests every remaining legacy
-domain.** Deleting a profile on `alt.test` produced a permission dialog naming
-`hw.test` and `keep.test` — domains unrelated to the profile being deleted.
-
-This is `reconcileGrants()` behaving as designed. A legacy-only domain is
-wanted-but-not-fully-granted, so it lands in `toRequest` by construction, and
-FINDING-020's fix makes that tracking deliberate. The unexamined consequence is
-that it contradicts the migration notice's own framing — "Click any gray domain
-below to re-approve it" implies a per-domain deliberate act, while in practice
-any edit, delete, or import re-requests all of them at once.
-
-Worse in combination with the Chrome behaviour recorded in
-`test/EVIDENCE.md`: approval is cached per origin per browser profile and
-survives `permissions.remove()`, so for a previously-approved domain the
-request is granted SILENTLY. The observed end state was host access widening
-from apex-only to apex-plus-subdomains during a profile delete, with no dialog
-and no user interaction. The reconciliation is correct; its trigger is too
-broad, and the silence makes the breadth invisible.
-
-Confirmed on a clean profile (sitting C, 2026-08-29). The silent re-grant
-reproduces on TWO independent paths — a delete-then-re-add, and an
-import that re-adds a previously-approved domain — which places the cause in
-Chrome's per-origin approval cache rather than any single code path. The cache
-is populated by ACCEPTANCE only: a denied origin still prompts on the next
-request, and every never-approved origin prompted normally. So the sharpened
-user-facing statement is: a same-session-approved origin cannot be fully
-"revoked" by deleting or re-importing its profile — access returns without a
-prompt — whereas a never-approved or denied origin always prompts. Release
-works; re-acquisition of a previously-accepted origin is silent.
-
-**FINDING-025 — `originsForDomain()` requests a redundant pattern.**
-`*://*.host/*` subsumes `*://host/*`. Confirmed at every layer:
-`permissions.contains()` on the apex returns true with only the wildcard held;
-`reconcileGrants()` opens no dialog for a profile on the apex; and the header
-applies on both apex and subdomain on the wire. Evidence in
-`test/EVIDENCE.md`, "Follow-up: wildcard subsumption".
-
-Not a correctness defect — coverage is right either way, and FINDING-018's fix
-is unaffected. The cost is a permission dialog one clause longer than it needs
-to be ("Read and change your data on all hw.test sites and hw.test" versus
-"...on all hw.test sites"), which for an extension whose thesis is permission
-minimalism is worth removing. It also simplifies `heldOrigins`, which currently
-tracks a distinction that does not exist in Chrome's coverage model.
-
-The direction is untested: nothing establishes whether an apex-only grant
-covers subdomains, and FINDING-018 implies it does not. Verify before
-simplifying — the redundancy runs one way, and treating the two patterns as
-interchangeable would re-introduce FINDING-018.
-
 ## FINDING-028 — a DELETE path issued a permission REQUEST — FIXED in v0.1.7
 
 **Version:** v0.1.7
@@ -1135,3 +989,94 @@ the only reason it was found at all.
 not a parser: a regex literal containing `//` or `/*` would be mangled.
 `popup.js` contains no regex literals today (verified 2026-09-06); if one is
 ever added, the floor checks above fail loudly rather than silently.
+
+---
+
+## Open
+
+**FINDING-029 — the header name is echoed in canonical form, not as typed.**
+Observed as OBS-E7, twice. A profile seeded with `X-Test` produces a card
+marker reading `"x-test"`, and the SAVE REFUSAL reads `"x-test"` while the form
+field directly above still shows `X-Test` as the user typed it.
+
+Lowercasing for COMPARISON is correct and is why collisions are detected at
+all. Echoing the canonical form back is the defect: a message quoting a header
+the user did not write is harder to match against their own configuration, and
+in the save-refusal case the contradiction is visible in one screenshot.
+
+Small, and the fix is not obviously safe: the message would need the ORIGINAL
+casing carried alongside the canonical form, and `findCollisions()` currently
+has no reason to retain it. Whether to thread it through or re-derive it at the
+message site is the open question.
+
+**FINDING-030 — the delete confirmation lands below the fold with no cue.**
+Observed as OBS-E3 / P7. At eight profiles, deleting the first renders the
+confirmation 378px below the viewport with nothing indicating the popup
+continues.
+
+**NOT A REGRESSION, and the distinction matters for whoever fixes it.** Before
+v0.1.6 the popup grew to Chrome's ceiling and then scrolled bodily, so the
+confirmation was also off-screen. What changed is that the pinned footer now
+sits flush at the bottom and READS as the end of the popup. **The defect is the
+missing cue, not the position.**
+
+Three candidate shapes, not equivalent and not yet chosen: scroll the
+confirmation into view, render it adjacent to the profile it concerns, or make
+it modal. The one-line `scrollIntoView()` is new behaviour under the patch
+policy. Queued for v0.1.7 or the v0.2.0 card redesign, where confirmation
+placement and card shape are decided together.
+
+**Note the pinned-add-bar idea is NOT a fix for this.** Pinning the add bar
+leaves the confirmation exactly where it is and costs permanent vertical space;
+raised separately.
+
+**FINDING-031 — the master toggle's label is not associated with its input.**
+Chrome's Issues panel, informational: the `.toggle` `<label>` wraps its
+`<input>` without a `for` attribute, so a screen reader may not announce the
+primary control. Not a regression and not raised by v0.1.6. Accessibility,
+small, and the first such item recorded for this project.
+
+**FINDING-027 — a colliding configuration exports but cannot be re-imported.**
+`serializeProfiles()` does not validate. `parseProfilesFile()` now refuses
+collisions. So v0.1.5 can produce a file it will not accept, and the export
+button offers no warning.
+
+The path that matters is the one a user is most likely to take: upgrading from
+v0.1.4 into a collision created by FINDING-018's enlarged surface, seeing two
+red markers, and clicking Export — the obvious move when something looks wrong.
+The resulting file will not load back.
+
+Observed as OBS-D8.
+
+It is recoverable. The refusal names the header and the other profile, the
+configuration is still in storage, and editing either profile clears it. But
+the import model's contract is that the file is the config, and a
+configuration that exports and will not import is an asymmetry in it.
+
+Not obviously a bug, which is why it is recorded rather than fixed. Three
+shapes are available and they are not equivalent: refuse the export (loses the
+user's data-rescue path at the worst moment), warn on export and write the file
+anyway (honest, and the file still fails later), or accept colliding files on
+import and let the build path skip them (consistent with how an upgraded
+install is already treated, and it removes the asymmetry entirely). The third
+is the most coherent and is also the largest change, since it moves import from
+refusing to marking. Needs a decision entry before any of them is built.
+
+**FINDING-025 — `originsForDomain()` requests a redundant pattern.**
+`*://*.host/*` subsumes `*://host/*`. Confirmed at every layer:
+`permissions.contains()` on the apex returns true with only the wildcard held;
+`reconcileGrants()` opens no dialog for a profile on the apex; and the header
+applies on both apex and subdomain on the wire. Evidence in
+`test/EVIDENCE.md`, "Follow-up: wildcard subsumption".
+
+Not a correctness defect — coverage is right either way, and FINDING-018's fix
+is unaffected. The cost is a permission dialog one clause longer than it needs
+to be ("Read and change your data on all hw.test sites and hw.test" versus
+"...on all hw.test sites"), which for an extension whose thesis is permission
+minimalism is worth removing. It also simplifies `heldOrigins`, which currently
+tracks a distinction that does not exist in Chrome's coverage model.
+
+The direction is untested: nothing establishes whether an apex-only grant
+covers subdomains, and FINDING-018 implies it does not. Verify before
+simplifying — the redundancy runs one way, and treating the two patterns as
+interchangeable would re-introduce FINDING-018.
