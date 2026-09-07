@@ -78,8 +78,21 @@ browser, or does Chrome retain it?
 | Present at both | Chrome retains conservatively. Part 2 revocation rows become DOCUMENTED, not FAILED. Finding 2's toggle option stays off the table. |
 
 Corollary check, cheap and worth doing: re-create a profile on the same
-domain. **No prompt** means the grant never dropped, independent of what the
-Details panel shows.
+domain.
+
+**CORRECTED sitting G (2026-09-07). The sentence below is WRONG and is kept in
+its original wording:**
+
+> **No prompt** means the grant never dropped, independent of what the
+> Details panel shows.
+
+It predates sitting C's finding that Chrome's approval cache is populated by
+ACCEPTANCE only, so an origin approved earlier in this browser profile
+re-grants SILENTLY. **No prompt means the origin is CACHED, and says nothing
+about whether the grant dropped.** Read `getAll()` before and after instead.
+Sitting G saw both `example.com` patterns gone at step 4, still gone after a
+full reload, and no prompt at step 6 — the corollary read literally would have
+called a correct revocation a failure.
 
 If a one-time investigation is in scope for this sitting, log the return
 value of `chrome.permissions.remove()` at the call site in
@@ -104,6 +117,13 @@ the logging before committing.
    what's true" holds under deny.
 5. **Export → import → export.** Byte-identical. Diff the two files; expect
    empty.
+   - **The import must be CONFIRMED, not merely offered.** Added sitting G:
+     the confirmation renders below the fold (FINDING-030), so it is easy to
+     choose the file and never click Replace. The second export is then taken
+     from an unchanged config and **the diff is empty by construction whether
+     or not import works at all.** The profile count cannot rescue it either —
+     replacing N profiles with the same N leaves N. Scroll down, click Replace,
+     and confirm a post-import message before exporting again.
 6. **Import rejection.** Hand-edit an export to be invalid. Import surfaces
    the exact reason, and the prior configuration is untouched.
 
@@ -122,31 +142,60 @@ disagrees with the suite, the wiring is wrong, not the arithmetic.
 
 ### 2a — Shared-domain retention on edit
 
-Setup:
+**CORRECTED sitting G (2026-09-07). The printed setup was BOTH unsavable and
+unfalsifiable, and the second problem is the serious one.** Original:
 
-    Profile A: example.com
-    Profile B: example.com, api.example.com
+>     Profile A: example.com
+>     Profile B: example.com, api.example.com
+>
+> Grant both. Confirm Site access lists both origins.
 
-Grant both. Confirm Site access lists both origins.
+**Unfalsifiable.** `api.example.com` is a SUBDOMAIN of `example.com`. Granting
+the apex yields `*://*.example.com/*`, which SUBSUMES it — sitting B's
+wildcard-subsumption finding. Retention at the first edit would then be
+explained by the wildcard rather than by B's reference, so **the row passes on
+a build where retention is completely broken.** Observed directly in sitting G:
+with both domains configured, `getAll()` returned only the two `example.com`
+patterns while the `api.example.com` chip rendered GREEN — the chip correctly
+reporting EFFECTIVE access derived from the wildcard.
 
-**Edit A: `example.com` → `localhost`.** Save.
+**Unsavable.** The printed setup says "any header" for both profiles on an
+overlapping domain. FINDING-021's collision refusal, shipped in v0.1.5, refuses
+the second save.
+
+Corrected setup — two UNRELATED domains, neither subsuming the other, and
+DIFFERENT header names:
+
+    Profile A: s2a.test          header X-Header
+    Profile B: s2a.test, other2a.test   header X-Header-B
+
+Grant all three origins. **Verify with `permissions.getAll()`, not the Details
+panel** (O-2). Expect four patterns: `s2a.test` ×2, `other2a.test` ×2.
+
+**Edit A: `s2a.test` → `localhost`.** Save.
 
 | Domain | Expected | Why |
 | --- | --- | --- |
-| `example.com` | RETAINED | B still references it |
-| `api.example.com` | RETAINED | B references it |
+| `s2a.test` | RETAINED | B still references it |
+| `other2a.test` | RETAINED | B references it |
 | `localhost` | GRANTED (dialog) | newly requested |
 
 This is the row a naive "revoke whatever the edited profile used to have"
-fix breaks. If `example.com` disappears here, B is silently broken.
+fix breaks. If `s2a.test` disappears here, B is silently broken. **With the
+corrected fixture nothing about the wildcard can explain a pass**, because A no
+longer mentions `s2a.test` at all.
 
-**Then edit B: `example.com, api.example.com` → `localhost`.** Save.
+**Then edit B: `s2a.test, other2a.test` → `localhost`.** Save.
 
 | Domain | Expected | Why |
 | --- | --- | --- |
-| `example.com` | REVOKED | now unreferenced |
-| `api.example.com` | REVOKED | now unreferenced |
+| `s2a.test` | REVOKED | now unreferenced |
+| `other2a.test` | REVOKED | now unreferenced |
 | `localhost` | RETAINED, no dialog | A references it, already granted |
+
+The no-dialog reading on the last row is the grant intersection. It acquired a
+selftest check only in v0.1.7, after a mutant that dropped it survived the
+first mutation pass.
 
 Interpret the two REVOKED rows against Part 0. Under the retain-conservatively
 outcome they are documented, not failures.
@@ -156,21 +205,58 @@ outcome they are documented, not failures.
 Open a fully granted profile, change nothing, Save.
 
 Expected: **no permission dialog**, no visible change to Site access, no dot
-flicker. Any dialog here means requests are being diffed against profile
-membership instead of grant state.
+flicker.
 
-### 2c — Denied-domain recovery still works
+**CORRECTED sitting G (2026-09-07): the EXPECTATION above stands; the RATIONALE
+below is backwards and is kept in its original wording.**
 
-This is the path finding 2's affordance will eventually replace. Until then
-it is the only recovery a denied domain has, and it must not be lost.
+> Any dialog here means requests are being diffed against profile membership
+> instead of grant state.
+
+Since v0.1.7 `toRequest` is diffed against MEMBERSHIP first, deliberately —
+`!before.has(d) && !granted.has(d)`. A dialog here would now mean the membership
+diff is wrong about what counts as ADDED, since an unchanged save adds nothing.
+See `decisions.md`, FINDING-028/024.
+
+### 2c — An unchanged save does NOT re-request a denied domain
+
+**REVERSED IN v0.1.7 (sitting G, 2026-09-07). The original row is kept in its
+own wording because reversing an expectation is a ruling, not a tidy-up:**
+
+> **2c — Denied-domain recovery still works.** This is the path finding 2's
+> affordance will eventually replace. Until then it is the only recovery a
+> denied domain has, and it must not be lost. Create a profile on a fresh
+> domain and DENY the dialog. Open the profile, change nothing, Save. Expected:
+> **the dialog appears again.**
+
+Two things were wrong with it.
+
+**The behaviour is FINDING-028.** An unchanged save adds nothing, so it has
+nothing new to request. Requesting anyway is what let one approval on a delete
+confirmation grant four domains the user never approved (OBS-E5, corroborated
+on a store build as OBS-F2).
+
+**"The only recovery a denied domain has" was FALSE WHEN WRITTEN.** FINDING-002
+— the same release, v0.1.1 — records Edit→Save as the pre-fix workaround "which
+works and which nothing in the interface suggested", and ships the clickable
+chip as the fix. The same false claim was carried in `grants.js` and in a
+selftest check NAME; all three corrected in v0.1.7.
 
 1. Create a profile on a fresh domain and DENY the dialog. Dot is gray.
 2. Open the profile, change nothing, Save.
 
-Expected: **the dialog appears again.** Accept it; the dot turns green.
+Expected: **NO dialog.** The dot stays gray.
 
-2b and 2c together are the pair that pins the design: unchanged-and-granted
-must be silent, unchanged-and-denied must re-prompt.
+*If a dialog appears*, `reconcileGrants()` is not wired to the narrowed diff at
+the save call site — stop and treat it as a release blocker.
+
+**Recovery for that domain is 2f, the chip.** 2f now carries the guarantee 2c
+used to, and it matters more than it did: the chip is the only in-app recovery
+path since v0.1.7. Its keyboard reachability was verified for the first time in
+sitting G.
+
+2b and 2c together are the pair that pins the design: **no mutation re-requests
+a domain it did not add**, whether that domain is granted or denied.
 
 ### 2d — Ordering survives a real dialog
 
@@ -246,8 +332,22 @@ overlapped, computed removeRuleIds from the same snapshot, and collided. It
 did NOT reproduce on demand, and the winning run had already registered the
 correct state, so nothing misapplied.
 
+**CORRECTED sitting G (2026-09-07) — THIS ONE PRODUCED A FALSE PASS, NOT A
+FALSE ALARM.** Original instruction, kept:
+
+> Popup console open, Preserve log ticked
+
+`syncRules` is created and called entirely in `sw.js`. Every entry point
+(`onInstalled`, `onStartup`, `storage.onChanged`, `permissions.onAdded` /
+`onRemoved`) is registered there, and the queue's `onError` handler is at
+`sw.js:218`. **The unique-ID error surfaces in the SERVICE WORKER console.**
+Watching the popup console means watching a place where the error cannot
+appear, and reporting a clean run. Presumably correct on v0.1.0, when the error
+was first seen in the popup.
+
 With syncRules serialized, repeat the trigger and confirm the collision is
-gone. Popup console open, Preserve log ticked:
+gone. **SERVICE WORKER console open, Preserve log ticked** — the worker can
+restart mid-run and take the log with it:
 
 1. Save a new profile on a fresh domain and accept the dialog. Watch for any
    unique-ID error. Repeat five times with different domains — the race was
@@ -259,6 +359,11 @@ gone. Popup console open, Preserve log ticked:
 
 If a unique-ID error still appears, the queue is not covering an entry point
 — check that every listener registers the QUEUED syncRules and not runSync.
+
+**What step 1 does NOT cover, if the dialogs are denied.** Denying means no
+`permissions.onAdded` / `onRemoved` event fires, so those two entry points go
+unexercised and the row covers the storage path only. Sitting G ran it that way
+and recorded the limit. Accepting at least one dialog exercises both.
 
 ---
 
@@ -374,6 +479,11 @@ Service worker console open throughout.
 
 3. Confirm both profiles register: `getDynamicRules()` shows 2 rules, `hw:sync`
    reads `{ok: true}`, badge is not red.
+   - **ALLOW the dialog at step 2.** Added sitting G: `runSync()` builds rules
+     only for profiles whose domains are actually GRANTED. Denied, this step
+     reads `rules: 1` with `sync {ok: true}`, which looks like a silent
+     shortfall and is in fact correct behaviour. Step 2 as originally printed
+     did not say what to do with the dialog.
 4. **Id reuse.** Delete the low-id profile, add another. Expected: the freed id
    is reallocated, and the new rule registers cleanly. Reuse is safe because
    every sync rebuilds the whole rule set — this step is what proves that

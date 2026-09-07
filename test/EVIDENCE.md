@@ -10,7 +10,7 @@ from.
 
 ---
 
-## Sitting G — v0.1.7 candidate, FINDING-028 / FINDING-024 (2026-09-07)
+# Sitting G — v0.1.7 candidate, FINDING-028 / FINDING-024 (2026-09-07)
 
 Predictions pre-registered in `test/RUNBOOK-2026-09-06-v017.md`, committed
 2026-09-06 before Chrome opened. Seven of eight rows run; Part C (P6/P7)
@@ -272,7 +272,7 @@ first step; that ruling now has a fresh observation to be made against.
 | P5c positive control | PASS |
 | P6/P7 legacy path | NOT RUN |
 | P8 headers reach the wire | PASS |
-| Part E SMOKE.md | NOT RUN — blocks submission |
+| Part E SMOKE.md | RUN IN FULL — see the Part E section below |
 
 ## Corrections owed to the runbook and to standing practice
 
@@ -284,6 +284,574 @@ Both belong in the next runbook, not silently in this one.
   that does not bump the manifest.** Replace with a byte check against a string
   unique to the candidate. This applies to every future in-progress sitting, not
   just this one.
+
+
+---
+
+## Part E — `test/SMOKE.md`, run in full (2026-09-07)
+
+Same build, same rig, same session as P1–P8 above. All fifteen parts reached.
+Twelve pass, three partial, two deferred entire. **Every deferral traces to one
+of two missing fixtures, named at the foot of this section.**
+
+Run, not read. Where a step's written procedure could not be followed as
+printed, the deviation and its reason are recorded at the step.
+
+### Part 0 — revocation baseline — PASS
+
+| Reading | Observed |
+| --- | --- |
+| `granted` | 6 origins incl. `*://example.com/*`, `*://*.example.com/*` |
+| `after delete` | 4 — both `example.com` patterns GONE |
+| `after reload` | 4 — unchanged |
+| status | `9 profiles · 3/9` → `8 profiles · 2/8` |
+
+**`remove()` revokes PROMPTLY in Chrome 151.** Part 2's revocation rows
+therefore apply as written, with no downgrade to DOCUMENTED.
+
+Read with `permissions.getAll()`, not the Details panel (O-2). Deliberate
+deviation from the printed procedure.
+
+**Step 6 corollary, and it is WRONG AS WRITTEN.** Re-adding `example.com`
+produced no prompt, which the step says means the grant never dropped. It had
+dropped — the arrays above are direct evidence, twice. The origin was in
+Chrome's approval cache from step 1, so `request()` resolved silently and
+`getAll()` returned to 6 patterns with the chip green. The corollary predates
+sitting C's discovery that the cache is populated by ACCEPTANCE only. **First of
+six procedure defects.**
+
+### Part 1 — core application — PASS
+
+| Step | Observed |
+| --- | --- |
+| 1 positive apply | `"X-Hw-Test": "p8"` present at `httpbin.org/headers` |
+| 2 negative control | header ABSENT after hard reload; `"Cache-Control": "max-age=0"` in the echo confirms the request went to the network, not the cache; badge OFF, status `paused` |
+| 3 per-domain scoping | both directions checked: `X-Hw-Scope` absent from httpbin, `X-Hw-Test` absent from postman-echo |
+| 4 deny path | profile saved, chip GRAY, `11 profiles · 4/11` — denominator up, numerator held |
+| 5 export → import → export | `diff export-1.json export-3.json` empty |
+| 6 import rejection | refused, config untouched at `11 profiles · 4/11` |
+
+Step 3 used `postman-echo.com` as the second echo; no local server available.
+Deviation recorded. **The cross-ABSENCE was checked in both directions, which is
+the row's actual claim** — a build applying every profile to every domain passes
+a presence-only check.
+
+Step 4's DevTools half is UNRUNNABLE with a non-resolving fixture: `g9.test`
+issues no request to inspect. The gray chip and the count are the evidence held.
+
+Import refusal, verbatim:
+
+> Import failed: profile 1, header 1: missing or empty header name.
+
+Names position and reason, interpolates no value. The errors-as-data property
+holding at a live refusal.
+
+Import confirmation, verbatim:
+
+> Replace your 11 profiles with 11 profiles from "export-1.json"?
+
+**Step 5 was initially UNSCOREABLE and the reason generalises.** The first run
+never clicked Replace — the confirmation renders below the fold (see
+FINDING-030 below). The subsequent export was therefore taken from an unchanged
+config, so the diff was empty by construction whether or not import works at
+all. The profile count cannot rescue it either: replacing 11 profiles with the
+same 11 leaves 11. **A round-trip check with no step confirming the round trip
+occurred is vacuous.** Re-run with Replace actually clicked; the PASS above is
+the re-run.
+
+### Part 2 — permission lifecycle — PASS (2c fails as written, correctly)
+
+**The part's stated purpose is discharged: all three `reconcileGrants()` call
+sites are now browser-verified.** Delete (P3, 2e), save (P5/P5b, 2a, 2b, 2c,
+2d), import (2e). The suite proves the set arithmetic; these rows prove the
+wiring.
+
+**2a — shared-domain retention — PASS, ON A REPAIRED FIXTURE.**
+
+| Reading | Observed |
+| --- | --- |
+| base2 | 4 patterns — `s2a.test` ×2, `other2a.test` ×2 |
+| after A (`s2a.test` → `localhost` in profile A) | 6 — **both `s2a.test` patterns RETAINED**, plus `other2a.test` ×2, `localhost` ×2 |
+| after B (profile B → `localhost`) | 2 — `localhost` only; all four `2a` patterns revoked |
+| dialogs | fired at the two adds; **NONE** when B added an already-held `localhost` |
+| status | `6/13` → `7/14` → `5/12` |
+
+**The printed fixture cannot test what the row claims, and this is the most
+consequential procedure defect found.** SMOKE.md specifies `example.com` and
+`api.example.com`. Granting the apex yields `*://*.example.com/*`, which
+SUBSUMES the subdomain — sitting B's wildcard-subsumption finding. Retention
+would then be explained by the wildcard rather than by the second profile's
+reference, and **the row passes on a build where retention is completely
+broken**. Confirmed live: with both profiles referencing `s2a.test` and
+`api.s2a.test`, `getAll()` returned only two patterns while the
+`api.s2a.test` chip rendered GREEN — the chip correctly reporting EFFECTIVE
+access derived from the wildcard. Repaired by substituting two unrelated
+domains, neither subsuming the other.
+
+**The printed fixture is also unsavable.** Step 2 says "any header" for both
+profiles on an overlapping domain. FINDING-021's collision refusal, shipped in
+v0.1.5, refuses the second save. Header names must differ.
+
+The no-dialog reading at the second edit is the grant-intersection property —
+the one that only acquired a selftest check because a mutant survived the first
+pass. It now holds in the browser as well as the suite.
+
+**2b — no churn on an unchanged granted save — PASS.** No dialog, status
+unchanged. **2b's stated RATIONALE is inverted**: it says a dialog would mean
+requests are diffed against membership instead of grant state, and v0.1.7 diffs
+against membership deliberately. Expectation right, reason obsolete.
+
+**2c — FAILS AS WRITTEN, AND THE FAILURE IS CORRECT.** Unchanged-and-denied
+save produced no dialog. SMOKE.md expects one. That behaviour is precisely what
+option A removed. **Pre-registered before the run**, with the falsification
+clause that a dialog appearing would mean `reconcileGrants()` was not wired to
+the narrowed diff at the save call site and P5b was wrong. It did not fire.
+
+2c also carries **the same false claim as `grants.js` asymmetry 2**, in a third
+file: "Until then it is the only recovery a denied domain has." FINDING-002
+shipped the chip in v0.1.1. P1 and 2f both exercised it today.
+
+**2d — ordering survives a real dialog — PASS.** One save dropped `g9.test` and
+added `d2.test`; the dialog fired and `getAll()` returned the `d2.test` patterns
+with no `g9.test`. **The `reconcileGrants()` code comment states this ordering
+as an unverified belief — it is now verified on Chrome 151 and the comment can
+be updated.** Stated failure mode (`remove()` destroying the popup's JS context
+before `request()` runs) did not occur.
+
+**2e — delete and import — PASS.** Delete of a GRANTED domain revoked
+`d2.test` and left `httpbin.org` untouched; P3 covered only denied domains, so
+this is new coverage. Import of a hand-edited export produced **one dialog,
+naming `imp2e.test` only**; `example.com` and `postman-echo.com` were revoked as
+now-unreferenced, and `g1.test`, `g2.test`, `httpbin.org` and `localhost` were
+all retained WITHOUT re-prompting. Final: 10 patterns over 5 domains,
+`11 profiles · 5/10`.
+
+**2f — grant affordance — PASS, INCLUDING THE KEYBOARD.** Dashed border present;
+**Tab reached the chip and Enter fired the dialog**; after allowing, dot green,
+border solid, chip inert, count `5/12` → `6/12`. Granted chips are not
+clickable — grant-only is deliberate. SMOKE.md flags keyboard reachability as
+"should be free — verify rather than assume"; **this is the first sitting in
+which it was actually verified**, and it matters more now than it did, because
+option A makes the chip the only in-app recovery path.
+
+### Part 3 — badge honesty — PASS
+
+| Step | Observed |
+| --- | --- |
+| 1 truthful states | ON → badge ON, `applying`; OFF → badge OFF, `paused` |
+| 2 injected failure | badge red `!`; status `not applying — last sync failed` in red; `HeaderWright: rule sync failed — SMOKE Part 3 injected failure` at `sw.js:201`, a HANDLED `console.error`, not an unhandled rejection |
+| 2 tooltip | `Chrome rejected the last rule registration: SMOKE Part 3 injected failure` |
+| 3 failure outranks toggle | toggle read OFF, badge still `!` — does not assert a teardown that may not have happened |
+| 4 recovery | badge ON, `applying`, red cleared |
+
+**A WRONG CLAIM WAS MADE AND CORRECTED BY MEASUREMENT.** The tooltip was first
+asserted to be unimplemented, on the grounds that `popup.js` reads only
+`sync.ok` and never `sync.error`. That grep found nothing and was treated as
+proof of absence. The tooltip exists and renders correctly. **A grep that finds
+nothing is not a proof of absence** — the same failure shape as the instrument
+nulls elsewhere in this sitting, but stated as fact rather than as a prediction
+to test. Caught only because the measurement was run anyway.
+
+### Part 3b — sync serialization — PASS
+
+Five profile saves on fresh domains (`r1.test`–`r5.test`, all denied) plus rapid
+master toggling. **No `Rule with id N does not have a unique ID` at any point**,
+badge never entered the failure state, final `16 profiles · 5/15 · applying`.
+Preserve log confirmed ON before the saves began.
+
+**SMOKE.md points at the wrong console.** It says "Popup console open, Preserve
+log ticked". `syncRules` is created and called entirely in `sw.js`; every entry
+point and the queue's `onError` handler at `sw.js:218` live there. **The
+unique-ID error surfaces in the SERVICE WORKER console.** Following the printed
+instruction means watching a console where the error cannot appear and reporting
+a clean run — a FALSE PASS, unlike the other five defects.
+
+**Limit of what this row establishes.** Denying all five dialogs meant no
+`permissions.onAdded` / `onRemoved` events fired, so those two entry points were
+not exercised here. 2a and 2e produced many grant and revoke events with no
+unique-ID errors, but the row as run covers the storage path only.
+
+### Part 4 — validator bounds — PASS, both rows settled
+
+**4a — `MAX_RULE_ID` = 2147483647 CONFIRMED, no longer inferred.**
+
+    2147483647 → ACCEPTED
+    2147483648 → REJECTED: "Invalid type: expected integer, found number."
+    4294967295 → REJECTED: same
+
+Signed 32-bit. The rejection message shows Chrome's type coercion failing before
+any range check, which is WHY the bound is what it is, not merely that it is.
+
+**4b — HTAB is our CHOICE, not a platform limit.** Chrome accepted `a\tb` as a
+header value. `isValidHeaderValue()` refusing HTAB is HeaderWright being
+stricter than both RFC 9110 and the platform. Decision 2026-08-04 stands; the
+comment in `lib/rules.js` should now say so with sitting G as evidence.
+
+Both probes cleaned up; status remained `applying`.
+
+### Part 5 — generated rule ids — PASS
+
+Fixture `hw-fixture-id-ceiling.json` built with the repo's own
+`serializeProfiles()` at this commit and round-tripped through the committed
+`parseProfilesFile()` before use. sha256
+`270e9e85f17d64c22394dabf35a3e838831098ec94bd97ff9afba8ac4ceca6d4`.
+
+| Step | Observed |
+| --- | --- |
+| 1 ceiling imports | 1 profile, id 2147483647 |
+| 2 next id | **`id: 1`** — lowest-free allocation; a v0.1.1 build yields 2147483648 and latches |
+| 3 both register | `rules: 2 [1, 2147483647]`, `sync: {error: null, ok: true}` |
+| 4 id reuse | id 1 freed by delete and REALLOCATED to the next profile; both rules register |
+
+**Step 3 is wrong as written.** It expects 2 rules, but step 2 never says to
+grant the new profile's domain. Denied, the first reading was `rules: 1
+[2147483647]` with `sync: {ok: true}` — which reads as a silent shortfall.
+`runSync()` builds rules only for profiles whose domains are granted, so one
+rule for two profiles was correct. Granting took it to 2. **Step 2 must say to
+allow the dialog, or step 3 must expect 1 and say why.**
+
+Step 4 confirms in a browser the claim the code comment makes: reuse is safe
+because every sync rebuilds the whole rule set.
+
+5b not run — it recreates by hand a latch the generator can no longer reach, and
+deliberately corrupts storage. Deliberate skip, not a deferral.
+
+### Part 6 — over-cap import refusal — PASS
+
+Fixtures generated with `serializeProfiles()` and pre-verified against the
+committed parser. Varying header names per profile (FINDING-021), shared
+`postman-echo.com` domain, so **5000 profiles imported with ZERO permission
+dialogs**.
+
+    hw-fixture-cap-5000.json  sha256 dcaacec46e41fc91b83faf7fd344b332f529cb18ac7dfea89b933263e57b6466
+    hw-fixture-cap-5001.json  sha256 1d1d0a81c7fcd496032be239d64e8101953d440dd30194cfd6cd221abf8d332d
+
+| Step | Observed |
+| --- | --- |
+| 1 at the cap | `profiles: 5000`, `rules: 5000`, `sync: {ok: true}`, **no truncation warning** |
+| 2 over the cap | refused, config untouched |
+| 3 A4 regression | `5000 / 5000 / {ok: true}` — **identical to step 1** |
+
+Refusal verbatim, naming both numbers as specified:
+
+> Import failed: this file has 5001 profiles. The most that can be applied is
+> 5000. Remove at least 1 profile from the file and try again.
+
+The truncation branch in `sw.js` stayed silent, which is correct — it is
+retained as defence in depth and its firing would mean something wrote to
+storage outside import and the form.
+
+The popup rendered 5000 profiles and scrolled to `p5000` without reported
+difficulty on Chrome 151.
+
+### Part 7 — domain dedup and count agreement — PASS
+
+| Step | Observed |
+| --- | --- |
+| 1–2 dedup on save | input `example.com, EXAMPLE.com, example.com` → **ONE chip**, status `2 profiles · 2/2` — chips and count agree |
+| 3 export | `"domains": ["example.com"]`, single entry |
+| 4 idempotence | `diff` empty |
+| 5 **legacy storage** | duplicates written directly to `hw:profiles`, bypassing both validators; popup closed and reopened; **still ONE chip**, status still `2/2` |
+
+**Step 5 is the one that matters.** Normalization runs on READ, so a user
+upgrading from v0.1.1 with duplicate domains in storage sees the corrected
+display immediately without re-saving anything. Finding 7's failure — two counts
+of the same thing disagreeing in one view — does not reproduce.
+
+### Part 8 — live state while the popup is open — PARTIAL
+
+**Steps 2–3 — PASS, and this is the row carrying finding 8.** Popup open
+throughout, failure injected from the service worker console, status line
+updated **IN PLACE** to `not applying — last sync failed` with the tooltip
+carrying Chrome's message. No reopen. A v0.1.1 build shows `applying` beside
+green dots while the badge goes red.
+
+Consistent with Part 3 step 3: the status read `not applying` while the toggle
+read OFF, failure correctly outranking the toggle.
+
+**Step 5 — PASS.** Grant revoked from the Details panel with the popup open;
+the count moved `2/2` → `1/2` without a reopen.
+
+**Step 7 — PASS, and it is the harder half.** Editor open with unsaved text in
+the header value field; a storage change fired from the console; the form kept
+its contents and the view did not switch back to the list. Re-render touched the
+list and status line only.
+
+**Step 4 — NOT RUN. The instrument was destroyed four times, and every one was
+the same defect.** A wrapper on `chrome.declarativeNetRequest.updateDynamicRules`
+does not survive its context, and each attempted restore was a guess that made
+the state worse: a saved reference lost to a service-worker restart; a
+`Object.getPrototypeOf(...)` guess that set the method to `undefined`; a
+`delete` that removed the property entirely, turning "injected failure" into "is
+not a function"; and a bind on an already-undefined reference. Recovered only by
+reloading the extension, which closes the popup and therefore forecloses the
+row.
+
+**This lesson was already in this file.** Sitting B's Resume section:
+
+> Re-arm after any popup close — the context is destroyed with it, and a wrapper
+> that died silently reads identically to a genuine failure.
+
+It was transcribed into the sitting G notes earlier the same day and then
+violated four times within the hour. **Capture and restore must be in ONE paste,
+and a stub that cannot be restored must be cleared by reloading rather than by
+guessing at the API surface.**
+
+Step 6 (debounce) skipped: a "no perceptible lag" judgement, meaningful only at
+5000 profiles.
+
+### Part 9 — delete confirmation — PASS, all seven steps
+
+Confirmation verbatim:
+
+> Delete "Test1" and its 1 domain? This cannot be undone.
+
+| Step | Observed |
+| --- | --- |
+| 1 appears, nothing deleted | PASS — names profile and domain count, singular agreement correct |
+| 2 Cancel is safe | PASS |
+| 3 confirm deletes and revokes | PASS — `example.com` released, no surviving reference |
+| 4 no native dialog | PASS — popup never closed by itself |
+| 5 retraction | PASS — withdrew when the profile vanished via a storage write from another context |
+| 6 view change abandons it | PASS |
+| 7 import closes it | PASS — never two confirmations at once |
+
+Steps 5–7 are the substantive ones: a confirmation that stays honest when the
+world changes underneath it. A stale confirmation naming a deleted profile, or
+two armed at once, are the shippable failures and neither occurred.
+
+One reading needed decomposition. `getAll()` returned `[]` after the step 3
+delete, where `postman-echo.com` was expected to survive. Resolved from the
+setup screenshot: `postman-echo.com` was already gray BEFORE the delete, revoked
+by hand from the Details panel during Part 8 step 5. `example.com` was revoked
+by the delete, correctly. Confirmed by re-grant and a control delete:
+`retain: ['*://*.postman-echo.com/*', '*://postman-echo.com/*']`.
+
+### Part 10 — export plaintext-secrets notice — PASS, all six steps
+
+Notice verbatim:
+
+> Exported to headerwright-profiles.json. Header values are saved in plain text
+> — if any are tokens or cookies, treat the file as a secret.
+
+| Step | Observed |
+| --- | --- |
+| 1 notice appears | PASS — names the file and states the risk |
+| 2 reads NEUTRAL, not as an error | PASS — soft gray, clearly distinct from the danger colour on the same element |
+| 3 both themes | PASS — checked in dark and light; `--ink-soft` and `--line` resolve correctly across the dark-block redefinition |
+| 4 channel still carries errors | PASS — notice REPLACED by `Import failed: profile 1, header 1: missing or empty header name.` in the error colour |
+| 5 no confirmation before export | PASS |
+| 6 export closes a pending delete | PASS — confirmation withdrew, notice appeared in its place, never both |
+
+**Steps 2–4 are the rows the suite structurally cannot do.** The suite proves
+the `.notice` class is DEFINED; it cannot see what colour anything renders.
+Step 4 is the stronger half: a one-way class toggle would make every future
+import rejection read as a success, which is worse than the defect v0.1.2 fixed.
+
+### Part 11 — subdomain application and upgrade path — PARTIAL (step 5 only)
+
+**Step 5 — PASS.** Native dialog for a fresh domain, verbatim:
+
+> "HeaderWright — Modify HTTP Request Headers" has requested additional
+> permissions.
+>
+> **It could:**
+>
+> Read and change your data on all p11.test sites and p11.test
+
+It does name the site and its subdomains. Recorded because **this is the
+user-visible cost of the FINDING-018 fix and it had never been written down.**
+Two observations attach to it. Chrome renders the wildcard as "all X sites" and
+the apex as bare "X", so the domain appears twice with no evident distinction —
+Chrome composes this string, HeaderWright supplies only the two patterns.
+And Chrome's fixed wording says **"Read and change"** although HeaderWright has
+no `webRequest` and no code path observes traffic; the store description ("No
+webRequest — this extension cannot read your traffic") is the only thing
+correcting that. Inherent to the architecture, and an argument for the
+description's wording rather than a defect.
+
+**Steps 1–4 — NOT RUN. FIXTURE UNAVAILABLE.** They require an echo endpoint
+reachable at BOTH an apex and a subdomain. `sub.postman-echo.com`,
+`a.b.postman-echo.com` and `sub.httpbin.org` were each tried and none resolve;
+no host with a wildcard DNS record was available.
+
+**This is the part SMOKE.md states the selftest structurally cannot do.** The
+suite proves the permission set and the DNR host set cover the same hosts, but
+that is two string oracles agreeing with each other; only Chrome can say the
+header reaches the wire on a subdomain, and through v0.1.3 the construction was
+right, the oracle said yes, and the wire said nothing. **v0.1.4's central claim
+has no browser evidence in this sitting**, and neither does step 4, the
+over-application check that a suffix confusable receives NO header — which
+SMOKE.md calls a worse bug than the one being fixed.
+
+Not a v0.1.7 gap: this release touched `grants.js` only and left pattern
+construction alone. It is a standing gap in the suite's coverage.
+
+**Step 6 onward — DEFERRED.** See the fixtures section.
+
+### Part 12 — revocation under migration — DEFERRED ENTIRE
+
+Both preconditions fail. SMOKE.md states Part 12 continues from Part 11 step 6
+with a domain still gray, and its own PRECONDITION requires a Chrome profile
+with no approval history for the hostnames used. `hw-test` accumulated approvals
+for ten hosts over this sitting. Recorded as one deferral with one reason rather
+than as separately considered rows.
+
+### Part 13 — collision refusal — PARTIAL (form rows only)
+
+**Step 3 — PASS, and SMOKE.md names it the row that cannot be skipped.** Two
+profiles, `c1.test` and `notc1.test`, both writing `X-Collide`. **Both saved.**
+`"notc1.test".endsWith("c1.test")` is true, so a string-suffix test would refuse
+two configurations covering disjoint hosts. It did not.
+
+**Step 1 (form half) — PASS.** `sub.c1.test` against `c1.test` is a real overlap
+and became one only in v0.1.4. Refused, verbatim:
+
+> Not saved: header "x-collide" is also written by "C1" on an overlapping
+> domain. Two profiles cannot write the same header on the same request. Change
+> the header or the domains, then save.
+
+**Step 2 — the STRICT decision — PASS.** Both profiles set `X-Collide` to the
+SAME value, so the outcome no longer depends on order. Refused anyway, same
+message. This is the deliberate choice in `decisions.md`, confirmed at the
+surface a user is most likely to report as wrong.
+
+The collision MARKER wording (Part 14, where two markers were on screen) is
+distinct from the form refusal — "Not applying … so neither applies" versus
+"Not saved … then save". FINDING-026's fix working: written for the surface it
+appears on, not reused.
+
+**Wire rows, step 4 storage before-state, steps 5 and 6 — NOT RUN.** They
+require an echo server at `127.0.0.1` with `c1.test`, `sub.c1.test` and
+`notc1.test` resolving to it. The claim that a refused pair applies NEITHER
+header remains without browser evidence in this sitting; OBS-C10 banks only the
+v0.1.4 before-state.
+
+### Part 14 — popup containment — PASS (step 4 NOT REACHED)
+
+| Step | Observed |
+| --- | --- |
+| 1 long list, 8 profiles | master toggle visible without scrolling; status line visible without scrolling; list scrolls independently and reaches the eighth; **scrollbar confined to the list** |
+| 2 OBS-D12 configuration | 3 profiles, two collision markers on screen: **Add profile reachable by scrolling, and the master toggle never leaves view** |
+| 3 confirmation row | OBSERVATION: at 8 profiles the confirmation is NOT visible without scrolling, and nothing indicates the popup continues below |
+| 4 small display | **NOT REACHED** |
+
+Step 2 is the direct comparison against OBS-D12, which recorded Add profile
+pushed below the fold at exactly three profiles on v0.1.5. Containment holds at
+the worst realistic case — three profiles with two full-height markers.
+
+Collision marker verbatim, both cards carrying one, neither silently the loser:
+
+> Not applying: header "x-same" also written by "Test3" on an overlapping
+> domain. Two profiles cannot write the same header on the same request, so
+> neither applies. Change the header or the domains in one of them.
+
+Step 4: Chrome was resized well below the popup's height and **the popup
+rendered at full size, overflowing past the window edge** — Chrome does not
+clamp it to the window. Sub-600px containment has no evidence either way.
+Recorded as NOT REACHED, not as a pass, per the step's own instruction.
+
+Step 3 is recorded as an observation per SMOKE.md and nothing was fixed during
+the run.
+
+---
+
+## FINDING-030 — five independent sightings, and the finding is MIS-SCOPED
+
+The operator hit this five times across the sitting, four of them unprompted and
+while doing something else:
+
+1. **Delete confirmation**, during P3. Operator's wording, kept: *"when I delete
+   the delete confirm button remains hidden. So to a user it will look like
+   nothing happened."*
+2. **Import confirmation**, Part 1 step 5 — and it made the round-trip check
+   VACUOUS, because Replace was never clicked and the diff was empty by
+   construction.
+3. **Import result message**, Part 6.
+4. **Part 9 step 3**, the formal row, at 8 profiles.
+5. **Part 14 step 3**, at a stated profile count with two collision markers.
+
+Structural cause, read off `popup.html` at this commit: `header` and
+`footer#status-line` are `flex: none` siblings of `main` and are pinned.
+Everything else — the profile list, the Add profile / Export / Import row, and
+BOTH `#import-confirm` and `#delete-confirm` — lives inside `main`, which is
+`flex: 1 1 auto; overflow-y: auto`.
+
+**The finding as filed says "the delete confirmation lands below the fold". The
+evidence says every transient message renders inside the scrolling region, and
+the only pinned surface is the status bar.** Rescoped in `FINDINGS.md` on this
+evidence.
+
+The operator proposed pinning the bottom action row as the status row is pinned.
+Recorded as a proposal: it is a real improvement and structurally the same move
+that fixed FINDING-022, but it does NOT close the finding, because both
+confirmations sit below the list inside `main` and would stay there. **Two
+candidate fixes, not one.**
+
+Ruled for the next release, not this one. A UI change mid-sitting invalidates
+the build every prior row was scored against.
+
+## FINDING-029 — three sightings
+
+The canonical-form echo appeared three times: the Part 13 form refusal
+(`"x-collide"` for a field reading `X-Collide`), the Part 14 collision markers
+(`"x-same"` for `X-Same`), twice on screen at once. Open, roadmap item 3, and
+the shape of the fix is still unruled.
+
+## Six procedure defects in SMOKE.md
+
+All found by running the document rather than reading it. Five are stale —
+a step whose meaning stopped being true when something else shipped, and nobody
+re-read it. **One would have produced a FALSE PASS.**
+
+| # | Where | Defect |
+| --- | --- | --- |
+| 1 | Part 0 step 6 | "No prompt means the grant never dropped" — falsified by sitting C's approval cache |
+| 2 | Part 2a setup | "any header" on overlapping domains is UNSAVABLE since FINDING-021 shipped in v0.1.5 |
+| 3 | **Part 2a fixture** | `example.com` + `api.example.com` — the wildcard subsumes the subdomain, so **the row passes on a build where retention is broken** |
+| 4 | Part 2c | Expectation inverted by the v0.1.7 ruling; also carries the same false "only recovery" claim as `grants.js` |
+| 5 | Part 2b | Rationale backwards — expectation still correct |
+| 6 | **Part 3b** | Points at the POPUP console; `syncRules` runs entirely in `sw.js`, so the error cannot appear there — **a false pass, not a false alarm** |
+
+Two further corrections are owed for reasons outside SMOKE.md's own text: Part 5
+step 3 does not say to grant the new profile's domain, and Part 1 step 5 has no
+step confirming the import was applied.
+
+## The two missing fixtures
+
+Every deferral in this section traces to one of these. Both are cheap to acquire
+and neither is a v0.1.7 gap.
+
+1. **A domain with a wildcard DNS record and an echo endpoint.** Blocks Part 11
+   steps 1–4 and Part 13's wire rows — including the part SMOKE.md says the
+   selftest structurally cannot cover.
+2. **A v0.1.3 install plus a Chrome profile with no approval history for the
+   test hostnames.** Blocks Part 11 step 6 onward, Part 12 entire, and the
+   runbook's Part C (P6/P7).
+
+## Part E row status
+
+| Part | Verdict |
+| --- | --- |
+| 0 revocation baseline | PASS |
+| 1 core application | PASS |
+| 2 permission lifecycle | PASS (2c fails as written, correctly) |
+| 3 badge honesty | PASS |
+| 3b sync serialization | PASS |
+| 4 validator bounds | PASS — two constants now measured |
+| 5 generated rule ids | PASS |
+| 6 over-cap import refusal | PASS |
+| 7 domain dedup | PASS |
+| 8 live state | PARTIAL — step 4 NOT RUN (instrument) |
+| 9 delete confirmation | PASS |
+| 10 export notice | PASS |
+| 11 subdomain and upgrade | PARTIAL — step 5 only |
+| 12 revocation under migration | DEFERRED ENTIRE |
+| 13 collision refusal | PARTIAL — form rows only |
+| 14 popup containment | PASS (step 4 NOT REACHED) |
+
+**Nothing in Part E blocks v0.1.7.** Every deferral is a standing gap in the
+suite's fixtures, not a gap in this release, which touched `lib/grants.js` only.
 
 
 # Sitting F — the store-CRX row, v0.1.5 -> v0.1.6
