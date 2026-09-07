@@ -194,20 +194,41 @@ export function staleManagedOrigins(profiles, grantedOrigins) {
  *    against the edited profile alone is the finding-1b bug: a domain
  *    another profile still references must be RETAINED.
  *
- * 2. toRequest is diffed against GRANT state, not profile membership. A
- *    domain can be in the profile set and still ungranted (the user denied
- *    the dialog). Requesting only "newly referenced" domains would satisfy
- *    a naive reading of "an unchanged save causes no permission churn" and
- *    would also silently delete the only recovery path a denied domain
- *    has today — Edit -> Save re-firing request(). Churn-free for the
- *    all-granted case falls out of this anyway: nothing to request.
+ * 2. toRequest is diffed against membership AND grant state, and REVISED in
+ *    v0.1.7 — through v0.1.6 it read grant state alone, which made it every
+ *    ungranted domain in the surviving set on ANY mutation. A delete cannot
+ *    add a domain, so it had nothing new to want and requested anyway:
+ *    FINDING-028, where one approval on a delete confirmation granted four
+ *    domains the user never approved (OBS-E5, corroborated on a store build
+ *    as OBS-F2). The same line re-requested the whole legacy set on any edit,
+ *    which is FINDING-024. One line, two findings; they were never adjacent.
+ *
+ *    THE CLAIM THIS REPLACES WAS FALSE AND IS KEPT HERE IN ITS OWN WORDING,
+ *    because it is why the shape survived six releases: "would also silently
+ *    delete the only recovery path a denied domain has today — Edit -> Save
+ *    re-firing request()". FINDING-002 — the SAME release, v0.1.1 — records
+ *    Edit -> Save as the pre-fix workaround "which works and which nothing in
+ *    the interface suggested", and ships the clickable chip as the fix. Every
+ *    ungranted domain renders as a button that re-fires request() for itself.
+ *    It was a second path, never the only one. An absolute claim nobody
+ *    checked is what hid this.
+ *
+ *    Churn-free for the all-granted case still falls out: nothing to request.
  *
  * 3. toRequest uses the STRICT set and toRevoke the PERMISSIVE one, and
- *    the direction matters. Strict-for-request keeps the migration path
- *    open: a legacy domain reads as ungranted, so Edit -> Save re-fires
- *    request() and completes the upgrade. Permissive-for-revoke keeps the
- *    cleanup path open: the same domain reads as held, so deleting it
- *    releases what it has. Swapping them would re-break both at once.
+ *    the direction matters. Strict-for-request means an added domain that
+ *    holds only the legacy apex pattern still reads as ungranted and is
+ *    requested in full. Permissive-for-revoke keeps the cleanup path open:
+ *    the same domain reads as held, so deleting it releases what it has.
+ *    Swapping them would re-break both at once.
+ *
+ *    WHAT V0.1.7 GIVES UP, STATED SO IT IS A DECISION AND NOT A DISCOVERY:
+ *    a legacy or denied domain that is in both profile sets is no longer
+ *    re-requested by an unrelated save. Its recovery is the chip, which is
+ *    what FINDING-002 built and what the migration notice already tells the
+ *    user to use ("Click any underlined domain below to re-approve it") —
+ *    a sentence the pre-0.1.7 code contradicted by re-requesting all of them
+ *    at once. See decisions.md, and the chip rows in the v0.1.7 runbook.
  */
 export function diffDomainGrants({
   previousProfiles,
@@ -224,7 +245,11 @@ export function diffDomainGrants({
   const held = new Set(heldDomains || grantedDomains || []);
 
   const toRevoke = [...before].filter((d) => !after.has(d) && held.has(d));
-  const toRequest = [...after].filter((d) => !granted.has(d));
+  // FINDING-028 / FINDING-024, v0.1.7. Both diffs now read from MEMBERSHIP
+  // first: a domain is only requested if this change ADDED it. What changed is
+  // the second clause; the grant intersection stays, so an added-but-already-
+  // granted domain still causes no churn.
+  const toRequest = [...after].filter((d) => !before.has(d) && !granted.has(d));
 
   return { toRequest: toRequest.sort(), toRevoke: toRevoke.sort() };
 }
