@@ -1009,10 +1009,36 @@ casing carried alongside the canonical form, and `findCollisions()` currently
 has no reason to retain it. Whether to thread it through or re-derive it at the
 message site is the open question.
 
-**FINDING-030 — the delete confirmation lands below the fold with no cue.**
-Observed as OBS-E3 / P7. At eight profiles, deleting the first renders the
-confirmation 378px below the viewport with nothing indicating the popup
-continues.
+**FINDING-030 — every transient message renders inside the scrolling region,
+with no cue that the popup continues below.** **RESCOPED 2026-09-07 on sitting
+G evidence.** The original title is kept because it is how the finding was
+raised and how it will be searched for:
+
+> **FINDING-030 — the delete confirmation lands below the fold with no cue.**
+
+The delete confirmation is one surface of several, not the finding.
+
+**Five independent sightings in sitting G**, four of them unprompted, by an
+operator doing something else at the time:
+
+1. **Delete confirmation**, during P3. Operator's wording, kept: *"when I delete
+   the delete confirm button remains hidden. So to a user it will look like
+   nothing happened."*
+2. **Import confirmation**, Part 1 step 5 — and this one **cost a test**. The
+   Replace button was never clicked, so the export→import→export round trip was
+   taken against an unchanged config and the diff was empty by construction.
+   A vacuous pass, caught only because the profile count was interrogated.
+3. **Import result message**, Part 6.
+4. **Part 9 step 3**, the formal row, at eight profiles.
+5. **Part 14 step 3**, at a stated profile count with two collision markers on
+   screen.
+
+**Structural cause.** `header` and `footer#status-line` are `flex: none`
+siblings of `main` and are pinned. Everything else lives inside `main`, which is
+`flex: 1 1 auto; overflow-y: auto` — the profile list, the Add profile / Export
+/ Import row, **and both `#import-confirm` and `#delete-confirm`**. The only
+pinned surface below the list is the status bar, and per OBS-E3 it reads as the
+end of the popup.
 
 **NOT A REGRESSION, and the distinction matters for whoever fixes it.** Before
 v0.1.6 the popup grew to Chrome's ceiling and then scrolled bodily, so the
@@ -1020,15 +1046,26 @@ confirmation was also off-screen. What changed is that the pinned footer now
 sits flush at the bottom and READS as the end of the popup. **The defect is the
 missing cue, not the position.**
 
+**TWO INDEPENDENT PROBLEMS, and no single change closes both.**
+
+*The action row.* Add profile / Export / Import scroll away with the list. The
+operator proposed pinning them as the status row is pinned — structurally the
+same one-line move that fixed FINDING-022. Real improvement; costs permanent
+vertical space in a 600px popup, which is what FINDING-022 was about.
+
+*The confirmations.* `#import-confirm` and `#delete-confirm` sit BELOW the list
+inside `main`. **Pinning the action row leaves both exactly where they are.**
 Three candidate shapes, not equivalent and not yet chosen: scroll the
 confirmation into view, render it adjacent to the profile it concerns, or make
 it modal. The one-line `scrollIntoView()` is new behaviour under the patch
-policy. Queued for v0.1.7 or the v0.2.0 card redesign, where confirmation
-placement and card shape are decided together.
+policy.
 
-**Note the pinned-add-bar idea is NOT a fix for this.** Pinning the add bar
-leaves the confirmation exactly where it is and costs permanent vertical space;
-raised separately.
+**Ruled 2026-09-07: NOT in v0.1.7, and to be taken in the next release.** A UI
+change mid-sitting invalidates the build every prior row was scored against, and
+v0.1.7 was already code-complete when the fifth sighting landed. The evidence
+above is what the fix should be designed against — in particular sighting 2,
+which shows the defect is not merely confusing but capable of silently
+invalidating a verification row.
 
 **FINDING-031 — the master toggle's label is not associated with its input.**
 Chrome's Issues panel, informational: the `.toggle` `<label>` wraps its
