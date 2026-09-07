@@ -10,6 +10,282 @@ from.
 
 ---
 
+## Sitting G — v0.1.7 candidate, FINDING-028 / FINDING-024 (2026-09-07)
+
+Predictions pre-registered in `test/RUNBOOK-2026-09-06-v017.md`, committed
+2026-09-06 before Chrome opened. Seven of eight rows run; Part C (P6/P7)
+deliberately not run — see "Not run" below.
+
+### Environment
+
+| | |
+|---|---|
+| Build | `0b23bf35c08019b587c5549e4726954a8e17c123`, unpacked |
+| Extension ID | `ddgomchkggjoehcoeibmmnfaakjanmce` (unpacked-dev, NOT the store ID) |
+| Profile | `hw-test` |
+| Chrome | **151.0.0.0**, macOS |
+| Manifest version string | `0.1.6` — deliberately un-bumped |
+
+**The version string could not discriminate the build under test**, because
+v0.1.7 carries no bump and the store build is also 0.1.6. The standing
+instruction to read the version off `chrome://extensions` is therefore
+insufficient for this release and was replaced by reading the loaded bytes:
+
+    fetch(chrome.runtime.getURL('lib/grants.js'))
+      .then(r => r.text())
+      .then(t => console.log('v0.1.7 candidate:', t.includes('!before.has(d) && !granted.has(d)')));
+    → v0.1.7 candidate: true
+
+Grant state read with `chrome.permissions.getAll()` in the service worker
+console throughout, never the Details panel (O-2).
+
+### Fixture
+
+`g1.test`–`g8.test`, none reused from sittings A–F, none resolving. `httpbin.org`
+for P8 only. Baseline before P1: `origins: []`.
+
+---
+
+### P1 — the chip re-fires `request()` after a denial — **PASS**
+
+Profile on `g1.test`, dialog denied at save, `getAll().origins` → `[]`. The
+`g1.test` chip rendered gray with the dashed affordance. Clicking it produced a
+permission dialog.
+
+**This was the load-bearing row of the sitting.** The option A ruling in
+`decisions.md` was recorded conditional on it: had no dialog appeared, a denied
+domain would have had no in-app recovery under v0.1.7 — FINDING-002
+reintroduced by this release's own fix — and the ruling reverted to option B.
+**The condition is discharged; option A stands.**
+
+**RUNBOOK DEFECT, recorded because it is the runbook's own failure.** P1 says
+"click the gray chip" and does not say what to do with the resulting dialog. The
+operator asked, correctly, whether to allow or deny. For P1's verdict it does
+not matter — the dialog appearing IS the row — but the answer determines whether
+`g1.test` enters Chrome's approval cache and therefore whether later rows can
+use it. Denied on this run, so the cache stayed clean. **A row whose procedure
+leaves the operator guessing is underspecified even when its verdict is
+unambiguous.**
+
+### P2 — approving one chip grants that domain only — **PASS, twice**
+
+Baseline `before: []`, status `3 profiles · 0/3 domains granted`. Profiles on
+`g2.test` and `g3.test` added and denied. Clicked the `g1.test` chip, allowed.
+
+    after: ['*://*.g1.test/*', '*://g1.test/*']
+    status: 3 profiles · 1/3 domains granted
+
+Exactly two patterns, both `g1.test`. No `g2` or `g3` pattern. Chip colour
+agreed: `g1` green, `g2`/`g3` gray.
+
+**Independently re-confirmed at the call site during P5c**, where the wrapper on
+`chrome.permissions.request` logged
+`["*://g2.test/*","*://*.g2.test/*"]` — one call, one domain — for a chip click.
+The granted-set reading and the call-site reading are separate surfaces and
+agree.
+
+This closes the OBS-F2 question for the chip path: one approval, one domain.
+
+### P3 — a delete requests nothing — **PASS**
+
+OBS-E5's exact shape. Five profiles `g4.test`–`g8.test`, all five dialogs
+denied. Eight profiles total, status `8 profiles · 1/8`.
+
+    before: ['*://*.g1.test/*', '*://g1.test/*']
+    [delete Test4 / g4.test, confirmed]
+    NO DIALOG APPEARED
+    after:  ['*://*.g1.test/*', '*://g1.test/*']
+
+Identical arrays. Profile list confirms `g4.test` gone.
+
+**This is the release's central claim, on the shape the defect was observed on.**
+Under v0.1.6 this delete offered the four remaining ungranted domains and one
+approval took all of them.
+
+### P4 — the status line does not move on that delete — **PASS**
+
+    before: 8 profiles · 1/8 domains granted · paused
+    after:  7 profiles · 1/7 domains granted · paused
+
+Denominator fell, numerator held at 1. Recorded as a separate row from P3
+because OBS-F2's signature was a numerator jump (`0/5` → `2/5`) from a single
+approval, and the status line is a different surface from `getAll()`. Two
+independent surfaces, same verdict.
+
+### P5 — an unrelated save does not re-request another profile's domain — **PASS**
+
+Edited Test1 (`g1.test`, granted), changed the header value only, saved.
+
+    no dialog
+    p5: ['*://*.g1.test/*', '*://g1.test/*']
+    status: 7 profiles · 1/7
+
+FINDING-024's shape closed on the save path.
+
+**An unexplained observation was recorded rather than dismissed: the operator
+noticed a flicker on save.** Two candidate explanations, and P5 as written could
+not separate them — (a) the storage-change re-render, benign; (b) `request()`
+firing for `g1.test`, which is already cached and would resolve with no dialog.
+The domain being edited cannot produce a visible signal precisely because it is
+granted. P5b was added to settle it.
+
+### P5b — no `request()` at the call site on an unrelated save — **PASS**
+
+**NOT PRE-REGISTERED. Invented mid-sitting in response to the flicker**, and its
+provenance is recorded here rather than folded into P5. It has no falsification
+clause written before the fact; what it has is a positive control taken
+immediately before it.
+
+Method: wrap `chrome.permissions.request` in the POPUP context, click Edit on
+Test1, change the header value, save.
+
+    [edit + save, instrumentation live]
+    → nothing logged
+
+`reconcileGrants()` called `request()` **zero times** for a mutation where every
+domain was already in the previous set. The flicker is the re-render.
+FINDING-024 is closed at the call site, not merely at the granted set — which is
+stronger than P5 alone, since the approval cache would have hidden a wrong call.
+
+### P5c — positive control for P5b — **PASS**
+
+    [click gray g2.test chip]
+    REQUEST FIRED: ["*://g2.test/*","*://*.g2.test/*"]
+    [dialog appeared, denied]
+
+Run in the same popup context, minutes before P5b, with no reload between.
+**P5b's null result means something only because of this row.**
+
+### THE INSTRUMENT FAILED FIRST, AND THE FAILURE IS THE POINT
+
+The first attempt at P5b logged nothing, which read as a clean pass. It was not.
+
+The snippet was run twice in the same popup context. The second run captured
+`_req` from an already-patched `chrome.permissions.request`, so the wrapper
+called itself:
+
+    REQUEST FIRED: (2) [empty × 2]      ×20
+    Uncaught (in promise) RangeError: Maximum call stack size exceeded
+        at chrome.permissions.request
+        at chrome.permissions.request
+        ...
+
+`request()` never reached Chrome, which is why no dialog appeared on the
+`g2.test` chip click. **Nothing about `g2.test` was tested by that attempt, and
+its silence was indistinguishable from a genuine pass.** Two defects in one
+snippet: no re-application guard, and the origins array logged by reference
+(`[empty × 2]`) instead of snapshotted.
+
+Fixed by closing the popup to discard the context, then re-arming with an
+`__hwPatched` sentinel and `JSON.stringify` on the log.
+
+**This was already written down.** `test/EVIDENCE.md` "Resume", from sitting B:
+
+> Wrap `chrome.permissions.remove` in the POPUP context, not just the service
+> worker (...). Re-arm after any popup close — the context is destroyed with it,
+> and a wrapper that died silently reads identically to a genuine failure.
+
+The prior sitting recorded the exact failure mode and it was not read before
+instrumenting. Lesson 5 — check every component that touches the artifact,
+including the one doing the checking — and lesson 4 — a green suite is not
+evidence for a claim the suite does not test. **A null result from an
+uncontrolled instrument is not a null result.**
+
+The one thing the broken attempt did establish: the wrapper was genuinely in the
+call path, since the chip click reached it. Interception works; that
+implementation of it did not.
+
+### P8 — headers still reach the wire — **PASS**
+
+Master toggle ON, status line `8 profiles · 2/8 domains granted · applying`.
+Profile on `httpbin.org`, `X-HW-Test: p8`, allowed. `https://httpbin.org/headers`
+returned:
+
+    "X-Hw-Test": "p8"
+
+**The only row in the sitting where passing required something to happen rather
+than not happen.** Every other row confirms an absence, and a build that had
+quietly stopped applying headers would have passed all of them.
+
+Granted count moved `1/7 → 2/8` correctly across the httpbin add.
+
+---
+
+## Not run
+
+**Part C (P6, P7) — the legacy path.** Requires a v0.1.3 install in `hw-clean`,
+granted under the pre-FINDING-018 origin set, then upgraded.
+
+**FINDING-024's legacy half is therefore NOT browser-verified.** P5 and P5b
+closed the general save path, which is the same code line, but a user upgrading
+from a v0.1.3-era grant is the case the migration notice speaks to and no row in
+this sitting touched it. Recorded here as unclosed rather than folded into
+Part B — sitting E's Phase C precondition check (C0) is the precedent for what
+happens when a legacy row runs without establishing that a legacy grant exists:
+it records as passed against a fix that does nothing.
+
+**Part E (`test/SMOKE.md`) — not yet run.** Standing pre-submission suite; Parts
+2, 11 and 12 touch grants and are what this change can break in ways the runbook
+did not think to ask about. **The release does not ship before it runs.**
+
+---
+
+## FINDING-030 reproduced, unprompted
+
+Hit cold during P3, by an operator who was not looking for it, which is better
+evidence than a scripted row. Operator's wording, kept:
+
+> when I delete the delete confirm button remains hidden. So to a user it will
+> look like nothing happened.
+
+Structural cause, from `popup.html` at this commit: `header` and
+`footer#status-line` are `flex: none` siblings of `main`, so both are pinned.
+Everything else — the profile list, the Add profile / Export / Import row at
+line 312, and `#delete-confirm` at line 326 — lives inside `main`, which is
+`flex: 1 1 auto; overflow-y: auto`. With eight profiles the confirmation renders
+below the fold.
+
+The operator proposed pinning the whole bottom action row the way the status row
+is pinned. **Recorded as a proposal, not adopted.** It is a real improvement and
+structurally the same one-line move that fixed FINDING-022, but it does not fix
+FINDING-030: `#delete-confirm` sits below the list inside `main`, so pinning the
+action row leaves the confirmation exactly where it is. There are two candidate
+fixes and they are not the same change.
+
+**Not fixed in this sitting.** A UI change mid-sitting invalidates the build
+every prior row was scored against. Roadmap item 4 already says the ruling on
+whether FINDING-030 belongs in 0.1.7 or the v0.2.0 card redesign is itself the
+first step; that ruling now has a fresh observation to be made against.
+
+---
+
+## Row status
+
+| Row | Verdict |
+|---|---|
+| P1 chip recovery path | PASS — ruling condition discharged |
+| P2 chip grants one domain only | PASS, two surfaces |
+| P3 delete requests nothing | PASS |
+| P4 status line holds | PASS |
+| P5 unrelated save does not re-request | PASS |
+| P5b no `request()` at the call site | PASS (not pre-registered; controlled) |
+| P5c positive control | PASS |
+| P6/P7 legacy path | NOT RUN |
+| P8 headers reach the wire | PASS |
+| Part E SMOKE.md | NOT RUN — blocks submission |
+
+## Corrections owed to the runbook and to standing practice
+
+Both belong in the next runbook, not silently in this one.
+
+- **P1 must say what to do with the dialog.** Its verdict does not depend on the
+  answer; the fixture state of every later row does.
+- **"Read the version off `chrome://extensions`" is insufficient for any release
+  that does not bump the manifest.** Replace with a byte check against a string
+  unique to the candidate. This applies to every future in-progress sitting, not
+  just this one.
+
+
 # Sitting F — the store-CRX row, v0.1.5 -> v0.1.6
 
 **2026-09-04, after publication.** One row, run on the STORE-INSTALLED copy
