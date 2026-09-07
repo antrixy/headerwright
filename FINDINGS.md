@@ -961,3 +961,177 @@ The direction is untested: nothing establishes whether an apex-only grant
 covers subdomains, and FINDING-018 implies it does not. Verify before
 simplifying — the redundancy runs one way, and treating the two patterns as
 interchangeable would re-introduce FINDING-018.
+
+## FINDING-028 — a DELETE path issued a permission REQUEST — FIXED in v0.1.7
+
+**Version:** v0.1.7
+**Severity:** medium — grants the user never approved, offered from a
+confirmation dialog for the opposite action
+
+**Symptom.** With all grants denied, deleting a profile produced a
+host-permission request dialog; one approval granted the full origin set for
+every SURVIVING profile — four domains, from a delete confirmation. Observed as
+OBS-E5, and corroborated on a STORE build as OBS-F2, where one approval moved
+the status line from `0/5` to `2/5`. That second observation ruled out unpacked
+loading, which was a live alternative explanation.
+
+**Cause, and it is one line.** `diffDomainGrants()` computed the two sides from
+different questions:
+
+    const toRevoke = [...before].filter((d) => !after.has(d) && held.has(d));
+    const toRequest = [...after].filter((d) => !granted.has(d));
+
+`toRevoke` reads profile MEMBERSHIP. `toRequest` read GRANT STATE alone, making
+it every ungranted domain in the resulting set with no reference to what the
+user just did. A delete cannot add a domain, so there was nothing new to want —
+and every ungranted survivor was requested anyway.
+
+**FINDING-024 IS THE SAME LINE, and the two were never merely adjacent.** A
+legacy-only domain reads as ungranted by construction once FINDING-018 enlarged
+the required origin set, so the identical filter re-requested the whole legacy
+set on any edit, delete or import. Per sitting C a previously-approved origin
+re-grants SILENTLY, so the breadth was invisible: host access was observed
+widening from apex-only to apex-plus-subdomains during a delete with no dialog
+and no user interaction. **Both findings close on the same change.**
+
+**WHY IT SURVIVED SIX RELEASES.** The shape was defended in `grants.js` on one
+stated ground: narrowing it "would also silently delete the only recovery path
+a denied domain has today — Edit -> Save re-firing request()". **That sentence
+was false when it was written.** FINDING-002 — the same release, v0.1.1 —
+records Edit -> Save as the pre-fix workaround, "which works and which nothing
+in the interface suggested", and ships the clickable chip as the fix. Every
+ungranted domain renders as a button that re-fires `request()` for itself. The
+selftest carried the same error in a check name, `(finding 2 recovery path)`,
+pinning the path finding 2 replaced — so the claim read as verified. An
+absolute claim nobody checked, hiding a defect by making the fix look
+expensive.
+
+**Fix.** `toRequest` is diffed against membership first and grant state second:
+
+    const toRequest = [...after].filter((d) => !before.has(d) && !granted.has(d));
+
+Delete never requests. Save requests only newly-typed domains. Import requests
+only domains the previous set did not reference. The grant intersection stays,
+so an added-but-already-granted domain still causes no churn. Recovery for a
+denied or legacy domain is the chip, exclusively — which is what the migration
+notice already tells the user ("Click any underlined domain below to re-approve
+it"), a sentence the pre-0.1.7 code contradicted by re-requesting all of them at
+once. Rejected alternatives and the revisit trigger are in `decisions.md`.
+
+**Evidence — set arithmetic.** Selftest 273 -> 281. Six new rows on the
+narrowing, including OBS-E5's exact five-profile shape, plus two positive rows
+that a request-nothing implementation fails, plus two rows pinning the chip
+recovery path this fix now depends on. Two existing checks were REVERSED rather
+than deleted, with their old assertions quoted at the site.
+
+Seven mutants, `test/mutate-grants.py`, all matching expect. The first restores
+the v0.1.6 line verbatim and kills six checks. **One mutant survived the first
+pass with zero failures** — dropping the grant intersection and keeping only the
+membership diff, which is correct for every ungranted case and requests a domain
+already fully granted. Killed by a new row rather than recorded as equivalent.
+Found by the mutation pass, not by review.
+
+**Evidence — browser.** Sitting G, predictions pre-registered in
+`test/RUNBOOK-2026-09-06-v017.md` and committed before Chrome opened. P1 is the
+load-bearing row: a denied domain's chip must re-fire a dialog. If it does not,
+this fix reintroduces FINDING-002 and the ruling reverts.
+
+**The selftest proves the set arithmetic and nothing else.** It cannot show
+what Chrome does with the result, and it did not catch the original defect
+because no row asked what a delete should request.
+
+---
+
+## FINDING-024 — any profile mutation re-requested every remaining legacy
+domain — FIXED in v0.1.7
+
+Closed by FINDING-028's fix; see above for the mechanism and the evidence. The
+two entries are kept separate because they were raised separately and from
+different observations, and a future reader tracing either one should find the
+other rather than a redirect.
+
+The user-facing statement sitting C established is unchanged by this fix and
+still worth carrying: a same-session-approved origin cannot be fully revoked by
+deleting or re-importing its profile — access returns without a prompt —
+whereas a never-approved or denied origin always prompts. That is Chrome's
+per-origin approval cache, not a HeaderWright defect. What v0.1.7 changes is
+that HeaderWright no longer TRIGGERS that silent re-acquisition from mutations
+the user did not frame as a grant.
+
+## FINDING-032 — the selftest's source-text scans cannot tell a use from a mention
+
+**Version:** raised against v0.1.6 (`0481ff8`). Test suite only — no extension
+code changes, so this is not by itself a release.
+**Severity:** medium — one demonstrated FALSE PASS on the FINDING-022 tripwire,
+and one demonstrated false alarm. Nothing user-facing.
+
+**Symptom.** Every check from "popup.js references at least a dozen element ids"
+down through the eight FINDING-022 containment checks is a regex over the raw
+text of `popup.js` and `popup.html`. None of them excludes comments. Two mutants
+taken on the shipped v0.1.6 tree:
+
+- **False PASS, the direction that costs something.** Delete `overflow-y: auto`
+  and `min-height: 0` from the `main` rule — FINDING-022's fix, removed — and
+  add a CSS comment reading
+  `/* FINDING-022: the scrolling region is main { overflow-y: auto; min-height: 0; } */`.
+  Suite: **273/273, exit 0.** The two checks written to stop that exact
+  regression returning silently both read the comment and passed. The popup no
+  longer contains its list; nothing in the suite says so.
+- **False alarm.** Add one line to the existing CSS comment above the `body`
+  rule documenting the rejected form verbatim —
+  `The rejected form was, verbatim: body { max-height: min(600px, 100vh); }` —
+  and change no declaration. Suite: **1 of 273 FAILED, exit 1**, on
+  `F022: the body cap uses NO viewport unit`. A guard firing on its own
+  explanation, which is how a check gets called noisy and dropped.
+
+**Cause.** reqtrail lesson 1, arriving here unmodified: a pattern match cannot
+tell a use from a mention. The negative check (`NO viewport unit`) is the one
+that fires on documentation; the positive checks (`main is the scrolling
+region`, `main can shrink below its content`) are the ones a mention satisfies.
+Both directions were live in the same file at the same time. The suite's own
+header says these checks "read the stylesheet as text" — the defect is not that
+they do, it is that nothing bounded what text they read.
+
+**Not caught by the v0.1.6 mutation pass, and the reason is worth keeping.**
+That pass planted defects in the *product*. These two mutants plant a defect in
+the product and a *comment* in the same file, which is a shape the pass did not
+have. Lesson 5 — check the component doing the checking.
+
+**Fix.** Strip comments once, at the point of reading, so no individual check
+has to remember to: a JS comment stripper that skips over string and template
+literals, `<!-- -->` removal for the markup, and `/* */` removal for the
+extracted `<style>` block. `test/selftest.mjs` only, two hunks, ~35 lines
+including the comment. **Strings are deliberately NOT stripped** — the element
+ids and class names being scanned live in string literals and are the thing
+being looked for.
+
+**Evidence.** Both mutants re-run against the patched suite: the false-alarm
+mutant goes GREEN (273/273, exit 0), the FINDING-022 regression mutant goes RED
+(2 of 273 FAILED, exit 1) naming `main is the scrolling region` and `main can
+shrink below its content`. Clean tree stays at 273/273, so **EXPECTED_CHECKS is
+unchanged and the count tripwire is untouched**.
+
+**The instrument was mutated too.** An over-aggressive stripper that also
+removes string literals was planted: **6 checks FAIL**, led by
+`popup.js references at least a dozen element ids (the scan works)`. The two
+"the scan works" floor checks that already existed are what covers this, and
+they are now load-bearing rather than decorative.
+
+**Committed as `test/mutate-scans.py`**, in the shape of
+`test/mutate-collisions.py` with one difference stated at the top of the file:
+the column is `expect`, not `fails`. Two of the four mutants are planted
+COMMENTS with the product unchanged, and for those the correct outcome is zero
+failures. A runner whose only verdict is "did anything fail" cannot score them.
+The fourth mutant removes the strip itself and scores 0 on a clean tree, which
+is why this survived three releases.
+
+**One correction taken during the run.** The instrument mutant was first
+recorded as 7 failing checks. It is 6 — the first count came from
+`grep -c FAIL`, which also matches the `n of 273 checks FAILED` summary line.
+Found by the mutation script disagreeing with the number written down, which is
+the only reason it was found at all.
+
+**Known limitation, stated at the check.** The stripper is character-scanning,
+not a parser: a regex literal containing `//` or `/*` would be mangled.
+`popup.js` contains no regex literals today (verified 2026-09-06); if one is
+ever added, the floor checks above fail loudly rather than silently.
