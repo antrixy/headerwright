@@ -52,7 +52,10 @@ MUTATIONS = [
     # What catches it is the pair of "the scan works" floor checks, which is
     # what they are FOR — recorded here so they read as load-bearing rather
     # than as decoration a tidying pass could drop.
-    ("the comment stripper also eats string literals", TEST, 6,
+    # EXPECT MOVES WHEN A STRING-BASED SCAN IS ADDED, and that is the point of
+    # pinning the number rather than "at least one". It went 6 -> 7 in v0.1.7
+    # when the FINDING-002 chip check started reading popup.js as text.
+    ("the comment stripper also eats string literals", TEST, 7,
      "const popupJs = stripJsComments(popupJsRaw);",
      'const popupJs = stripJsComments(popupJsRaw).replace(/"[^"]*"/g, \'""\');'),
 

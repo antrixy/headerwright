@@ -69,7 +69,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 273;
+const EXPECTED_CHECKS = 281;
 
 let passed = 0;
 let failed = 0;
@@ -306,12 +306,86 @@ check("A1: unchanged profile set produces no permission churn",
     });
     return d.toRequest.length === 0 && d.toRevoke.length === 0;
   })());
-check("A1: unchanged set STILL re-requests a denied domain (finding 2 recovery path)",
+// REVERSED IN v0.1.7, AND THE OLD ASSERTION IS QUOTED SO THIS READS AS A
+// RULING RATHER THAN A DELETION. It used to read "unchanged set STILL
+// re-requests a denied domain (finding 2 recovery path)" and asserted
+// toRequest === "api.example.com". Two things were wrong with it. The
+// behaviour is FINDING-028: an unchanged set has nothing new to want, and
+// requesting anyway is what let one approval on a delete confirmation grant
+// four unapproved domains. And the NAME was wrong — finding 2's recovery path
+// is the clickable chip, which finding 2 shipped precisely because Edit->Save
+// "works and nothing in the interface suggested" it. The check was named after
+// the fix while pinning the workaround the fix replaced.
+check("A1: unchanged set does NOT re-request a denied domain (v0.1.7, FINDING-028)",
   diffDomainGrants({
     previousProfiles: setA1,
     nextProfiles: setA1,
     grantedDomains: ["example.com"],
-  }).toRequest.join(",") === "api.example.com");
+  }).toRequest.length === 0);
+
+// ---------------------------------------------------- FINDING-028 / 024
+//
+// The defect in one sentence: toRequest was diffed against grant state alone,
+// so it was every ungranted domain in the SURVIVING set regardless of what the
+// change did. These rows are the shapes that were wrong, not paraphrases of
+// the fix — each one returns something non-empty against v0.1.6.
+
+check("F028: a delete requests NOTHING, even with ungranted survivors",
+  diffDomainGrants({
+    previousProfiles: setA1,
+    nextProfiles: [setA1[0]],
+    grantedDomains: [],
+  }).toRequest.length === 0);
+
+// OBS-E5's exact shape: five profiles, every grant denied, delete the first.
+// v0.1.6 returned the other four here and one approval took all of them.
+check("F028: OBS-E5 shape — delete with ALL grants denied requests nothing",
+  (() => {
+    const five = [1, 2, 3, 4, 5].map((i) => prof(i, [`p${i}.test`]));
+    return diffDomainGrants({
+      previousProfiles: five,
+      nextProfiles: five.slice(1),
+      grantedDomains: [],
+    }).toRequest.length === 0;
+  })());
+
+// The narrowing must not cost a legitimate request. An ADDED domain is still
+// requested while ungranted survivors are left alone — both halves in one row,
+// because asserting only the first would pass on a function that requests
+// everything.
+check("F028: an ADDED domain is requested while ungranted survivors are not",
+  (() => {
+    const before = [prof(1, ["old.test"])];
+    const after = [prof(1, ["old.test"]), prof(2, ["new.test"])];
+    return diffDomainGrants({
+      previousProfiles: before,
+      nextProfiles: after,
+      grantedDomains: [],
+    }).toRequest.join(",") === "new.test";
+  })());
+
+// FOUND BY THE MUTATION PASS, NOT BY REVIEW. Dropping the grant intersection
+// and keeping only the membership diff survived every row above with zero
+// failures: it produces the right answer for every ungranted case and requests
+// a domain that is already fully granted. That is permission churn on an
+// ordinary save, and it is the half of asymmetry 2 that v0.1.7 KEPT.
+check("A1: adding an ALREADY-GRANTED domain requests nothing",
+  diffDomainGrants({
+    previousProfiles: [prof(1, ["a.test"])],
+    nextProfiles: [prof(1, ["a.test"]), prof(2, ["b.test"])],
+    grantedDomains: ["a.test", "b.test"],
+  }).toRequest.length === 0);
+
+// FINDING-024 is the same line seen through the legacy set: editing one
+// profile re-requested every legacy domain in the config at once, which
+// contradicted the migration notice's own "click any underlined domain".
+check("F024: a save does not re-request ANOTHER profile's legacy domain",
+  diffDomainGrants({
+    previousProfiles: [prof(1, ["legacy.test"]), prof(2, ["a.test"])],
+    nextProfiles: [prof(1, ["legacy.test"]), prof(2, ["b.test"])],
+    grantedDomains: ["a.test"],
+    heldDomains: ["a.test", "legacy.test"],
+  }).toRequest.join(",") === "b.test");
 check("A1: delete revokes only what no remaining profile references",
   diffDomainGrants({
     previousProfiles: setA1,
@@ -510,9 +584,28 @@ check("F20: a legacy-only domain another profile references is RETAINED",
     grantedDomains: [],
     heldDomains: ["example.com"],
   }).toRevoke.length === 0);
-check("F20: MIGRATION PATH SURVIVES — a legacy domain is still re-requested",
+// REVERSED IN v0.1.7 with the old assertion kept. It read "MIGRATION PATH
+// SURVIVES — a legacy domain is still re-requested" and asserted
+// toRequest === "example.com" for an UNCHANGED profile set. That is
+// FINDING-024's mechanism stated as a requirement. What finding 20 was
+// actually protecting is the STRICT/PERMISSIVE split, and that split is
+// unaffected: the row below still holds it, and the row under it proves a
+// legacy domain the change ADDS is still requested in full.
+check("F20/F028: a legacy-only domain in BOTH sets is NOT re-requested",
   diffDomainGrants({
     previousProfiles: legacyProf,
+    nextProfiles: legacyProf,
+    grantedDomains: [],
+    heldDomains: ["example.com"],
+  }).toRequest.length === 0);
+
+// The strict set is still strict where it matters. A domain this change adds,
+// holding only the pre-0.1.4 apex pattern, reads as ungranted and is requested
+// so the upgrade completes. Swapping toRequest to the permissive set would
+// pass every row above and fail this one.
+check("F20: a legacy-only domain ADDED by this change IS requested",
+  diffDomainGrants({
+    previousProfiles: [],
     nextProfiles: legacyProf,
     grantedDomains: [],
     heldDomains: ["example.com"],
@@ -1179,6 +1272,27 @@ check("popup.js toggles at least four classes (the scan works)",
 check(`every class popup.js toggles is defined in popup.html${
   undefinedClasses.length ? " — undefined: " + undefinedClasses.join(", ") : ""}`,
   undefinedClasses.length === 0);
+
+// ------------------------------- the chip recovery path (FINDING-002 / 028)
+//
+// v0.1.7 MADE THIS LOAD-BEARING AND THAT IS WHY IT IS PINNED HERE. Before the
+// FINDING-028 narrowing, a denied or legacy domain had two ways back: the chip,
+// and an unrelated Edit -> Save re-firing request() for everything ungranted.
+// The second was the defect. The chip is now the ONLY in-app recovery, so it
+// stops being a convenience and becomes the thing that keeps FINDING-002
+// fixed. If a tidying pass ever makes the ungranted chip a plain span, a
+// denied domain becomes a dead end again and nothing else in this suite would
+// notice.
+//
+// STATED HONESTLY, THE SAME WAY THE F022 CHECKS ARE: these read popup.js as
+// text. They prove the button and the request call are present in the source.
+// They do NOT prove a dialog appears — that is a browser question, it is the
+// v0.1.7 runbook's first row, and sitting C's "a denied origin still prompts
+// on the next request" is the banked half of it.
+check("F002: the ungranted domain chip is a BUTTON, not a span",
+  /createElement\(granted \? "span" : "button"\)/.test(popupJs));
+check("F002: the chip's click handler requests THAT DOMAIN only",
+  /permissions\.request\(\{\s*origins: originsForDomain\(domain\),?\s*\}\)/.test(popupJs));
 
 // ------------------------------------------- popup containment (FINDING-022)
 //
