@@ -1101,8 +1101,42 @@ check("F026: rendered as popup.js renders it, there is one terminal period",
 // claim -> evidence table, and it is the first check here that reaches
 // popup.js at all.
 
-const popupJs = readFileSync(new URL("../extension/popup/popup.js", import.meta.url), "utf8");
-const popupHtml = readFileSync(new URL("../extension/popup/popup.html", import.meta.url), "utf8");
+const popupJsRaw = readFileSync(new URL("../extension/popup/popup.js", import.meta.url), "utf8");
+const popupHtmlRaw = readFileSync(new URL("../extension/popup/popup.html", import.meta.url), "utf8");
+
+// A PATTERN MATCH CANNOT TELL A USE FROM A MENTION, and every scan below is a
+// pattern match over source text. Comments are stripped first, at the point of
+// reading, so no individual check has to remember to. Two mutants, both taken
+// on the shipped v0.1.6 tree, are why:
+//   - documenting the rejected `min(600px, 100vh)` form verbatim in the CSS
+//     comment above the body rule turned "the body cap uses NO viewport unit"
+//     RED with the stylesheet unchanged. A guard firing on its own explanation.
+//   - deleting `overflow-y: auto` and `min-height: 0` from `main` while a
+//     comment named them kept the suite at 273/273 GREEN. That is FINDING-022
+//     reinstated behind a passing tripwire, which is the direction that costs
+//     something.
+// Strings are NOT stripped: popup.js's element ids and class names live in
+// string literals and are the thing being scanned.
+const stripJsComments = (src) => {
+  let out = "";
+  for (let i = 0; i < src.length; ) {
+    const c = src[i], d = src[i + 1];
+    if (c === "/" && d === "/") { while (i < src.length && src[i] !== "\n") i++; continue; }
+    if (c === "/" && d === "*") { i += 2; while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++; i += 2; continue; }
+    if (c === '"' || c === "'" || c === "`") {
+      const q = c; out += src[i++];
+      while (i < src.length) {
+        if (src[i] === "\\") { out += src.slice(i, i + 2); i += 2; continue; }
+        out += src[i]; if (src[i++] === q) break;
+      }
+      continue;
+    }
+    out += src[i++];
+  }
+  return out;
+};
+const popupJs = stripJsComments(popupJsRaw);
+const popupHtml = popupHtmlRaw.replace(/<!--[\s\S]*?-->/g, "");
 
 const referencedIds = [...popupJs.matchAll(/\$\("([^"]+)"\)/g)].map((m) => m[1]);
 const declaredIds = new Set(
@@ -1134,7 +1168,7 @@ const toggledClasses = [
   ...new Set([...popupJs.matchAll(/classList\.(?:add|remove|toggle)\("([^"]+)"/g)]
     .map((m) => m[1])),
 ];
-const styleBlock = (popupHtml.match(/<style>([\s\S]*?)<\/style>/) || ["", ""])[1];
+const styleBlock = ((popupHtml.match(/<style>([\s\S]*?)<\/style>/) || ["", ""])[1]).replace(/\/\*[\s\S]*?\*\//g, "");
 const definedClasses = new Set(
   [...styleBlock.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1])
 );
