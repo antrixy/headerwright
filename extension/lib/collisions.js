@@ -80,6 +80,49 @@ export function domainListsOverlap(domainsA, domainsB) {
 }
 
 /**
+ * Which side of the exchange an entry writes: "request" or "response".
+ *
+ * THE DEFAULT IS LOAD-BEARING. Every profile stored by 0.1.x has header
+ * entries with no `side` field at all, and they were all request headers. An
+ * absent side must therefore read as "request" — anything else silently
+ * reclassifies every existing user's configuration on upgrade, and the
+ * reclassification would be invisible until a collision appeared or stopped
+ * appearing.
+ *
+ * ONE NORMALIZATION POINT, matching FINDING-007's shape for domains. Callers
+ * must not test `entry.side` directly; an unrecognised value reads as
+ * "request" here rather than producing a third bucket nothing else knows about.
+ */
+export function sideOf(entry) {
+  return entry && entry.side === "response" ? "response" : "request";
+}
+
+/**
+ * The set of (side, header name) pairs one profile writes, as opaque keys.
+ *
+ * THIS IS THE COLLISION IDENTITY, and it is deliberately NOT the header name.
+ * A profile setting `x-foo` on the request and another setting `x-foo` on the
+ * response are writing two different things at two different moments, and DNR
+ * registers them in separate arrays. They cannot contend for one value, so
+ * refusing them would be a false positive on a configuration that is fine —
+ * and a fail-closed false positive is still a user who cannot do the thing.
+ *
+ * The separator is NUL, which isValidDomain()/validateHeaderEntry() can never
+ * admit into a header name, so the key cannot be forged by a crafted profile
+ * or an imported file.
+ */
+export function headerKeysFor(profile, isValidEntry) {
+  const keys = new Set();
+  for (const entry of profile.headers || []) {
+    if (isValidEntry && !isValidEntry(entry)) continue;
+    if (entry && typeof entry.name === "string" && entry.name !== "") {
+      keys.add(`${sideOf(entry)}\u0000${entry.name.toLowerCase()}`);
+    }
+  }
+  return keys;
+}
+
+/**
  * The set of header names one profile writes, lowercased.
  *
  * ONLY VALID ENTRIES COUNT. An entry that fails validateHeaderEntry() is
@@ -98,11 +141,8 @@ export function domainListsOverlap(domainsA, domainsB) {
  */
 export function headerNamesFor(profile, isValidEntry) {
   const names = new Set();
-  for (const entry of profile.headers || []) {
-    if (isValidEntry && !isValidEntry(entry)) continue;
-    if (entry && typeof entry.name === "string" && entry.name !== "") {
-      names.add(entry.name.toLowerCase());
-    }
+  for (const key of headerKeysFor(profile, isValidEntry)) {
+    names.add(key.slice(key.indexOf("\u0000") + 1));
   }
   return names;
 }
@@ -157,16 +197,20 @@ export function findCollisions(entries, isValidEntry) {
   // sync cost FINDING-016 already records at that profile count, so it is
   // accepted rather than optimised. If it ever needs a ceiling, MEASURE in
   // Chrome first — these numbers are Node's.
+  // Bucket on the (side, name) KEY, not the name. See headerKeysFor().
   const buckets = new Map();
   for (const entry of entries || []) {
-    for (const header of headerNamesFor(entry, isValidEntry)) {
-      if (!buckets.has(header)) buckets.set(header, []);
-      buckets.get(header).push(entry);
+    for (const key of headerKeysFor(entry, isValidEntry)) {
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(entry);
     }
   }
 
   const collisions = [];
-  for (const [header, members] of buckets) {
+  for (const [key, members] of buckets) {
+    const cut = key.indexOf("\u0000");
+    const side = key.slice(0, cut);
+    const header = key.slice(cut + 1);
     for (let i = 0; i < members.length; i++) {
       for (let j = i + 1; j < members.length; j++) {
         const a = members[i];
@@ -174,14 +218,28 @@ export function findCollisions(entries, isValidEntry) {
         if (a.id === b.id) continue;
         if (!domainListsOverlap(a.domains, b.domains)) continue;
         const ids = a.id < b.id ? [a.id, b.id] : [b.id, a.id];
-        collisions.push({ header, profileIds: ids });
+        // `header` STAYS THE BARE NAME. It is rendered verbatim in three
+        // user-facing messages, so the internal key must not reach it.
+        collisions.push({ header, side, profileIds: ids });
       }
     }
   }
 
+  // SIDE IS IN THE COMPARATOR so that output order is a function of the
+  // VALUES, not of bucket insertion order.
+  //
+  // The first version of this comment said sort was not required to be stable
+  // across engines. That is wrong — it has been spec-stable since ES2019 — and
+  // a mutant dropping this term SURVIVED the suite, which is how the error was
+  // found. Without the term, two collisions differing only in side tie, and
+  // the tie resolves to whichever side's bucket was created first, which
+  // depends on the order headers happen to sit in a profile. Deterministic,
+  // but determined by the wrong thing: reordering two entries inside one
+  // profile would reorder the popup. The check below pins that.
   collisions.sort(
     (x, y) =>
       x.header.localeCompare(y.header) ||
+      x.side.localeCompare(y.side) ||
       x.profileIds[0] - y.profileIds[0] ||
       x.profileIds[1] - y.profileIds[1]
   );
@@ -211,8 +269,9 @@ export function collisionsForProfile(collisions, profileId) {
   const out = [];
   for (const collision of collisions || []) {
     const [a, b] = collision.profileIds;
-    if (a === profileId) out.push({ header: collision.header, otherId: b });
-    else if (b === profileId) out.push({ header: collision.header, otherId: a });
+    const { header, side } = collision;
+    if (a === profileId) out.push({ header, side, otherId: b });
+    else if (b === profileId) out.push({ header, side, otherId: a });
   }
   return out;
 }
@@ -244,12 +303,43 @@ function collisionFacts(collisions, profileId, nameFor) {
   const mine = collisionsForProfile(collisions, profileId);
   if (mine.length === 0) return null;
 
-  const headers = [...new Set(mine.map((c) => c.header))].sort();
+  // DEDUPE ON (side, name), NOT name. The same header name can collide on
+  // both sides at once; collapsing them would report one problem where there
+  // are two, and the user would fix one and see the warning persist.
+  const seen = new Set();
+  const pairs = [];
+  for (const c of mine) {
+    const k = `${c.side}\u0000${c.header}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    pairs.push({ header: c.header, side: c.side });
+  }
+  pairs.sort((x, y) => x.header.localeCompare(y.header) || x.side.localeCompare(y.side));
+
+  const headers = pairs.map((x) => x.header);
+  const sides = new Set(pairs.map((x) => x.side));
+  const mixed = sides.size > 1;
+
   const others = [...new Set(mine.map((c) => c.otherId))]
     .map((id) => nameOf(id, nameFor))
     .sort();
 
-  return { headers, others, headerList: headers.map((h) => `"${h}"`).join(", ") };
+  // ONLY LABEL THE SIDE WHEN IT DISAMBIGUATES. Tagging every header with
+  // "(request)" in the common single-sided case is noise in a 360px popup,
+  // and noise that appears on every collision stops being read.
+  const headerList = pairs
+    .map((x) => (mixed ? `"${x.header}" (${x.side})` : `"${x.header}"`))
+    .join(", ");
+
+  // The moment the two profiles would contend. Mixed collisions have no single
+  // moment, so the sentence must not claim one.
+  const moment = mixed
+    ? "the same exchange"
+    : sides.has("response")
+      ? "the same response"
+      : "the same request";
+
+  return { headers, others, headerList, sides, mixed, moment };
 }
 
 /**
@@ -273,12 +363,12 @@ function collisionFacts(collisions, profileId, nameFor) {
 export function describeCollisions(collisions, profileId, nameFor) {
   const facts = collisionFacts(collisions, profileId, nameFor);
   if (!facts) return "";
-  const { headers, others, headerList } = facts;
+  const { headers, others, headerList, moment } = facts;
 
   return (
     `Not applying: ${headers.length === 1 ? "header" : "headers"} ` +
     `${headerList} also written by ${others.join(", ")} on an overlapping ` +
-    `domain. Two profiles cannot write the same header on the same request, ` +
+    `domain. Two profiles cannot write the same header on ${moment}, ` +
     `so neither applies. Change the header or the domains in one of them.`
   );
 }
@@ -300,13 +390,13 @@ export function describeCollisions(collisions, profileId, nameFor) {
 export function describeSaveRefusal(collisions, profileId, nameFor) {
   const facts = collisionFacts(collisions, profileId, nameFor);
   if (!facts) return "";
-  const { headers, others, headerList } = facts;
+  const { headers, others, headerList, moment } = facts;
   const one = headers.length === 1;
 
   return (
     `Not saved: ${one ? "header" : "headers"} ${headerList} ${one ? "is" : "are"} ` +
     `also written by ${others.join(", ")} on an overlapping domain. Two ` +
-    `profiles cannot write the same header on the same request. Change the ` +
+    `profiles cannot write the same header on ${moment}. Change the ` +
     `header or the domains, then save.`
   );
 }
@@ -341,10 +431,13 @@ export function describeImportRefusal(collisions, nameFor) {
   const [idA, idB] = first.profileIds;
   const remaining = collisions.length - 1;
 
+  const moment = first.side === "response" ? "the same response" : "the same request";
+
   return (
     `${nameOf(idA, nameFor)} and ${nameOf(idB, nameFor)} both write header ` +
-    `"${first.header}" on overlapping domains, and two profiles cannot write ` +
-    `the same header on the same request` +
+    `"${first.header}"${first.side === "response" ? " on the response" : ""} on ` +
+    `overlapping domains, and two profiles cannot write the same header on ` +
+    `${moment}` +
     (remaining > 0
       ? `; ${remaining} further collision${remaining === 1 ? "" : "s"} in ` +
         `this file ${remaining === 1 ? "is" : "are"} not listed`
