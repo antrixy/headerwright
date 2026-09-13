@@ -856,7 +856,19 @@ const EXPORT_FILENAME = "headerwright-profiles.json";
 async function exportProfiles() {
   hideAllConfirms();
   const profiles = await getProfiles();
-  const text = serializeProfiles(profiles);
+  // serializeProfiles() CAN THROW as of v0.2.0: canonicalizeProfiles() refuses
+  // a field it was never taught rather than dropping it, which is how `side`
+  // was lost. Unhandled, that refusal would produce no file and no message —
+  // a silent failure replacing a silent corruption, which is not an
+  // improvement. Reuses the import failure surface; the message is the
+  // canonicalizer's, which names the profile, the header and the field.
+  let text;
+  try {
+    text = serializeProfiles(profiles);
+  } catch (err) {
+    showIoMsg(`Export failed: ${err.message}.`);
+    return;
+  }
   const url = URL.createObjectURL(
     new Blob([text], { type: "application/json" })
   );
