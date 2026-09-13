@@ -310,6 +310,26 @@ export function headerEntryToModifyHeaderInfo(entry) {
 export function profileToRule(profile, grantedDomains) {
   if (!grantedDomains || grantedDomains.length === 0) return null;
 
+  // THE ID IS CHECKED HERE BECAUSE IT IS USED VERBATIM AS THE DNR RULE ID.
+  // isValidRuleId() has existed since v0.1.2 and its own doc comment states
+  // this failure exactly — "one out-of-range id fails the whole ATOMIC update,
+  // taking every other profile's rules down with it" — and nothing on this
+  // path called it. sw.js states the opposite intent directly above its
+  // updateDynamicRules() call: that rule validity is filtered out here so one
+  // bad profile cannot take every other profile's rules down. It lists the
+  // append allowlist, non-empty values and granted domains. The id was not on
+  // that list, so the stated guarantee was not the delivered one.
+  //
+  // Reachable because STORAGE IS UNTRUSTED INPUT. parseProfilesFile() refuses
+  // bad ids on import and nextProfileId() cannot generate one, so nothing the
+  // UI offers arrives here — the same reasoning that retains the over-cap
+  // branch in sw.js rather than deleting it as unreachable.
+  //
+  // Returning null rather than throwing puts the profile on the skipped list
+  // alongside every other reason a profile does not apply, which is the
+  // existing contract for this function.
+  if (!isValidRuleId(profile.id)) return null;
+
   // SPLIT BY SIDE. Before v0.2.0 every valid entry went into requestHeaders,
   // which was correct when a response entry could not exist. It is a silent
   // misapplication the moment one can: the user asks for a response header and
