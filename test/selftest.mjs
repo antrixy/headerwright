@@ -60,6 +60,8 @@ import {
   domainsOverlap,
   domainListsOverlap,
   headerNamesFor,
+  headerKeysFor,
+  sideOf,
   findCollisions,
   collidingProfileIds,
   describeCollisions,
@@ -69,7 +71,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 281;
+const EXPECTED_CHECKS = 298;
 
 let passed = 0;
 let failed = 0;
@@ -991,6 +993,91 @@ check("F021: different headers on the same domain do not collide",
     cProf(1, "Alpha", ["example.com"], [setH("X-A")]),
     cProf(2, "Beta", ["example.com"], [setH("X-B")]),
   ], validEntry).length === 0);
+
+// --- v0.2.0: SIDE. A request header and a response header of the same name
+// are two different writes at two different moments. DNR puts them in
+// separate arrays and they cannot contend for one value, so refusing them
+// would be a fail-closed FALSE POSITIVE on a configuration that is fine.
+
+const respH = (name, value = "1") => ({ name, operation: "set", value, side: "response" });
+
+// The upgrade path. Every 0.1.x profile has entries with no `side` at all.
+check("F021/side: a missing side reads as request",
+  sideOf({ name: "X-H", operation: "set", value: "1" }) === "request");
+check("F021/side: an unrecognised side reads as request, not a third bucket",
+  sideOf({ name: "X-H", side: "trailer" }) === "request" &&
+  sideOf({ name: "X-H", side: "RESPONSE" }) === "request");
+check("F021/side: an explicit response side is preserved",
+  sideOf(respH("X-H")) === "response");
+
+check("F021/side: the key carries the side, the name does not",
+  headerKeysFor(cProf(1, "p", ["a.test"], [respH("X-Api-Key")]), validEntry)
+    .has("response\u0000x-api-key") &&
+  headerNamesFor(cProf(1, "p", ["a.test"], [respH("X-Api-Key")]), validEntry)
+    .has("x-api-key"));
+
+// THE POINT OF THE WHOLE CHANGE.
+check("F021/side: same name on DIFFERENT sides does NOT collide",
+  findCollisions([
+    cProf(1, "Alpha", ["example.com"], [setH("X-H", "A")]),
+    cProf(2, "Beta", ["example.com"], [respH("X-H", "B")]),
+  ], validEntry).length === 0);
+check("F021/side: same name on the RESPONSE side still collides",
+  findCollisions([
+    cProf(1, "Alpha", ["example.com"], [respH("X-H", "A")]),
+    cProf(2, "Beta", ["example.com"], [respH("X-H", "B")]),
+  ], validEntry).length === 1);
+check("F021/side: a legacy (sideless) profile collides with an explicit request one",
+  findCollisions([
+    cProf(1, "Alpha", ["example.com"], [{ name: "X-H", operation: "set", value: "A" }]),
+    cProf(2, "Beta", ["example.com"], [{ name: "X-H", operation: "set", value: "B", side: "request" }]),
+  ], validEntry).length === 1);
+
+const bothSides = findCollisions([
+  cProf(1, "Alpha", ["example.com"], [setH("X-H", "A"), respH("X-H", "A")]),
+  cProf(2, "Beta", ["example.com"], [setH("X-H", "B"), respH("X-H", "B")]),
+], validEntry);
+check("F021/side: one name colliding on BOTH sides is TWO collisions",
+  bothSides.length === 2 &&
+  bothSides.every((c) => c.header === "x-h") &&
+  bothSides.map((c) => c.side).join(",") === "request,response");
+// 9d: pins the PROPERTY (order follows the values) rather than the current
+// output. Entries are deliberately declared response-first so that bucket
+// insertion order disagrees with the required output order.
+const sideOrder = findCollisions([
+  cProf(1, "Alpha", ["example.com"], [respH("X-H", "A"), setH("X-H", "A")]),
+  cProf(2, "Beta", ["example.com"], [respH("X-H", "B"), setH("X-H", "B")]),
+], validEntry);
+check("F021/side: collision order does not depend on header order within a profile",
+  sideOrder.map((c) => c.side).join(",") === "request,response");
+check("F021/side: the record carries the bare name, never the internal key",
+  bothSides.every((c) => !c.header.includes("\u0000")));
+
+// Prose. The old sentence said "on the same request" unconditionally, which
+// is false for a response-side collision — 9f: state the property.
+const respOnly = findCollisions([
+  cProf(1, "Alpha", ["example.com"], [respH("X-H", "A")]),
+  cProf(2, "Beta", ["example.com"], [respH("X-H", "B")]),
+], validEntry);
+const respMsg = describeCollisions(respOnly, 1, (id) => ({ 1: "Alpha", 2: "Beta" })[id]);
+check("F021/side: a response collision says response, not request",
+  respMsg.includes("the same response") && !respMsg.includes("the same request"));
+check("F021/side: a request collision still says request",
+  describeCollisions(found, 1, () => "Alpha").includes("the same request"));
+
+const mixedMsg = describeCollisions(bothSides, 1, (id) => ({ 1: "Alpha", 2: "Beta" })[id]);
+check("F021/side: a mixed collision claims no single moment",
+  mixedMsg.includes("the same exchange") &&
+  !mixedMsg.includes("the same request") && !mixedMsg.includes("the same response"));
+check("F021/side: a mixed collision labels each side so the pair is distinguishable",
+  mixedMsg.includes('"x-h" (request)') && mixedMsg.includes('"x-h" (response)'));
+// Noise control: the single-sided common case must NOT be labelled.
+check("F021/side: a single-sided collision is not labelled with its side",
+  !describeCollisions(found, 1, () => "Alpha").includes("(request)"));
+check("F021/side: the save refusal is side-aware too",
+  describeSaveRefusal(respOnly, 1, (id) => "X").includes("the same response"));
+check("F021/side: the import refusal is side-aware too",
+  describeImportRefusal(respOnly, (id) => "X").includes("the same response"));
 
 // STRICT, by decision 2026-09-01. Both of these have an order-independent
 // outcome and are refused anyway, because "two profiles disagree about this
