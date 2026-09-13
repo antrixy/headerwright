@@ -71,7 +71,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 322;
+const EXPECTED_CHECKS = 325;
 
 let passed = 0;
 let failed = 0;
@@ -1515,6 +1515,35 @@ for (const hook of [...queriedHooks].sort()) {
   check(`0.2.0: .${hook} is queried and is assigned by the same file`,
     assignedHooks.has(hook));
 }
+
+// ------------------------------------------------- oracle page (test/oracle)
+//
+// THE ONLY CHECKS IN THIS FILE THAT READ A TEST ARTIFACT RATHER THAN SHIPPED
+// CODE, and they are here because nothing else looks at that page at all.
+// selfcheck.mjs exercises the server and the diff; it never opens index.html.
+// So the page could go back to rendering a pass as a failure and every green
+// signal in the project would stay green.
+//
+// What they pin is a SEMANTIC, not a colour preference. "UNMODIFIED" is the
+// expected result in the control phase and a rule that did not fire in the
+// feature phase. A fixed pass/fail colour is therefore wrong in one of the two
+// phases no matter which way round it is set, which is why the fix was to stop
+// colouring the verdict rather than to swap the two values.
+
+const oracleHtml = readFileSync(
+  new URL("../test/oracle/index.html", import.meta.url), "utf8"
+).replace(/<!--[\s\S]*?-->/g, "");
+
+check("oracle: the verdict box carries no pass/fail colour class",
+  !/class="verdict \$\{/.test(oracleHtml) &&
+  !/\.unmodified\s*\{/.test(oracleHtml) &&
+  !/\.modified\s*\{/.test(oracleHtml));
+// The failure path used to reuse the UNMODIFIED class, so an instrument that
+// threw and an instrument that measured agreement rendered identically.
+check("oracle: MEASUREMENT FAILED renders in its own class",
+  /class="verdict failed"/.test(oracleHtml) && /\.failed\s*\{/.test(oracleHtml));
+check("oracle: the page states that UNMODIFIED inverts between phases",
+  /UNMODIFIED.{0,40}not a verdict on its own/s.test(oracleHtml));
 
 // ------------------------------------------- popup containment (FINDING-022)
 //
