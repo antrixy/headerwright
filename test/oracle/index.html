@@ -13,9 +13,22 @@
   .same { color: #666; }
   .diff { background: #fff3cd; font-weight: bold; }
   .note { background: #f4f4f4; padding: .75rem; margin-top: 1rem; }
-  .verdict { font-size: 1rem; padding: .5rem; margin-top: 1rem; }
-  .modified { background: #d1e7dd; }
-  .unmodified { background: #f8d7da; }
+  /* COLOUR NO LONGER ENCODES PASS OR FAIL, DELIBERATELY. "UNMODIFIED" means
+     opposite things in the two phases this page serves: in the control phase
+     it is the PASS (v0.1.7 emits requestHeaders only, so response headers not
+     moving is the asymmetry being proved), and in the feature phase it is the
+     rule FAILING TO FIRE. A fixed colour cannot carry a verdict whose polarity
+     depends on which phase you are in, and the previous pink read as failure
+     during Item 0, when it was the result the run existed to produce.
+     The text carries the verdict. Red is reserved for the one thing that means
+     the same in both phases: the instrument did not measure. */
+  .verdict { font-size: 1rem; padding: .5rem; margin-top: 1rem;
+             background: #f4f4f4; border-left: 3px solid #6c757d; }
+  /* MEASUREMENT FAILED USED TO SHARE A CLASS WITH UNMODIFIED, so "the fetch
+     threw" and "sent and received agree" rendered as the same pink box — two
+     outcomes that must never be confusable, on the page whose job is telling
+     them apart. */
+  .failed { background: #f8d7da; border-left-color: #a40e26; }
 </style>
 
 <h1>HeaderWright response-header oracle</h1>
@@ -42,7 +55,13 @@
   <br><br>
   <strong>Blind spot:</strong> <code>Set-Cookie</code> is stripped from
   <code>Response.headers</code> by the Fetch spec even same-origin. An empty
-  diff for it means <em>not observed</em>, never <em>unmodified</em>.
+  diff for it means <em>not observed</em>, never <em>unmodified</em>.  <br><br>
+  <strong>“UNMODIFIED” is not a verdict on its own.</strong> In the control
+  phase it is the expected result — v0.1.7 emits <code>requestHeaders</code>
+  only, so response headers staying put is the asymmetry being proved. In the
+  feature phase the same word means the rule did not fire, which is a failure.
+  Know which phase you are in before reading it; nothing on this page can tell
+  you, and colour deliberately does not try.
 </div>
 
 <script type="module">
@@ -63,7 +82,7 @@ async function measure(caseName) {
     if (!rec.ok) throw new Error(`no sent-side record (${rec.status})`);
     ({ headers: sent, observed } = await rec.json());
   } catch (e) {
-    out.innerHTML = `<p class="verdict unmodified">MEASUREMENT FAILED — ${e.message}.
+    out.innerHTML = `<p class="verdict failed">MEASUREMENT FAILED — ${e.message}.
       This is not a "no change" result; nothing was observed.</p>`;
     return;
   }
@@ -85,7 +104,7 @@ async function measure(caseName) {
   const blind = unobservableAmong(observed);
 
   out.innerHTML = `
-    <div class="verdict ${d.identical ? "unmodified" : "modified"}">
+    <div class="verdict">
       ${d.identical
         ? "UNMODIFIED — sent and received agree across the observed set."
         : `MODIFIED — ${d.changed.length} changed, ${d.removed.length} removed, ${d.added.length} added.`}
