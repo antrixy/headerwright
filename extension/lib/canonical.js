@@ -40,7 +40,39 @@ import {
 import { findCollisions, describeImportRefusal } from "./collisions.js";
 
 export const FILE_FORMAT = "headerwright-profiles";
-export const FILE_VERSION = 1;
+// THE HIGHEST VERSION THIS BUILD WRITES OR READS. v0.1.x wrote and read 1.
+export const FILE_VERSION = 2;
+export const READABLE_VERSIONS = [1, 2];
+
+// Keys a document may carry, per level. ANYTHING ELSE IS REFUSED rather than
+// dropped, and the reason is the defect that produced version 2: this file
+// rebuilt each entry from a fixed field list, so `side` — added to the model
+// in the same release — was discarded in silence, turning a response header
+// into a request header on export. A rebuild that names its fields will always
+// drop the field nobody remembered to add. Refusing unknown keys means the
+// next field added elsewhere fails loudly here instead.
+const PROFILE_KEYS = new Set(["id", "name", "domains", "headers"]);
+const ENTRY_KEYS_V1 = new Set(["name", "operation", "value"]);
+const ENTRY_KEYS_V2 = new Set(["name", "operation", "value", "side"]);
+
+/**
+ * The LOWEST version that can read this profile set without losing meaning.
+ *
+ * Not simply FILE_VERSION, deliberately. A request-only set means exactly what
+ * it meant in v0.1.x, so stamping it 2 would make every existing user's export
+ * unreadable by every shipped build for no gain. Version here answers "what
+ * must a reader understand?", not "what wrote this?".
+ *
+ * The consequence worth knowing: the version line of an export changes when a
+ * response entry is added or removed. That is accurate rather than unstable —
+ * the file's requirements genuinely changed.
+ */
+export function versionFor(profiles) {
+  const usesSide = profiles.some((profile) =>
+    (profile.headers || []).some((entry) => entry && entry.side === "response")
+  );
+  return usesSide ? 2 : 1;
+}
 
 /**
  * Normalize a profile array into canonical form. Lossless: never changes
@@ -56,6 +88,11 @@ export function canonicalizeProfiles(profiles) {
       headers: (profile.headers || []).map((entry) => {
         const out = { name: entry.name, operation: entry.operation };
         if (entry.operation !== "remove") out.value = entry.value;
+        // REQUEST IS WRITTEN AS ABSENCE, matching what the popup stores and
+        // what every 0.1.x file already means. Emitting `side: "request"`
+        // would change the bytes of every existing request-only profile for
+        // no change in meaning, and would force those files to version 2.
+        if (entry.side === "response") out.side = "response";
         return out;
       }),
     }));
@@ -95,7 +132,7 @@ export function stableStringify(value, indentUnit = 2) {
 export function serializeProfiles(profiles) {
   const doc = {
     format: FILE_FORMAT,
-    version: FILE_VERSION,
+    version: versionFor(profiles),
     profiles: canonicalizeProfiles(profiles),
   };
   return stableStringify(doc) + "\n";
@@ -120,8 +157,10 @@ export function parseProfilesFile(text) {
   if (doc.format !== FILE_FORMAT) {
     throw new Error(`"format" must be "${FILE_FORMAT}"`);
   }
-  if (doc.version !== FILE_VERSION) {
-    throw new Error(`unsupported "version" (this build reads version ${FILE_VERSION})`);
+  if (!READABLE_VERSIONS.includes(doc.version)) {
+    throw new Error(
+      `unsupported "version" (this build reads ${READABLE_VERSIONS.join(" and ")})`
+    );
   }
   if (!Array.isArray(doc.profiles)) {
     throw new Error('"profiles" must be an array');
@@ -197,10 +236,33 @@ export function parseProfilesFile(text) {
     if (!Array.isArray(profile.headers) || profile.headers.length === 0) {
       throw new Error(`${where}: "headers" must be a non-empty array`);
     }
+    for (const key of Object.keys(profile)) {
+      if (!PROFILE_KEYS.has(key)) {
+        throw new Error(`${where}: unknown field "${key}"`);
+      }
+    }
     profile.headers.forEach((entry, headerIndex) => {
+      const at = `${where}, header ${headerIndex + 1}`;
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+        const allowed = doc.version >= 2 ? ENTRY_KEYS_V2 : ENTRY_KEYS_V1;
+        for (const key of Object.keys(entry)) {
+          if (!allowed.has(key)) {
+            // A `side` key inside a version 1 envelope is the dangerous case
+            // rather than a typo: the file carries v2 meaning while claiming
+            // v1, so every shipped 0.1.x build would accept it and apply a
+            // response header on the request side. Refusing is the whole
+            // point of the version bump.
+            throw new Error(
+              key === "side" && doc.version < 2
+                ? `${at}: "side" requires version 2 (file claims version ${doc.version})`
+                : `${at}: unknown field "${key}"`
+            );
+          }
+        }
+      }
       const result = validateHeaderEntry(entry);
       if (!result.valid) {
-        throw new Error(`${where}, header ${headerIndex + 1}: ${result.reason}`);
+        throw new Error(`${at}: ${result.reason}`);
       }
     });
   });
