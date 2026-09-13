@@ -119,7 +119,39 @@ async function buildRules(profiles) {
     );
   }
 
+  // DUPLICATE IDS FAIL THE ATOMIC CALL THE SAME WAY AN INVALID ONE DOES, by a
+  // different mechanism: two rules sharing an id is the exact error observed
+  // on 2026-08-04 that produced queue.js — "Rule with id 3 does not have a
+  // unique ID". There the cause was two overlapping SYNC RUNS; here it is two
+  // profiles inside ONE run, which the queue cannot help with.
+  //
+  // Only reachable through direct storage manipulation — parseProfilesFile()
+  // refuses duplicate ids on import and nextProfileId() cannot generate one —
+  // which is the same untrusted-storage argument that keeps the over-cap
+  // branch below rather than deleting it as unreachable.
+  const idCounts = new Map();
+  for (const { profile } of resolved) {
+    idCounts.set(profile.id, (idCounts.get(profile.id) || 0) + 1);
+  }
+  const duplicateIds = new Set(
+    [...idCounts].filter(([, count]) => count > 1).map(([id]) => id)
+  );
+  if (duplicateIds.size > 0) {
+    console.warn(
+      `HeaderWright: ${duplicateIds.size} profile id(s) used more than once — ` +
+        `all profiles holding them are not applied: ` +
+        [...duplicateIds].join(", ")
+    );
+  }
+
   for (const { profile, grantedDomains } of resolved) {
+    // BOTH SIDES ARE SKIPPED, not the later one, matching the collision
+    // policy: two profiles claiming one identity have no defined winner, and
+    // registering either would be picking one by another name.
+    if (duplicateIds.has(profile.id)) {
+      skippedProfileIds.push(profile.id);
+      continue;
+    }
     // BOTH sides are skipped, never one. Registering either would be picking a
     // winner by another name, which is the thing this release refuses to do.
     if (colliding.has(profile.id)) {
@@ -183,10 +215,19 @@ async function runSync() {
 
     // Single atomic call — per Chrome's docs, either all specified rules are
     // added and removed, or an error is returned and nothing changes. Rule
-    // validity (append allowlist, non-empty values, granted domains) is
-    // filtered out in buildRules()/profileToRule() before this point, on
-    // purpose: one bad profile must not be able to take every other
+    // validity is filtered out in buildRules()/profileToRule() before this
+    // point, on purpose: one bad profile must not be able to take every other
     // profile's rules down with it.
+    //
+    // WHAT IS FILTERED, NAMED IN FULL, because this comment previously listed
+    // three things and the list was the bug. It said append allowlist,
+    // non-empty values and granted domains — and the RULE ID was not among
+    // them, so an out-of-range or non-integer id in storage passed straight
+    // through and failed the whole update, which is the one outcome the
+    // sentence above promises cannot happen. A comment that states a guarantee
+    // must enumerate what delivers it, or the gap hides behind the promise.
+    // Now: append allowlist, non-empty values, granted domains, VALID RULE ID
+    // (profileToRule), DUPLICATE IDS and collisions (buildRules).
     await chrome.declarativeNetRequest.updateDynamicRules({
       removeRuleIds,
       addRules,
