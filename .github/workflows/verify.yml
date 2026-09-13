@@ -1,0 +1,54 @@
+# Runs test/verify.mjs on every push and pull request.
+#
+# WHY THIS EXISTS: on 2026-09-13 an external review found a mutation harness
+# that had been failing for an unknown number of commits while two sessions
+# reported the tree green. The harness was not broken and nobody ignored it —
+# it was simply never run, because "run the tests" had no single referent.
+# test/verify.mjs gave it one. This file is what makes the command unskippable.
+#
+# NO DEPENDENCIES, NO INSTALL STEP, and that is deliberate: HeaderWright has no
+# build and no package manifest, and a CI file that introduced one would make
+# the dependency-free property harder to keep than to abandon. Node and Python
+# are both preinstalled on ubuntu-latest.
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned major versions rather than "latest". The suite reads source as
+      # text and runs mutation harnesses that count failures exactly; a silent
+      # runtime bump is the kind of thing that moves a pinned number and gets
+      # blamed on the last commit instead.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Report versions
+        run: |
+          node --version
+          python3 --version
+
+      # verify.mjs exits non-zero on any failing gate, and scans each harness's
+      # output for its own failure phrases rather than trusting exit codes —
+      # the mutation harnesses report drift while exiting 0.
+      - name: Run every gate
+        run: node test/verify.mjs
