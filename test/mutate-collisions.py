@@ -168,6 +168,30 @@ MUTATIONS = [
     ("the underline the notice names is removed from .migrating", HTML,
      'text-decoration: underline dashed var(--ink-soft); text-underline-offset: 2px;',
      ''),
+
+    # ---- popup side control, v0.2.0. Every one of these leaves a popup that
+    # renders and saves. None throws. That is why they are here.
+    ("the side select reads entry.side, so a 0.1.x entry reclassifies", POP,
+     'if (side === sideOf(entry)) option.selected = true;',
+     'if (side === entry.side) option.selected = true;'),
+    ("readForm writes side unconditionally (every export changes)", POP,
+     'if (side === "response") entry.side = side;',
+     'entry.side = side;'),
+    ("the side select is never read back (control is decorative)", POP,
+     '    const side = row.querySelector(".h-side").value;\n',
+     '    const side = "request";\n'),
+    ("side and operation swap DOM order against the grid columns", POP,
+     'row.append(nameInput, sideSelect, opSelect, valueInput, removeBtn);',
+     'row.append(nameInput, opSelect, sideSelect, valueInput, removeBtn);'),
+    ("the side column is dropped from the grid (five children, four tracks)", HTML,
+     'grid-template-columns: 1fr 56px 82px 1fr 24px;',
+     'grid-template-columns: 1fr 82px 1fr 24px;'),
+    ("a fixed select width returns and overflows the 56px column", HTML,
+     '  .hrow select { padding: 5px 3px; }',
+     '  .hrow select { width: 82px; padding: 5px 3px; }'),
+    ("the h-side hook is renamed, so readForm's querySelector finds nothing", POP,
+     'sideSelect.className = "h-side";',
+     'sideSelect.className = "h-which";'),
 ]
 
 backup = {}
@@ -187,7 +211,11 @@ for name, f, old, new in MUTATIONS:
     applied = old in src
     if not applied:
         print(f"{name:62s} {'NO':>8s} {'--':>6s}   <-- PATCH DID NOT APPLY")
-        results.append((name, False, None))
+        # FOURTH FIELD KEPT IN SYNC WITH THE APPLIED BRANCH. The summary
+        # lines below unpack four. A three-tuple here would make the harness
+        # throw on exactly the run where an anchor went stale — the condition
+        # this branch exists to report.
+        results.append((name, False, None, False))
         continue
     f.write_text(src.replace(old, new, 1))
     r = subprocess.run(["node", "test/selftest.mjs"], cwd=ROOT,
@@ -195,15 +223,34 @@ for name, f, old, new in MUTATIONS:
     out = r.stdout + r.stderr
     fails = len(re.findall(r"^FAIL:", out, re.M))
     tripwire = "count tripwire" in out
-    crashed = "SyntaxError" in out or "ReferenceError" in out or "TypeError" in out
+    # CRASH IS DETECTED BY ABSENCE OF A TERMINAL LINE, not by error name.
+    # The previous test string-matched SyntaxError/ReferenceError/TypeError,
+    # which only catches the throws someone thought to enumerate — a RangeError
+    # or a bare `throw new Error()` read as a clean run. A selftest that
+    # REACHES ITS END always prints exactly one of three terminal lines. If
+    # none is present the suite died partway, whatever it died of, and the
+    # fail count below is a floor rather than a measurement.
+    finished = ("checks passed" in out or "checks FAILED" in out
+                or "count tripwire" in out)
+    crashed = not finished
     label = f"{fails}" + (" +tw" if tripwire else "") + (" CRASH" if crashed else "")
     print(f"{name:62s} {'yes':>8s} {label:>6s}")
-    results.append((name, True, fails))
+    results.append((name, True, fails, crashed))
 
 restore()
 r = subprocess.run(["node", "test/selftest.mjs"], cwd=ROOT, capture_output=True, text=True)
 print("-" * 80)
 print("restored:", r.stdout.strip())
-zero = [n for n, a, f in results if a and f == 0]
+zero = [n for n, a, f, c in results if a and f == 0]
 if zero:
     print("ZERO-FAIL MUTATIONS (uncovered):", zero)
+# A CRASHING MUTANT'S COUNT IS NOT A COVERAGE NUMBER. The suite aborts where
+# it throws, so every check after that point never ran and the printed figure
+# is whatever happened to execute first. The "legacy default flips" mutant
+# read as 2 while its real coverage was 18 — the crash hid sixteen failures,
+# and the annotation sat in the table where nobody totalled it. Zero-fail gets
+# a summary line because it means UNCOVERED; crash needs one too, because it
+# means UNMEASURED, and unmeasured silently reads as covered.
+crashing = [n for n, a, f, c in results if a and c]
+if crashing:
+    print("CRASHING MUTATIONS (count is a floor, not coverage):", crashing)

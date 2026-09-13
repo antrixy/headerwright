@@ -71,7 +71,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 309;
+const EXPECTED_CHECKS = 322;
 
 let passed = 0;
 let failed = 0;
@@ -177,9 +177,26 @@ check("rule id equals profile id", rule.id === 3);
 check("rule condition uses only granted domains",
   rule.condition.requestDomains.length === 1 &&
   rule.condition.requestDomains[0] === "a.example.com");
+// `?.` ON BOTH, AND THE REASON IS NOT STYLE. These two checks predate v0.2.0,
+// when profileToRule() always emitted requestHeaders and an unguarded access
+// could not throw. The side split made the array OMITTABLE — it is assigned
+// only when non-empty — so any mutation that routes these entries to the
+// response side leaves requestHeaders undefined and these lines throw.
+// mutate-collisions.py counts `^FAIL:` lines, so a throw aborts the suite and
+// scores whatever happened to run first: the "legacy default flips" mutant
+// died here at 2 fails with 307 checks never executed, and its real coverage
+// was unmeasured. A check that throws is worse than one that fails, because
+// it misreports. Reach for `?.` by default when indexing into any structure
+// the builder may legitimately omit.
 check("invalid header entries are filtered out",
-  rule.action.requestHeaders.length === 2);
+  rule.action.requestHeaders?.length === 2);
+// The guard must make a MISSING array fail, not pass. `"value" in ({})` is
+// false, so defaulting the lookup to an empty object would have reported a
+// pass on an absent array — the vacuous-success shape this whole edit exists
+// to remove. The length conjunct short-circuits instead: undefined fails the
+// check and the index never evaluates.
 check("remove entry carries no value key",
+  rule.action.requestHeaders?.length === 2 &&
   !("value" in rule.action.requestHeaders[1]));
 check("resourceTypes is the full explicit list (main_frame default bug)",
   rule.condition.resourceTypes.length === RESOURCE_TYPES.length &&
@@ -1433,6 +1450,71 @@ check("F002: the ungranted domain chip is a BUTTON, not a span",
   /createElement\(granted \? "span" : "button"\)/.test(popupJs));
 check("F002: the chip's click handler requests THAT DOMAIN only",
   /permissions\.request\(\{\s*origins: originsForDomain\(domain\),?\s*\}\)/.test(popupJs));
+
+// ------------------------------------------------ popup side control (0.2.0)
+//
+// WHAT THESE ARE, STATED THE SAME WAY AS THE F002 AND F022 BLOCKS ABOVE: they
+// read popup.js and popup.html as text. They prove the control is wired in the
+// source. They do NOT prove a response header reaches the wire — that is the
+// oracle's job at test/oracle/, same-origin, and no check in this file can
+// stand in for it.
+//
+// They earn their place because every failure mode below is SILENT. A side
+// select that reads entry.side directly still works for new profiles and
+// quietly reclassifies old ones. A readForm() that writes side unconditionally
+// still saves correctly and changes every existing user's export. Neither
+// throws, neither shows on any surface, and the suite is the only thing that
+// would notice before a user did.
+
+check("0.2.0: the header row carries a side select",
+  /className = "h-side"/.test(popupJs));
+check("0.2.0: sideOf is IMPORTED, not reimplemented in the popup",
+  /sideOf,?\s*\n?\s*\}\s*from\s*"\.\.\/lib\/collisions\.js"/.test(popupJs) &&
+  !/function sideOf/.test(popupJs));
+// The default rule is the one that decides what a 0.1.x profile MEANS on open.
+// Reading entry.side directly would land a sideless entry on whichever option
+// happens to be first in the loop.
+check("0.2.0: the selected side comes from sideOf(entry), not entry.side",
+  /side === sideOf\(entry\)/.test(popupJs));
+check("0.2.0: readForm reads the side control",
+  /querySelector\("\.h-side"\)/.test(popupJs));
+// THE REQUEST SIDE IS ABSENCE. This is the check that pins the format claim:
+// an unconditional `entry.side = side` would rewrite every existing profile on
+// its first save with no behaviour change to show for it.
+check("0.2.0: request is written as absence, never as side: \"request\"",
+  /if \(side === "response"\) entry\.side = side;/.test(popupJs));
+check("0.2.0: the side select is appended BEFORE the operation select",
+  /row\.append\(nameInput, sideSelect, opSelect, valueInput, removeBtn\)/
+    .test(popupJs));
+// DOM order and grid order are independent — a grid places children in source
+// order, so getting append() right and the column list wrong silently puts the
+// side select in the operation's column and vice versa.
+check("0.2.0: the row grid has five columns with side ahead of operation",
+  /grid-template-columns: 1fr 56px 82px 1fr 24px/.test(popupHtml));
+// A fixed width on `.hrow select` would overflow the narrower column, which is
+// why the rule that used to set 82px no longer does.
+check("0.2.0: .hrow select takes its width from the grid, not a fixed rule",
+  !/\.hrow select \{[^}]*width:/.test(popupHtml));
+
+// THE RENAME MUTANT EXPOSED A GAP, which is what mutants are for. Checking
+// that `className = "h-side"` appears proves the class is ASSIGNED. It does
+// not prove readForm queries the same string — rename one side and the row
+// still builds, the select still renders, and readForm's querySelector
+// silently returns null. So check the two sides AGREE, for every .h-* hook
+// rather than just this one, since the next control added will have the same
+// failure available to it.
+const assignedHooks = new Set(
+  [...popupJs.matchAll(/className = "(?:mono )?(h-[a-z-]+)"/g)].map((m) => m[1])
+);
+const queriedHooks = new Set(
+  [...popupJs.matchAll(/querySelector\("\.(h-[a-z-]+)"\)/g)].map((m) => m[1])
+);
+check("0.2.0: the row-hook scan found something (the check works)",
+  assignedHooks.size >= 4 && queriedHooks.size >= 3);
+for (const hook of [...queriedHooks].sort()) {
+  check(`0.2.0: .${hook} is queried and is assigned by the same file`,
+    assignedHooks.has(hook));
+}
 
 // ------------------------------------------- popup containment (FINDING-022)
 //
