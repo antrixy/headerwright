@@ -1,0 +1,104 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HeaderWright response-header oracle</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+         margin: 2rem auto; max-width: 60rem; padding: 0 1rem; }
+  h1 { font-size: 1.1rem; }
+  button { font: inherit; padding: .4rem .8rem; margin-right: .5rem; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+  th, td { border: 1px solid #ccc; padding: .3rem .5rem; text-align: left;
+           vertical-align: top; word-break: break-all; }
+  th { background: #f4f4f4; }
+  .same { color: #666; }
+  .diff { background: #fff3cd; font-weight: bold; }
+  .note { background: #f4f4f4; padding: .75rem; margin-top: 1rem; }
+  .verdict { font-size: 1rem; padding: .5rem; margin-top: 1rem; }
+  .modified { background: #d1e7dd; }
+  .unmodified { background: #f8d7da; }
+</style>
+
+<h1>HeaderWright response-header oracle</h1>
+
+<p>
+  Same-origin by construction. The sent-side record arrives in a response
+  <strong>body</strong> via <code>/sent</code>, which <code>modifyHeaders</code>
+  cannot rewrite; the received side is read from <code>Response.headers</code>.
+  A difference between them is DNR acting on the response.
+</p>
+
+<p>
+  <button id="cors">Measure — CORS case</button>
+  <button id="plain">Measure — plain case</button>
+</p>
+
+<div id="out"></div>
+
+<div class="note">
+  <strong>Before trusting anything on this page</strong>, run
+  <code>node selfcheck.mjs</code> against this server. It proves the comparison
+  can report a difference at all. A page that shows “unmodified” is only
+  meaningful if the instrument has been shown capable of showing “modified”.
+  <br><br>
+  <strong>Blind spot:</strong> <code>Set-Cookie</code> is stripped from
+  <code>Response.headers</code> by the Fetch spec even same-origin. An empty
+  diff for it means <em>not observed</em>, never <em>unmodified</em>.
+</div>
+
+<script type="module">
+import { diffHeaders, unobservableAmong } from "./diff.mjs";
+
+const out = document.getElementById("out");
+
+async function measure(caseName) {
+  out.textContent = "measuring…";
+  const id = `${caseName}-${Date.now()}`;
+
+  let received, sent, observed;
+  try {
+    const echo = await fetch(`/echo?id=${id}&case=${caseName}`, { cache: "no-store" });
+    received = [...echo.headers.entries()];
+
+    const rec = await fetch(`/sent?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+    if (!rec.ok) throw new Error(`no sent-side record (${rec.status})`);
+    ({ headers: sent, observed } = await rec.json());
+  } catch (e) {
+    out.innerHTML = `<p class="verdict unmodified">MEASUREMENT FAILED — ${e.message}.
+      This is not a "no change" result; nothing was observed.</p>`;
+    return;
+  }
+
+  const d = diffHeaders(sent, received, observed);
+  const recvMap = new Map(received.map(([n, v]) => [n.toLowerCase(), v]));
+  const sentMap = new Map(sent.map(([n, v]) => [n.toLowerCase(), v]));
+
+  const names = [...new Set([...observed.map((n) => n.toLowerCase()),
+                             ...d.added.map((a) => a.name)])].sort();
+
+  const rows = names.map((n) => {
+    const s = sentMap.has(n) ? sentMap.get(n) : "—";
+    const r = recvMap.has(n) ? recvMap.get(n) : "—";
+    const cls = s === r ? "same" : "diff";
+    return `<tr class="${cls}"><td>${n}</td><td>${s}</td><td>${r}</td></tr>`;
+  }).join("");
+
+  const blind = unobservableAmong(observed);
+
+  out.innerHTML = `
+    <div class="verdict ${d.identical ? "unmodified" : "modified"}">
+      ${d.identical
+        ? "UNMODIFIED — sent and received agree across the observed set."
+        : `MODIFIED — ${d.changed.length} changed, ${d.removed.length} removed, ${d.added.length} added.`}
+    </div>
+    <table>
+      <tr><th>header</th><th>server sent</th><th>browser received</th></tr>
+      ${rows}
+    </table>
+    ${blind.length
+      ? `<p class="note">Not observable by this instrument: ${blind.join(", ")}.</p>`
+      : ""}`;
+}
+
+document.getElementById("cors").onclick = () => measure("cors");
+document.getElementById("plain").onclick = () => measure("plain");
+</script>
