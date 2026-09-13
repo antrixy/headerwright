@@ -5,6 +5,7 @@ import subprocess, shutil, pathlib, sys, re
 # for anyone — defeating the point of committing it.
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 COL = ROOT / "extension/lib/collisions.js"
+RUL = ROOT / "extension/lib/rules.js"
 CAN = ROOT / "extension/lib/canonical.js"
 POP = ROOT / "extension/popup/popup.js"
 HTML = ROOT / "extension/popup/popup.html"
@@ -113,6 +114,23 @@ MUTATIONS = [
     ("facts dedupe on name only, merging the two sides into one report", COL,
      '    const k = `${c.side}\\u0000${c.header}`;',
      '    const k = c.header;'),
+
+    # ---- v0.2.0: the validator and the rule builder. These two changed
+    # together because accepting a response entry while profileToRule() still
+    # emitted one array would apply it on the WRONG SIDE, silently. The first
+    # mutant here IS that defect.
+    ("response entries are emitted as REQUEST headers (the wrong-side defect)", RUL,
+     '  const requestHeaders = valid\n    .filter((entry) => sideOf(entry) === "request")\n    .map(headerEntryToModifyHeaderInfo);',
+     '  const requestHeaders = valid\n    .map(headerEntryToModifyHeaderInfo);'),
+    ("response headers are never emitted at all", RUL,
+     '  if (responseHeaders.length > 0) action.responseHeaders = responseHeaders;\n', ''),
+    ("an empty responseHeaders array is registered rather than omitted", RUL,
+     '  if (responseHeaders.length > 0) action.responseHeaders = responseHeaders;',
+     '  action.responseHeaders = responseHeaders;'),
+    ("an unrecognised side is silently defaulted instead of refused", RUL,
+     '  if (entry.side !== undefined && !VALID_SIDES.has(entry.side)) {\n    return { valid: false, reason: `unknown side "${entry.side}"` };\n  }', ''),
+    ("append is allowed on response headers (asserting an unverified list)", RUL,
+     '    if (sideOf(entry) === "response") {\n      return {\n        valid: false,\n        reason: `append is not supported on response headers in this release`,\n      };\n    }', ''),
 
     # ---- v0.1.6, FINDING-022: the popup containment tripwires.
     #

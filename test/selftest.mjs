@@ -71,7 +71,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 298;
+const EXPECTED_CHECKS = 309;
 
 let passed = 0;
 let failed = 0;
@@ -993,6 +993,59 @@ check("F021: different headers on the same domain do not collide",
     cProf(1, "Alpha", ["example.com"], [setH("X-A")]),
     cProf(2, "Beta", ["example.com"], [setH("X-B")]),
   ], validEntry).length === 0);
+
+// --- v0.2.0: SIDE, in the validator and the rule builder. These two had to
+// change together: while profileToRule() put every valid entry into
+// requestHeaders, making the validator accept a response entry would have
+// applied it on the WRONG SIDE, silently.
+
+const rRespH = { name: "X-H", operation: "set", value: "1", side: "response" };
+const rReqH = { name: "X-H", operation: "set", value: "1" };
+
+check("F021/side: an absent side is valid (every 0.1.x entry)",
+  validateHeaderEntry(rReqH).valid);
+check("F021/side: an explicit request/response side is valid",
+  validateHeaderEntry({ ...rReqH, side: "request" }).valid &&
+  validateHeaderEntry(rRespH).valid);
+// sideOf() would read this as "request" and apply a header the file did not ask for.
+check("F021/side: an unrecognised side is REJECTED, not defaulted",
+  !validateHeaderEntry({ ...rReqH, side: "trailer" }).valid &&
+  validateHeaderEntry({ ...rReqH, side: "trailer" }).reason.includes("trailer"));
+check("F021/side: side is case-sensitive, an uppercase side is rejected",
+  !validateHeaderEntry({ ...rReqH, side: "Response" }).valid);
+
+// Append stays request-only: the allowlist was verified for REQUEST headers,
+// and reusing it for responses would assert a list nobody checked.
+check("F021/side: append on a RESPONSE header is refused",
+  !validateHeaderEntry({ name: "Accept", operation: "append", value: "x", side: "response" }).valid);
+check("F021/side: append on an allowlisted REQUEST header still works",
+  validateHeaderEntry({ name: "Accept", operation: "append", value: "x" }).valid);
+check("F021/side: the request allowlist still bites on the request side",
+  !validateHeaderEntry({ name: "X-Nope", operation: "append", value: "x" }).valid);
+
+// --- the rule builder
+const reqOnlyRule = profileToRule({ id: 1, headers: [rReqH] }, ["a.test"]);
+check("F021/side: a request-only profile emits requestHeaders and NO responseHeaders",
+  reqOnlyRule.action.requestHeaders?.length === 1 &&
+  reqOnlyRule.action.responseHeaders === undefined);
+
+const respOnlyRule = profileToRule({ id: 2, headers: [rRespH] }, ["a.test"]);
+// OPTIONAL CHAINING IS DELIBERATE. A check that THROWS on a missing array is
+// worse than one that fails: mutate-collisions.py counts "^FAIL:" lines, so a
+// crashing check scores zero failures and the mutant is reported as UNCOVERED
+// when it was in fact caught. Found by running the harness, not by reading.
+check("F021/side: a response entry lands in responseHeaders, never requestHeaders",
+  respOnlyRule.action.responseHeaders?.length === 1 &&
+  respOnlyRule.action.responseHeaders?.[0].header === "X-H" &&
+  respOnlyRule.action.requestHeaders === undefined);
+
+const bothRule = profileToRule({ id: 3, headers: [rReqH, rRespH] }, ["a.test"]);
+check("F021/side: a mixed profile emits both arrays, each with only its own side",
+  bothRule.action.requestHeaders?.length === 1 &&
+  bothRule.action.responseHeaders?.length === 1);
+check("F021/side: a profile whose only entries are invalid still returns null",
+  profileToRule({ id: 4, headers: [{ name: "bad header", operation: "set", value: "1" }] },
+    ["a.test"]) === null);
 
 // --- v0.2.0: SIDE. A request header and a response header of the same name
 // are two different writes at two different moments. DNR puts them in
