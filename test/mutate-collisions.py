@@ -20,8 +20,8 @@ MUTATIONS = [
      'return a.endsWith(`.${b}`) || b.endsWith(`.${a}`);',
      'return a.endsWith(`.${b}`);'),
     ("header names compared case-sensitively", COL,
-     'names.add(entry.name.toLowerCase());',
-     'names.add(entry.name);'),
+     'keys.add(`${sideOf(entry)}\\u0000${entry.name.toLowerCase()}`);',
+     'keys.add(`${sideOf(entry)}\\u0000${entry.name}`);'),
     ("invalid header entries counted toward collisions", COL,
      'if (isValidEntry && !isValidEntry(entry)) continue;',
      'if (false) continue;'),
@@ -35,6 +35,7 @@ MUTATIONS = [
      '''  collisions.sort(
     (x, y) =>
       x.header.localeCompare(y.header) ||
+      x.side.localeCompare(y.side) ||
       x.profileIds[0] - y.profileIds[0] ||
       x.profileIds[1] - y.profileIds[1]
   );
@@ -56,8 +57,8 @@ MUTATIONS = [
     # pinning the thing that was wrong with it, and the defect can walk back in
     # on the next edit to either surface.
     ("save refusal falls back to the CARD MARKER (the FINDING-026 defect)", COL,
-     '  const facts = collisionFacts(collisions, profileId, nameFor);\n  if (!facts) return "";\n  const { headers, others, headerList } = facts;\n  const one = headers.length === 1;',
-     '  return describeCollisions(collisions, profileId, nameFor);\n  const facts = collisionFacts(collisions, profileId, nameFor);\n  if (!facts) return "";\n  const { headers, others, headerList } = facts;\n  const one = headers.length === 1;'),
+     '  const facts = collisionFacts(collisions, profileId, nameFor);\n  if (!facts) return "";\n  const { headers, others, headerList, moment } = facts;\n  const one = headers.length === 1;',
+     '  return describeCollisions(collisions, profileId, nameFor);\n  const facts = collisionFacts(collisions, profileId, nameFor);\n  if (!facts) return "";\n  const { headers, others, headerList, moment } = facts;\n  const one = headers.length === 1;'),
     ("save refusal claims the profile is not applying", COL,
      '`Not saved: ${one ? "header" : "headers"} ${headerList} ${one ? "is" : "are"} ` +',
      '`Not applying: ${one ? "header" : "headers"} ${headerList} ${one ? "is" : "are"} ` +'),
@@ -71,14 +72,14 @@ MUTATIONS = [
      '`also written by ${others.join(", ")} on an overlapping domain. Two ` +',
      '`also written by another profile on an overlapping domain. Two ` +'),
     ("save refusal omits the way out", COL,
-     '`profiles cannot write the same header on the same request. Change the ` +\n    `header or the domains, then save.`',
-     '`profiles cannot write the same header on the same request.`'),
+     '`profiles cannot write the same header on ${moment}. Change the ` +\n    `header or the domains, then save.`',
+     '`profiles cannot write the same header on ${moment}.`'),
     ("import refusal terminates itself (the double-period defect)", COL,
-     '`the same header on the same request` +',
-     '`the same header on the same request.` +'),
+     '`${moment}` +',
+     '`${moment}.` +'),
     ("import refusal omits the header name", COL,
-     '`"${first.header}" on overlapping domains, and two profiles cannot write ` +',
-     '`on overlapping domains, and two profiles cannot write ` +'),
+     '`"${first.header}"${first.side === "response" ? " on the response" : ""} on ` +',
+     '`${first.side === "response" ? " on the response" : ""} on ` +'),
     ("import refusal names only ONE side", COL,
      '`${nameOf(idA, nameFor)} and ${nameOf(idB, nameFor)} both write header ` +',
      '`${nameOf(idA, nameFor)} writes header ` +'),
@@ -88,6 +89,30 @@ MUTATIONS = [
     ("import throw re-adds the duplicated wrapper sentence", CAN,
      '    throw new Error(describeImportRefusal(collisions, (id) => nameById.get(id)));',
      '    throw new Error("this file has profiles that would write the same header on overlapping domains, which has no defined winner. " + describeImportRefusal(collisions, (id) => nameById.get(id)));'),
+
+    # ---- v0.2.0: SIDE. A request header and a response header of the same
+    # name are different writes at different moments and must not collide.
+    #
+    # THE FIRST TWO ARE THE CHANGE ITSELF. If either fails zero checks, the
+    # predicate has been extended without pinning what the extension is for,
+    # and a later edit can collapse the sides again with nothing complaining.
+    ("side ignored: everything buckets as a request header", COL,
+     'keys.add(`${sideOf(entry)}\\u0000${entry.name.toLowerCase()}`);',
+     'keys.add(`request\\u0000${entry.name.toLowerCase()}`);'),
+    ("the legacy default flips: a sideless 0.1.x entry reads as response", COL,
+     'return entry && entry.side === "response" ? "response" : "request";',
+     'return entry && entry.side === "request" ? "request" : "response";'),
+    # This one SURVIVED when first run, which is how a wrong justification in
+    # the comment above it was found. It is pinned by an ordering check that
+    # declares entries response-first, so bucket order disagrees with output.
+    ("side dropped from the comparator (order follows input, not values)", COL,
+     '      x.side.localeCompare(y.side) ||\n', ''),
+    ("the moment is hardcoded back to \"request\" for mixed-side collisions", COL,
+     '  const moment = mixed\n    ? "the same exchange"',
+     '  const moment = mixed\n    ? "the same request"'),
+    ("facts dedupe on name only, merging the two sides into one report", COL,
+     '    const k = `${c.side}\\u0000${c.header}`;',
+     '    const k = c.header;'),
 
     # ---- v0.1.6, FINDING-022: the popup containment tripwires.
     #
