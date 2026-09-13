@@ -9,6 +9,8 @@ RUL = ROOT / "extension/lib/rules.js"
 CAN = ROOT / "extension/lib/canonical.js"
 POP = ROOT / "extension/popup/popup.js"
 HTML = ROOT / "extension/popup/popup.html"
+SW  = ROOT / "extension/background/sw.js"
+MAN = ROOT / "extension/manifest.json"
 ORC = ROOT / "test/oracle/index.html"
 
 MUTATIONS = [
@@ -222,6 +224,28 @@ MUTATIONS = [
     ("unknown fields are dropped in silence again", CAN,
      '          if (!allowed.has(key)) {',
      '          if (false) {'),
+
+    # ---- R10 / R6. Each of these leaves an extension that loads and a popup
+    # that renders. The damage is a FAILED ATOMIC UPDATE: every profile's
+    # rules vanish together, not just the bad one's.
+    ("the rule id guard is removed (one bad id kills every rule)", RUL,
+     '  if (!isValidRuleId(profile.id)) return null;',
+     ''),
+    ("the id guard accepts any truthy id (0 and NaN still slip)", RUL,
+     'if (!isValidRuleId(profile.id)) return null;',
+     'if (!profile.id) return null;'),
+    ("duplicate ids are no longer detected", SW,
+     '    if (duplicateIds.has(profile.id)) {\n      skippedProfileIds.push(profile.id);\n      continue;\n    }\n',
+     ''),
+    ("only the LATER duplicate is skipped (a winner is picked)", SW,
+     '    [...idCounts].filter(([, count]) => count > 1).map(([id]) => id)',
+     '    [...idCounts].filter(([, count]) => count > 2).map(([id]) => id)'),
+    ("minimum_chrome_version is dropped from the manifest", MAN,
+     '  "minimum_chrome_version": "101",\n',
+     ''),
+    ("minimum_chrome_version drifts below requestDomains' floor", MAN,
+     '"minimum_chrome_version": "101"',
+     '"minimum_chrome_version": "88"'),
 ]
 
 backup = {}

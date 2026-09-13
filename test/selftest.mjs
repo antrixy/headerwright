@@ -72,7 +72,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 336;
+const EXPECTED_CHECKS = 352;
 
 let passed = 0;
 let failed = 0;
@@ -203,6 +203,52 @@ check("resourceTypes is the full explicit list (main_frame default bug)",
   rule.condition.resourceTypes.length === RESOURCE_TYPES.length &&
   rule.condition.resourceTypes.includes("main_frame"));
 check("no granted domains yields null", profileToRule(baseProfile, []) === null);
+
+// ------------------------------------------ rule id is validated (R10, 0.2.0)
+//
+// isValidRuleId() shipped in v0.1.2 and its doc comment names this failure
+// exactly — one out-of-range id fails the whole ATOMIC update, taking every
+// other profile's rules with it. Nothing on the build path called it. sw.js
+// meanwhile promised, directly above updateDynamicRules(), that rule validity
+// was filtered out beforehand so one bad profile could not do that. The
+// guarantee was stated and not delivered.
+//
+// Reachable because storage is untrusted input: parseProfilesFile() refuses
+// bad ids on import and nextProfileId() cannot generate one, so nothing the UI
+// offers arrives here. Same reasoning that retains the over-cap branch in
+// sw.js rather than deleting it as unreachable.
+const withId = (id) => profileToRule(
+  { id, name: "p", domains: ["a.com"], headers: [{ name: "x", operation: "set", value: "v" }] },
+  ["a.com"]
+);
+for (const badId of [0, -3, 1.5, "seven", null, undefined, NaN]) {
+  check(`rule id refused: ${String(badId)}`, withId(badId) === null);
+}
+check("rule id accepted at the lower bound", withId(1)?.id === 1);
+check("rule id accepted at MAX_RULE_ID", withId(MAX_RULE_ID)?.id === MAX_RULE_ID);
+check("rule id refused above MAX_RULE_ID", withId(MAX_RULE_ID + 1) === null);
+
+// buildRules() lives in sw.js and imports chrome.*, so it is checked by source
+// scan in the popup/source-scan section below, where stripJsComments() is
+// already defined — duplicate ids fail the atomic call by a different
+// mechanism than invalid ones and need their own coverage.
+
+// ------------------------------------------------------- manifest (R6, 0.2.0)
+//
+// NOTHING IN THIS SUITE READ THE MANIFEST BEFORE v0.2.0. requestDomains is
+// Chrome 101+, and the emitted rule shape depends on it, so an install on an
+// older Chrome gets an extension that cannot execute what it builds.
+const manifest = JSON.parse(
+  readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8")
+);
+check("manifest declares minimum_chrome_version",
+  typeof manifest.minimum_chrome_version === "string");
+// Pinned to the version requestDomains actually requires. Raising this is a
+// deliberate act — it drops users — so it should fail here when it moves.
+check("manifest minimum_chrome_version is 101 (requestDomains)",
+  manifest.minimum_chrome_version === "101");
+check("manifest still requests declarativeNetRequestWithHostAccess",
+  (manifest.permissions || []).includes("declarativeNetRequestWithHostAccess"));
 check("null grantedDomains yields null", profileToRule(baseProfile, null) === null);
 check("no valid headers yields null",
   profileToRule(
@@ -1547,6 +1593,29 @@ check(`every class popup.js toggles is defined in popup.html${
 // on the next request" is the banked half of it.
 check("F002: the ungranted domain chip is a BUTTON, not a span",
   /createElement\(granted \? "span" : "button"\)/.test(popupJs));
+// --------------------------------------- buildRules duplicate ids (R10)
+//
+// Source scan for the same reason the popup checks are: sw.js imports chrome.*
+// and cannot be imported here. Duplicate ids fail the atomic update by a
+// different mechanism than an invalid id — "Rule with id 3 does not have a
+// unique ID", the error that produced queue.js — and the queue cannot help
+// when both profiles sit inside ONE run.
+const swJs = stripJsComments(
+  readFileSync(new URL("../extension/background/sw.js", import.meta.url), "utf8")
+);
+check("R10: buildRules computes a duplicate-id set",
+  /const duplicateIds = new Set\(/.test(swJs));
+check("R10: duplicate-id profiles are skipped, not registered",
+  /if \(duplicateIds\.has\(profile\.id\)\) \{\s*skippedProfileIds\.push\(profile\.id\);\s*continue;/
+    .test(swJs));
+// THE THRESHOLD IS THE POLICY. `count > 1` means every profile holding a
+// repeated id is skipped; `count > 2` would let an ordinary pair through while
+// still looking like duplicate detection. A mutant scoring zero against the
+// check above is what exposed the gap — the scan pinned the skip and left the
+// definition of "duplicate" free.
+check("R10: a repeated id means BOTH holders skipped, not the later one",
+  /filter\(\(\[, count\]\) => count > 1\)/.test(swJs));
+
 check("F002: the chip's click handler requests THAT DOMAIN only",
   /permissions\.request\(\{\s*origins: originsForDomain\(domain\),?\s*\}\)/.test(popupJs));
 
