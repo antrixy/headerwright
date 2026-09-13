@@ -30,6 +30,7 @@ import {
   collidingProfileIds,
   describeCollisions,
   describeSaveRefusal,
+  sideOf,
 } from "../lib/collisions.js";
 import { describeSync, DEFAULT_SYNC_STATE } from "../lib/status.js";
 import { createSerialQueue, createDebounced } from "../lib/queue.js";
@@ -569,6 +570,28 @@ function addHeaderRow(entry = { name: "", operation: "set", value: "" }) {
   nameInput.placeholder = "Header name";
   nameInput.value = entry.name;
 
+  const sideSelect = document.createElement("select");
+  sideSelect.className = "h-side";
+  sideSelect.title = "Which side of the exchange this header is written on";
+  // THE SELECTED VALUE COMES FROM sideOf(), NOT FROM entry.side. Every 0.1.x
+  // entry omits the field and meant request, so a sideless entry must land on
+  // "request" here or opening an existing profile would silently reclassify
+  // it. sideOf() already encodes that rule and is imported rather than
+  // reimplemented — a second copy of the default is a second place for it to
+  // drift, and this one would drift in the direction of changing what a
+  // user's saved configuration means.
+  for (const side of ["request", "response"]) {
+    const option = document.createElement("option");
+    option.value = side;
+    // The column is 56px. Full words do not fit, and truncating them in CSS
+    // would render "requ…" / "resp…", which differ only after the character
+    // the ellipsis eats. The abbreviations are distinguishable at a glance.
+    option.textContent = side === "request" ? "req" : "res";
+    option.title = side;
+    if (side === sideOf(entry)) option.selected = true;
+    sideSelect.appendChild(option);
+  }
+
   const opSelect = document.createElement("select");
   opSelect.className = "h-op";
   for (const op of ["set", "append", "remove"]) {
@@ -600,7 +623,7 @@ function addHeaderRow(entry = { name: "", operation: "set", value: "" }) {
   removeBtn.textContent = "\u00d7";
   removeBtn.addEventListener("click", () => row.remove());
 
-  row.append(nameInput, opSelect, valueInput, removeBtn);
+  row.append(nameInput, sideSelect, opSelect, valueInput, removeBtn);
   $("header-rows").appendChild(row);
 }
 
@@ -644,6 +667,16 @@ function readForm() {
       operation: row.querySelector(".h-op").value,
       value: row.querySelector(".h-value").value,
     };
+    // THE REQUEST SIDE IS WRITTEN AS ABSENCE, NOT AS `side: "request"`.
+    // Both are accepted by the validator and mean the same thing to sideOf(),
+    // so this is a choice about what a saved file LOOKS like. Omitting keeps
+    // a request-only profile byte-identical to what 0.1.x wrote, which makes
+    // "v0.2.0 does not change the format for anyone who does not use the
+    // feature" a property that can be MEASURED by round-tripping an export
+    // rather than argued. Writing the field explicitly would change every
+    // existing user's export on their first save, for no behaviour change.
+    const side = row.querySelector(".h-side").value;
+    if (side === "response") entry.side = side;
     // Fully blank rows are ignored rather than rejected
     if (entry.name === "" && entry.value === "") continue;
     headers.push(entry);
