@@ -77,25 +77,56 @@ export function versionFor(profiles) {
 /**
  * Normalize a profile array into canonical form. Lossless: never changes
  * what the profiles mean, only how they are ordered and cased.
+ *
+ * THROWS ON UNKNOWN FIELDS, and the export path is the one that needed it.
+ * v0.2.0 added refusal of unknown fields to parseProfilesFile() and recorded
+ * that as the general fix for the class of bug that lost `side`. IT WAS NOT.
+ * R1 was a WRITE-path defect: the popup stored a field, this function rebuilt
+ * each entry from a fixed list, and the field never reached the file at all.
+ * A strict reader cannot refuse a field it is never shown. The mitigation
+ * guarded the one direction the bug did not travel.
+ *
+ * So the rebuild now asserts that the fixed list is complete. Adding a field
+ * to the model and forgetting this file fails here, loudly, at the moment of
+ * export — which is the moment the old bug was silent.
  */
 export function canonicalizeProfiles(profiles) {
   return [...profiles]
     .sort((a, b) => a.id - b.id)
-    .map((profile) => ({
-      id: profile.id,
-      name: profile.name,
-      domains: normalizeDomains(profile.domains),
-      headers: (profile.headers || []).map((entry) => {
-        const out = { name: entry.name, operation: entry.operation };
-        if (entry.operation !== "remove") out.value = entry.value;
-        // REQUEST IS WRITTEN AS ABSENCE, matching what the popup stores and
-        // what every 0.1.x file already means. Emitting `side: "request"`
-        // would change the bytes of every existing request-only profile for
-        // no change in meaning, and would force those files to version 2.
-        if (entry.side === "response") out.side = "response";
-        return out;
-      }),
-    }));
+    .map((profile) => {
+      for (const key of Object.keys(profile)) {
+        if (!PROFILE_KEYS.has(key)) {
+          throw new Error(
+            `profile ${profile.id}: cannot serialize unknown field "${key}" — ` +
+              `canonicalizeProfiles() must be taught every field in the model`
+          );
+        }
+      }
+      return {
+        id: profile.id,
+        name: profile.name,
+        domains: normalizeDomains(profile.domains),
+        headers: (profile.headers || []).map((entry, index) => {
+          for (const key of Object.keys(entry || {})) {
+            if (!ENTRY_KEYS_V2.has(key)) {
+              throw new Error(
+                `profile ${profile.id}, header ${index + 1}: cannot serialize ` +
+                  `unknown field "${key}" — canonicalizeProfiles() must be ` +
+                  `taught every field in the model`
+              );
+            }
+          }
+          const out = { name: entry.name, operation: entry.operation };
+          if (entry.operation !== "remove") out.value = entry.value;
+          // REQUEST IS WRITTEN AS ABSENCE, matching what the popup stores and
+          // what every 0.1.x file already means. Emitting `side: "request"`
+          // would change the bytes of every existing request-only profile for
+          // no change in meaning, and would force those files to version 2.
+          if (entry.side === "response") out.side = "response";
+          return out;
+        }),
+      };
+    });
 }
 
 /**
