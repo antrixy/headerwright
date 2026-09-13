@@ -72,7 +72,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 352;
+const EXPECTED_CHECKS = 358;
 
 let passed = 0;
 let failed = 0;
@@ -379,6 +379,31 @@ checkThrows("codec: an unknown header field is refused, not dropped", () =>
     { id: 1, name: "p", domains: ["a.com"],
       headers: [{ name: "x", operation: "set", value: "v", flavour: "q" }] }] })),
   "unknown field");
+// EXPORT-SIDE STRICTNESS. The v0.2.0 unknown-field refusal guarded only the
+// READ path, and R1 was a WRITE-path bug: the popup stored `side`, the
+// canonicalizer rebuilt from a fixed list, and the field never reached a file
+// for any reader to refuse. A strict reader cannot refuse what it is never
+// shown. These pin the direction the original defect actually travelled.
+checkThrows("codec: serializing an unknown ENTRY field throws, never drops", () =>
+  serializeProfiles([{ id: 1, name: "p", domains: ["a.com"],
+    headers: [{ name: "x", operation: "set", value: "v", futureField: "keep" }] }]),
+  "unknown field");
+checkThrows("codec: serializing an unknown PROFILE field throws, never drops", () =>
+  serializeProfiles([{ id: 1, name: "p", domains: ["a.com"], futureField: "keep",
+    headers: [{ name: "x", operation: "set", value: "v" }] }]),
+  "unknown field");
+check("codec: the export refusal names the field and where it is",
+  (() => {
+    try {
+      serializeProfiles([{ id: 7, name: "p", domains: ["a.com"],
+        headers: [{ name: "x", operation: "set", value: "v", zzz: 1 }] }]);
+      return false;
+    } catch (err) {
+      return err.message.includes("profile 7") &&
+             err.message.includes("header 1") && err.message.includes("zzz");
+    }
+  })());
+
 checkThrows("codec: an unknown profile field is refused, not dropped", () =>
   parseProfilesFile(JSON.stringify({ format: FILE_FORMAT, version: 2, profiles: [
     { id: 1, name: "p", domains: ["a.com"], colour: "red",
@@ -1606,8 +1631,26 @@ const swJs = stripJsComments(
 check("R10: buildRules computes a duplicate-id set",
   /const duplicateIds = new Set\(/.test(swJs));
 check("R10: duplicate-id profiles are skipped, not registered",
-  /if \(duplicateIds\.has\(profile\.id\)\) \{\s*skippedProfileIds\.push\(profile\.id\);\s*continue;/
+  /if \(!isValidRuleId\(profile\.id\) \|\| duplicateIds\.has\(profile\.id\)\) \{\s*ineligible\.add\(profile\);\s*skippedProfileIds\.push\(profile\.id\);/
     .test(swJs));
+// THE ORDERING IS THE INVARIANT, and nothing pinned it before v0.2.0.
+// findCollisions() was fed every resolved profile, so a profile with an id
+// Chrome rejects collided with a valid one and BOTH were skipped — a junk
+// record in storage suppressed a working rule, and the refusal protected
+// against nothing because the junk profile could never register. Feeding
+// `resolved` here again restores that defect, and it is invisible: the
+// extension loads, the popup renders, and the only symptom is a rule that
+// quietly does not apply.
+check("R10: collisions are computed over ELIGIBLE profiles, not all resolved",
+  /const collisions = findCollisions\(\s*eligible\.map\(/.test(swJs) &&
+  !/const collisions = findCollisions\(\s*resolved\.map\(/.test(swJs));
+check("R10: the build loop iterates eligible, not resolved",
+  /for \(const \{ profile, grantedDomains \} of eligible\) \{/.test(swJs));
+// Ineligible profiles must be ABSENT FROM THE COLLISION INPUT but PRESENT in
+// the accounting — removing them from the input is correct, dropping them from
+// skippedProfileIds would hide them entirely.
+check("R10: ineligible profiles are still counted as skipped",
+  /ineligible\.add\(profile\);\s*skippedProfileIds\.push\(profile\.id\);/.test(swJs));
 // THE THRESHOLD IS THE POLICY. `count > 1` means every profile holding a
 // repeated id is skipped; `count > 2` would let an ordinary pair through while
 // still looking like duplicate detection. A mutant scoring zero against the

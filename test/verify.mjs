@@ -19,6 +19,7 @@
 // believes they ran everything.
 
 import { spawnSync } from "node:child_process";
+import { readdirSync, statSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -48,6 +49,49 @@ const FAILURE_MARKERS = [
 
 let failed = 0;
 
+// ES-MODULE SYNTAX GATE. Nothing else in this project parses sw.js as code:
+// selftest.mjs reads it as TEXT for source scans, and no harness imports it,
+// because it calls chrome.* at module scope. So a syntax error in the SERVICE
+// WORKER — the file whose failure means the extension does nothing at all —
+// passed every gate. Demonstrated 2026-09-13 from external review.
+//
+// `node --check <file>` IS NOT THE RIGHT INSTRUMENT and silently is not.
+// Measured on this repo: with a deliberate syntax error appended to sw.js,
+// `node --check extension/background/sw.js` exits 0. These are ES modules in a
+// tree with no package.json, so node's CommonJS-then-retry detection does not
+// report the module parse failure. `node --input-type=module --check` reading
+// the file on STDIN exits 1 on the same file. The obvious instrument reads
+// clean on a broken file — the same shape as the oracle's CORS blindness.
+function syntaxGate() {
+  const files = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(join(ROOT, dir))) {
+      const rel = `${dir}/${name}`;
+      if (statSync(join(ROOT, rel)).isDirectory()) walk(rel);
+      else if (/\.(mjs|js)$/.test(name)) files.push(rel);
+    }
+  };
+  walk("extension");
+  walk("test");
+
+  process.stdout.write(`${"module-syntax".padEnd(20)} `);
+  const broken = [];
+  for (const rel of files) {
+    const r = spawnSync(process.execPath, ["--input-type=module", "--check"], {
+      cwd: ROOT,
+      input: readFileSync(join(ROOT, rel), "utf8"),
+      encoding: "utf8",
+    });
+    if (r.status !== 0) broken.push([rel, (r.stderr || "").trim().split("\n")[0]]);
+  }
+  const ok = broken.length === 0;
+  console.log(ok ? `PASS (${files.length} files)` : "FAIL");
+  if (!ok) {
+    failed += 1;
+    for (const [rel, msg] of broken) console.log(`  ${rel}: ${msg}`);
+  }
+}
+
 function run(label, cmd, args, opts = {}) {
   process.stdout.write(`${label.padEnd(20)} `);
   const r = spawnSync(cmd, args, { cwd: ROOT, encoding: "utf8", ...opts });
@@ -65,7 +109,11 @@ function run(label, cmd, args, opts = {}) {
   return ok;
 }
 
-console.log("HeaderWright verify — every gate, one command\n");
+console.log("HeaderWright verify — every automated gate, one command\n");
+
+// Syntax first: a file that does not parse makes every later result
+// meaningless, and the source scans below would happily read it as text.
+syntaxGate();
 
 for (const [label, cmd, args] of GATES) run(label, cmd, args);
 
@@ -91,9 +139,16 @@ try {
   }
 }
 
+// "AUTOMATED" IS LOAD-BEARING, NOT MODESTY. Every gate above runs in Node
+// against source or pure functions. NOTHING HERE TOUCHES A BROWSER: no rule
+// reaches Chrome, no header reaches the wire, no popup renders. The oracle
+// selfcheck proves the INSTRUMENT can detect a difference; it does not prove
+// HeaderWright makes one. A green run here means the tree is internally
+// consistent, which is a precondition for a release and not evidence of one.
+// The browser rows in handoffs/headerwright/NEXT.md are the other half.
 console.log(
   failed === 0
-    ? "\nALL GATES PASS"
+    ? "\nALL AUTOMATED GATES PASS — no browser evidence is included"
     : `\n${failed} GATE${failed === 1 ? "" : "S"} FAILED — the tree is not green`
 );
 process.exit(failed === 0 ? 0 : 1);

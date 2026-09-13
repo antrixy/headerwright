@@ -235,8 +235,27 @@ MUTATIONS = [
      'if (!isValidRuleId(profile.id)) return null;',
      'if (!profile.id) return null;'),
     ("duplicate ids are no longer detected", SW,
-     '    if (duplicateIds.has(profile.id)) {\n      skippedProfileIds.push(profile.id);\n      continue;\n    }\n',
+     ' || duplicateIds.has(profile.id)',
      ''),
+    # THE ORDERING DEFECT ITSELF, reproduced as a mutant. This is the shipped
+    # v0.2.0 bug external review found: collisions computed over every
+    # resolved profile, so an ineligible one suppressed a valid rule.
+    ("collisions are computed over ALL profiles again (junk suppresses valid)", SW,
+     '  const collisions = findCollisions(\n    eligible.map(',
+     '  const collisions = findCollisions(\n    resolved.map('),
+    ("the build loop iterates every profile, eligible or not", SW,
+     '  for (const { profile, grantedDomains } of eligible) {',
+     '  for (const { profile, grantedDomains } of resolved) {'),
+    ("ineligible profiles vanish from the skipped accounting", SW,
+     '      ineligible.add(profile);\n      skippedProfileIds.push(profile.id);\n',
+     '      ineligible.add(profile);\n'),
+    # ---- export-side strictness (the R1 mitigation that was not implemented)
+    ("canonicalizeProfiles drops unknown ENTRY fields in silence again", CAN,
+     '            if (!ENTRY_KEYS_V2.has(key)) {',
+     '            if (false) {'),
+    ("canonicalizeProfiles drops unknown PROFILE fields in silence again", CAN,
+     '        if (!PROFILE_KEYS.has(key)) {',
+     '        if (false) {'),
     ("only the LATER duplicate is skipped (a winner is picked)", SW,
      '    [...idCounts].filter(([, count]) => count > 1).map(([id]) => id)',
      '    [...idCounts].filter(([, count]) => count > 2).map(([id]) => id)'),
