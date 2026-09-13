@@ -36,6 +36,7 @@ import {
   parseProfilesFile,
   FILE_FORMAT,
   FILE_VERSION,
+  versionFor,
 } from "../extension/lib/canonical.js";
 import {
   diffDomainGrants,
@@ -71,7 +72,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 325;
+const EXPECTED_CHECKS = 336;
 
 let passed = 0;
 let failed = 0;
@@ -244,11 +245,109 @@ check("stableStringify handles empty object and array",
 const validDoc = (profiles) =>
   JSON.stringify({ format: FILE_FORMAT, version: FILE_VERSION, profiles });
 
+// ------------------------------------------- the codec's side field (v0.2.0)
+//
+// THE INVARIANT THAT WAS MISSING. Every other module learned about `side` in
+// the v0.2.0 build order — predicate, validator, builder, surface — and the
+// codec was not in that list. It rebuilt each entry from a fixed field list,
+// so export silently turned a response header into a request header: the exact
+// defect the ruling refused to ship when it declined to release the validator
+// without the builder, reappearing one module over. Caught in review, not by
+// this suite, which had no end-to-end assertion crossing the codec at all.
+//
+// The shape below is the point: serialize -> parse -> profileToRule, and
+// assert on the RULE rather than on the parsed object. Checking that `side`
+// survives parsing would have passed against a codec that preserved the field
+// and a builder that ignored it.
+
+// RETURNS null RATHER THAN THROWING, and the checks below must fail on null.
+// parseProfilesFile() is a throwing API and this helper sits inside check()'s
+// eagerly-evaluated argument, so a mutation that makes the round trip refuse
+// would abort the whole suite and score whatever ran first — the crash-hides-
+// coverage failure this suite already carries a fix for. Caught here, the
+// refusal becomes an ordinary FAIL.
+const sideRoundTrip = (entry) => {
+  try {
+    const profiles = [{ id: 1, name: "p", domains: ["a.com"], headers: [entry] }];
+    const back = parseProfilesFile(serializeProfiles(profiles));
+    return profileToRule(back[0], ["a.com"]).action;
+  } catch {
+    return null;
+  }
+};
+
+const rtResponse = sideRoundTrip({ name: "x-h", operation: "set", value: "v", side: "response" });
+check("codec: a response entry is still a response header after a round trip",
+  rtResponse?.responseHeaders?.length === 1 &&
+  rtResponse?.requestHeaders === undefined);
+
+const rtRequest = sideRoundTrip({ name: "x-h", operation: "set", value: "v" });
+check("codec: a sideless entry is still a request header after a round trip",
+  rtRequest?.requestHeaders?.length === 1 &&
+  rtRequest?.responseHeaders === undefined);
+
+check("codec: canonicalization preserves side: response",
+  canonicalizeProfiles([{ id: 1, name: "p", domains: ["a.com"],
+    headers: [{ name: "x", operation: "set", value: "v", side: "response" }] }]
+  )[0].headers[0].side === "response");
+// Request stays absence. Emitting side: "request" would rewrite the bytes of
+// every existing export for no change in meaning, and would drag every
+// request-only file up to version 2 for nothing.
+check("codec: canonicalization writes request as absence, not side: \"request\"",
+  !("side" in canonicalizeProfiles([{ id: 1, name: "p", domains: ["a.com"],
+    headers: [{ name: "x", operation: "set", value: "v" }] }]
+  )[0].headers[0]));
+
+// VERSION ANSWERS "WHAT MUST A READER UNDERSTAND", not "what wrote this".
+check("codec: a request-only set still exports as version 1",
+  versionFor([{ id: 1, name: "p", domains: ["a.com"],
+    headers: [{ name: "x", operation: "set", value: "v" }] }]) === 1);
+check("codec: any response entry raises the set to version 2",
+  versionFor([{ id: 1, name: "p", domains: ["a.com"],
+    headers: [{ name: "x", operation: "set", value: "v" },
+              { name: "y", operation: "set", value: "v", side: "response" }] }]) === 2);
+// ASSERT ON THE SERIALIZED BYTES, NOT ONLY ON versionFor(). Testing the helper
+// leaves serializeProfiles() free to ignore it — a mutation that stamped
+// FILE_VERSION unconditionally scored ZERO against the two checks above, which
+// is how this gap was found.
+check("codec: serializeProfiles stamps the computed version, not the build's",
+  JSON.parse(serializeProfiles([{ id: 1, name: "p", domains: ["a.com"],
+    headers: [{ name: "x", operation: "set", value: "v" }] }])).version === 1 &&
+  JSON.parse(serializeProfiles([{ id: 1, name: "p", domains: ["a.com"],
+    headers: [{ name: "x", operation: "set", value: "v", side: "response" }] }])).version === 2);
+check("codec: version 1 files are still readable",
+  parseProfilesFile(JSON.stringify({ format: FILE_FORMAT, version: 1, profiles: [
+    { id: 1, name: "p", domains: ["a.com"],
+      headers: [{ name: "x", operation: "set", value: "v" }] }] })).length === 1);
+
+// THE ONE THAT MAKES THE BUMP WORTH ANYTHING. A file carrying v2 meaning while
+// claiming v1 would be accepted by every shipped 0.1.x build and applied on the
+// request side — a misapplication rather than a refusal.
+checkThrows("codec: side inside a version 1 envelope is refused", () =>
+  parseProfilesFile(JSON.stringify({ format: FILE_FORMAT, version: 1, profiles: [
+    { id: 1, name: "p", domains: ["a.com"],
+      headers: [{ name: "x", operation: "set", value: "v", side: "response" }] }] })),
+  "requires version 2");
+checkThrows("codec: an unknown header field is refused, not dropped", () =>
+  parseProfilesFile(JSON.stringify({ format: FILE_FORMAT, version: 2, profiles: [
+    { id: 1, name: "p", domains: ["a.com"],
+      headers: [{ name: "x", operation: "set", value: "v", flavour: "q" }] }] })),
+  "unknown field");
+checkThrows("codec: an unknown profile field is refused, not dropped", () =>
+  parseProfilesFile(JSON.stringify({ format: FILE_FORMAT, version: 2, profiles: [
+    { id: 1, name: "p", domains: ["a.com"], colour: "red",
+      headers: [{ name: "x", operation: "set", value: "v" }] }] })),
+  "unknown field");
+
 checkThrows("rejects non-JSON", () => parseProfilesFile("{{{"), "not valid JSON");
 checkThrows("rejects wrong format", () =>
   parseProfilesFile(JSON.stringify({ format: "x", version: 1, profiles: [] })), '"format"');
+// VERSION 3, NOT 2. This check used 2 as its example of an unreadable version
+// until v0.2.0 made 2 the current one — at which point it passed for the wrong
+// reason for exactly as long as nobody ran the suite. A negative check whose
+// example becomes valid stops testing anything and says nothing about it.
 checkThrows("rejects wrong version", () =>
-  parseProfilesFile(JSON.stringify({ format: FILE_FORMAT, version: 2, profiles: [] })), "version");
+  parseProfilesFile(JSON.stringify({ format: FILE_FORMAT, version: 3, profiles: [] })), "version");
 checkThrows("rejects duplicate ids", () =>
   parseProfilesFile(validDoc([
     { id: 1, name: "a", domains: ["a.com"], headers: [{ name: "x", operation: "set", value: "1" }] },

@@ -204,6 +204,24 @@ MUTATIONS = [
     ("the phase-inversion warning is dropped from the page", ORC,
      '<strong>\u201cUNMODIFIED\u201d is not a verdict on its own.</strong>',
      ''),
+
+    # ---- codec / side, v0.2.0. The first of these IS the shipped defect that
+    # review found: the codec rebuilt entries from a fixed field list.
+    ("the codec drops side again (response exports as request)", CAN,
+     '        if (entry.side === "response") out.side = "response";\n',
+     ''),
+    ("the codec emits side: \"request\" (every old export's bytes change)", CAN,
+     'if (entry.side === "response") out.side = "response";',
+     'out.side = entry.side === "response" ? "response" : "request";'),
+    ("version is stamped from the build, not from what the file needs", CAN,
+     '    version: versionFor(profiles),',
+     '    version: FILE_VERSION,'),
+    ("a v1 envelope carrying side is accepted (0.1.x would misapply it)", CAN,
+     '        const allowed = doc.version >= 2 ? ENTRY_KEYS_V2 : ENTRY_KEYS_V1;',
+     '        const allowed = ENTRY_KEYS_V2;'),
+    ("unknown fields are dropped in silence again", CAN,
+     '          if (!allowed.has(key)) {',
+     '          if (false) {'),
 ]
 
 backup = {}

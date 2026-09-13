@@ -55,7 +55,15 @@ MUTATIONS = [
     # EXPECT MOVES WHEN A STRING-BASED SCAN IS ADDED, and that is the point of
     # pinning the number rather than "at least one". It went 6 -> 7 in v0.1.7
     # when the FINDING-002 chip check started reading popup.js as text.
-    ("the comment stripper also eats string literals", TEST, 7,
+    # 7 -> 12 on 2026-09-13: the v0.2.0 side-control checks and the three
+    # oracle-page checks all read source as text.
+    # HOW THE DRIFT WAS FOUND IS THE PART WORTH KEEPING. It was not found here.
+    # Two sessions added checks, ran mutate-collisions.py because FIRST ACTIONS
+    # named that one, reported the tree green, and never ran this file — which
+    # had been sitting red the whole time. An external review found it. There
+    # are THREE harnesses and no single command runs them all; until there is,
+    # "the tree is green" means "the harness someone remembered is green".
+    ("the comment stripper also eats string literals", TEST, 12,
      "const popupJs = stripJsComments(popupJsRaw);",
      'const popupJs = stripJsComments(popupJsRaw).replace(/"[^"]*"/g, \'""\');'),
 
