@@ -128,7 +128,14 @@ const server = createServer(async (req, res) => {
     const headers = { "Content-Type": "application/json", "Cache-Control": "no-store" };
     for (const [n, v] of emitted) headers[n] = v;
     res.writeHead(200, headers);
-    return res.end(JSON.stringify({ id, case: name }));
+    // The request headers Chrome actually sent us, reflected in the BODY.
+    // This is the liveness proof for control row 2: if a HeaderWright request
+    // rule fired on THIS request, its header appears here. Verifying on a
+    // remote echo host would prove a different rule fired on a different
+    // request to a different domain, which is not the same claim.
+    return res.end(
+      JSON.stringify({ id, case: name, requestHeaders: req.rawHeaders })
+    );
   }
 
   // The DNR-immune channel. Body carries the sent-side record.
