@@ -27,6 +27,13 @@ export const RESOURCE_TYPES = [
   "webtransport", "webbundle", "other",
 ];
 
+// sideOf() lives in collisions.js and is imported, not redefined. The
+// dependency runs rules -> collisions -> grants and introduces no cycle. The
+// REVERSE would: collisions.js takes its validator by injection precisely so
+// it stays independent of this module, and duplicating the normalizer is how
+// the two definitions drift apart on the edit that only touches one of them.
+import { sideOf } from "./collisions.js";
+
 // The "append" operation is only supported for this specific set of
 // request headers (Chrome's declarativeNetRequest reference, "Header
 // modification" section, verified 2026-07-30). The allowlist is case
@@ -40,6 +47,7 @@ export const APPENDABLE_REQUEST_HEADERS = new Set([
 ]);
 
 const VALID_OPERATIONS = new Set(["set", "append", "remove"]);
+const VALID_SIDES = new Set(["request", "response"]);
 
 /**
  * HTTP field-name token characters, RFC 9110 section 5.6.2 (the "token"
@@ -243,14 +251,35 @@ export function validateHeaderEntry(entry) {
       };
     }
   }
-  if (
-    entry.operation === "append" &&
-    !APPENDABLE_REQUEST_HEADERS.has(entry.name.toLowerCase())
-  ) {
-    return {
-      valid: false,
-      reason: `"${entry.name}" does not support append (Chrome allowlist)`,
-    };
+  // AN ABSENT SIDE IS FINE; A WRONG ONE IS NOT. Every 0.1.x entry omits the
+  // field and means "request", so absence must pass. But an entry that
+  // explicitly carries an unrecognised side came from a hand-edited or
+  // imported file, and sideOf() would quietly read it as "request" — applying
+  // a header on a side the file did not ask for. Reject it instead.
+  if (entry.side !== undefined && !VALID_SIDES.has(entry.side)) {
+    return { valid: false, reason: `unknown side "${entry.side}"` };
+  }
+
+  if (entry.operation === "append") {
+    // APPEND IS REQUEST-ONLY IN THIS RELEASE, and the reason is not that
+    // Chrome forbids it — it is that nothing here has established what Chrome
+    // allows on the response side. APPENDABLE_REQUEST_HEADERS was verified
+    // against the DNR reference on 2026-07-30 for REQUEST headers; its name
+    // says so. Reusing it for responses would be asserting a list nobody
+    // checked, which is FINDING-020's shape. Refusing is the fail-closed side
+    // and v0.2.1 is where append gets its own verification.
+    if (sideOf(entry) === "response") {
+      return {
+        valid: false,
+        reason: `append is not supported on response headers in this release`,
+      };
+    }
+    if (!APPENDABLE_REQUEST_HEADERS.has(entry.name.toLowerCase())) {
+      return {
+        valid: false,
+        reason: `"${entry.name}" does not support append (Chrome allowlist)`,
+      };
+    }
   }
   return { valid: true };
 }
@@ -281,19 +310,34 @@ export function headerEntryToModifyHeaderInfo(entry) {
 export function profileToRule(profile, grantedDomains) {
   if (!grantedDomains || grantedDomains.length === 0) return null;
 
-  const validHeaders = (profile.headers || [])
-    .filter((entry) => validateHeaderEntry(entry).valid)
+  // SPLIT BY SIDE. Before v0.2.0 every valid entry went into requestHeaders,
+  // which was correct when a response entry could not exist. It is a silent
+  // misapplication the moment one can: the user asks for a response header and
+  // gets a request header, with nothing on any surface saying so.
+  const valid = (profile.headers || []).filter(
+    (entry) => validateHeaderEntry(entry).valid
+  );
+  const requestHeaders = valid
+    .filter((entry) => sideOf(entry) === "request")
+    .map(headerEntryToModifyHeaderInfo);
+  const responseHeaders = valid
+    .filter((entry) => sideOf(entry) === "response")
     .map(headerEntryToModifyHeaderInfo);
 
-  if (validHeaders.length === 0) return null;
+  if (requestHeaders.length === 0 && responseHeaders.length === 0) return null;
+
+  // EMPTY ARRAYS ARE OMITTED, not sent empty. An action carrying
+  // `responseHeaders: []` is a modification list that modifies nothing, and
+  // the existing contract for this function is that it returns null rather
+  // than registering a rule with an empty action.
+  const action = { type: "modifyHeaders" };
+  if (requestHeaders.length > 0) action.requestHeaders = requestHeaders;
+  if (responseHeaders.length > 0) action.responseHeaders = responseHeaders;
 
   return {
     id: profile.id,
     priority: 1,
-    action: {
-      type: "modifyHeaders",
-      requestHeaders: validHeaders,
-    },
+    action,
     condition: {
       requestDomains: grantedDomains,
       resourceTypes: RESOURCE_TYPES,
