@@ -73,7 +73,7 @@ import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 382;
+const EXPECTED_CHECKS = 387;
 
 let passed = 0;
 let failed = 0;
@@ -370,19 +370,43 @@ const messyProfiles = [
   ]},
 ];
 
-const s1 = serializeProfiles(messyProfiles);
-check("serializing twice is byte-identical", s1 === serializeProfiles(messyProfiles));
+// attempt() ON EVERY RAW SERIALIZE FROM HERE DOWN. These calls could not throw
+// before v0.2.0: canonicalizeProfiles() rebuilt entries from a fixed list and
+// refused nothing. It now refuses unknown fields (R24) and invalid values in
+// known fields (HW-V6-05), so any mutation that makes a fixture invalid turns
+// these into aborts rather than failures. One did: flipping the legacy side
+// default made an `append` entry read as a response, which the export path
+// correctly refuses — and the suite died there with 380 checks unrun.
+const s1 = attempt(() => serializeProfiles(messyProfiles));
+check("serializing twice is byte-identical",
+  s1 !== THREW && s1 === attempt(() => serializeProfiles(messyProfiles)));
 check("profile input order does not affect bytes",
-  s1 === serializeProfiles([messyProfiles[1], messyProfiles[0]]));
+  s1 !== THREW && s1 === attempt(() => serializeProfiles([messyProfiles[1], messyProfiles[0]])));
 check("round-trip (parse then serialize) is byte-identical",
-  s1 === attempt(() => serializeProfiles(parseProfilesFile(s1))));
+  s1 !== THREW && s1 === attempt(() => serializeProfiles(parseProfilesFile(s1))));
 check("output ends with exactly one trailing newline",
-  s1.endsWith("}\n") && !s1.endsWith("\n\n"));
+  typeof s1 === "string" && s1.endsWith("}\n") && !s1.endsWith("\n\n"));
+// GUARDED WRAPPER, USED FOR EVERY CANONICALIZE IN THIS FILE.
+// canonicalizeProfiles() was total until v0.2.0 and now refuses unknown fields
+// (R24) and invalid values in known fields (HW-V6-05). That turned every
+// existing call site into a potential ABORT rather than a failure: a mutation
+// which makes a shared fixture invalid kills the run wherever it is first
+// touched, and the printed count is whatever happened to execute first.
+// Returning [] means an unexpected refusal FAILS the check that relied on it
+// and leaves the rest of the suite measurable.
+const canon = (profiles) => {
+  try {
+    return canonicalizeProfiles(profiles);
+  } catch {
+    return [];
+  }
+};
+
 check("domains are sorted and lowercased in canonical form",
-  canonicalizeProfiles(messyProfiles)[0].domains[0] === "localhost" &&
-  canonicalizeProfiles(messyProfiles)[1].domains.join(",") === "a.example.com,z.example.com");
+  canon(messyProfiles)[0]?.domains[0] === "localhost" &&
+  canon(messyProfiles)[1]?.domains.join(",") === "a.example.com,z.example.com");
 check("header order is preserved (not sorted)",
-  canonicalizeProfiles(messyProfiles)[1].headers[0].name === "X-Two");
+  canon(messyProfiles)[1]?.headers[0].name === "X-Two");
 check("stableStringify sorts object keys",
   stableStringify({ b: 1, a: 2 }) === '{\n  "a": 2,\n  "b": 1\n}');
 check("stableStringify handles empty object and array",
@@ -433,14 +457,14 @@ check("codec: a sideless entry is still a request header after a round trip",
   rtRequest?.responseHeaders === undefined);
 
 check("codec: canonicalization preserves side: response",
-  canonicalizeProfiles([{ id: 1, name: "p", domains: ["a.com"],
+  canon([{ id: 1, name: "p", domains: ["a.com"],
     headers: [{ name: "x", operation: "set", value: "v", side: "response" }] }]
   )[0].headers[0].side === "response");
 // Request stays absence. Emitting side: "request" would rewrite the bytes of
 // every existing export for no change in meaning, and would drag every
 // request-only file up to version 2 for nothing.
 check("codec: canonicalization writes request as absence, not side: \"request\"",
-  !("side" in canonicalizeProfiles([{ id: 1, name: "p", domains: ["a.com"],
+  !("side" in canon([{ id: 1, name: "p", domains: ["a.com"],
     headers: [{ name: "x", operation: "set", value: "v" }] }]
   )[0].headers[0]));
 
@@ -502,6 +526,68 @@ check("codec: the export refusal names the field and where it is",
       return err.message.includes("profile 7") &&
              err.message.includes("header 1") && err.message.includes("zzz");
     }
+  })());
+
+// ------------------------- known fields, invalid VALUES (HW-V6-05)
+//
+// R24 made the export path refuse unknown FIELD NAMES. It said nothing about
+// what is IN a known field, so `side: "respones"` — a plain typo — passed the
+// field check, failed no test, and was written out with the side dropped. It
+// re-imported as a REQUEST header: the original wrong-side defect, reached
+// through a misspelling instead of a missing field.
+//
+// validateHeaderEntry() already refused unknown sides and operations. The
+// export path simply never asked it. A strict reader and a permissive writer
+// is what this entire class of defect is made of.
+checkThrows("codec: a misspelled side is refused on export, not silently dropped", () =>
+  serializeProfiles([{ id: 1, name: "p", domains: ["a.com"],
+    headers: [{ name: "x", operation: "set", value: "v", side: "respones" }] }]),
+  'unknown side "respones"');
+// Case matters: sideOf() compares exactly, so "REQUEST" would read as request
+// by accident rather than by agreement.
+checkThrows("codec: a wrong-case side is refused on export", () =>
+  serializeProfiles([{ id: 1, name: "p", domains: ["a.com"],
+    headers: [{ name: "x", operation: "set", value: "v", side: "REQUEST" }] }]),
+  "unknown side");
+checkThrows("codec: an unknown operation is refused on export", () =>
+  serializeProfiles([{ id: 1, name: "p", domains: ["a.com"],
+    headers: [{ name: "x", operation: "st", value: "v" }] }]),
+  "unknown operation");
+// THE REFUSAL MUST SAY WHY IT MATTERS. "unknown side" alone reads as pedantry;
+// the point is that the file could not be re-imported as what it says.
+check("codec: the value refusal explains the consequence, not just the fault",
+  (() => {
+    try {
+      serializeProfiles([{ id: 9, name: "p", domains: ["a.com"],
+        headers: [{ name: "x", operation: "set", value: "v", side: "respones" }] }]);
+      return false;
+    } catch (err) {
+      return err.message.includes("profile 9") && err.message.includes("header 1") &&
+             err.message.includes("re-imported");
+    }
+  })());
+// The valid values must still pass, or the fix is a refusal of everything.
+check("codec: valid sides still round-trip after the value check",
+  (() => {
+    // BOTH CODEC CALLS THROW BY DESIGN, so the round trip is wrapped and a
+    // refusal becomes `null` — which fails the comparisons below instead of
+    // aborting the suite. Two mutants demonstrated the unguarded version:
+    // they made the round trip refuse, the throw escaped this IIFE, and the
+    // run died partway with its real coverage unmeasured.
+    const rt = (entry) => {
+      try {
+        const back = parseProfilesFile(serializeProfiles(
+          [{ id: 1, name: "p", domains: ["a.com"], headers: [entry] }]
+        ));
+        return profileToRule(back[0], ["a.com"]).action;
+      } catch {
+        return null;
+      }
+    };
+    const res = rt({ name: "x", operation: "set", value: "v", side: "response" });
+    const req = rt({ name: "x", operation: "set", value: "v" });
+    return res?.responseHeaders?.length === 1 && res?.requestHeaders === undefined &&
+           req?.requestHeaders?.length === 1 && req?.responseHeaders === undefined;
   })());
 
 checkThrows("codec: an unknown profile field is refused, not dropped", () =>
@@ -1089,17 +1175,19 @@ const dupProfile = [{
   headers: [{ name: "X-A", operation: "set", value: "1" }],
 }];
 check("canonical form of the Test C profile has ONE domain",
-  canonicalizeProfiles(dupProfile)[0].domains.length === 1);
+  canon(dupProfile)[0]?.domains.length === 1);
 check("the duplicate set serializes identically to the singleton set",
-  serializeProfiles(dupProfile)
-    === serializeProfiles([{ ...dupProfile[0], domains: ["example.com"] }]));
+  attempt(() => serializeProfiles(dupProfile)) !== THREW &&
+  attempt(() => serializeProfiles(dupProfile))
+    === attempt(() => serializeProfiles([{ ...dupProfile[0], domains: ["example.com"] }])));
 
 // The contract's own two rules, checked against the shape that violated them.
 check("identical SETS serialize to identical bytes regardless of duplicates",
-  serializeProfiles([{ ...dupProfile[0], domains: ["a.com", "a.com", "b.com"] }])
-    === serializeProfiles([{ ...dupProfile[0], domains: ["b.com", "a.com"] }]));
+  attempt(() => serializeProfiles([{ ...dupProfile[0], domains: ["a.com", "a.com", "b.com"] }]))
+    === attempt(() => serializeProfiles([{ ...dupProfile[0], domains: ["b.com", "a.com"] }])));
 check("export -> import -> export stays byte-identical with duplicates in",
-  serializeProfiles(dupProfile)
+  attempt(() => serializeProfiles(dupProfile)) !== THREW &&
+  attempt(() => serializeProfiles(dupProfile))
     === attempt(() => serializeProfiles(parseProfilesFile(serializeProfiles(dupProfile)))));
 check("import accepts duplicates and returns the deduped set",
   attempt(() => parseProfilesFile(validDoc(dupProfile))[0].domains.join(",")) === "example.com");
@@ -1109,11 +1197,11 @@ check("import accepts duplicates and returns the deduped set",
 // disagreed on screen. After normalization the two count the same thing, which
 // is the property to pin — the popup wiring itself needs chrome.* and lives in
 // SMOKE.md.
-const canonicalDup = canonicalizeProfiles(dupProfile);
+const canonicalDup = canon(dupProfile);
 check("chip count equals status-line domain count after normalization",
   canonicalDup[0].domains.length === referencedDomains(canonicalDup).length);
 check("count agreement holds across profiles sharing a domain",
-  canonicalizeProfiles([
+  canon([
     { ...dupProfile[0], id: 1, domains: ["a.com", "a.com"] },
     { ...dupProfile[0], id: 2, domains: ["a.com", "B.com", "b.com"] },
   ]).reduce((n, p) => n + p.domains.length, 0) === 3);

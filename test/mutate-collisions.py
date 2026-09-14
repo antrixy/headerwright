@@ -265,6 +265,12 @@ MUTATIONS = [
     ("canonicalizeProfiles drops unknown ENTRY fields in silence again", CAN,
      '            if (!ENTRY_KEYS_V2.has(key)) {',
      '            if (false) {'),
+    # ---- HW-V6-05. Removing the value check restores a codec that writes a
+    # typo out as a request header and re-imports it as one.
+    ("the export path stops validating known field VALUES", CAN,
+     '          const verdict = validateHeaderEntry(entry);\n          if (!verdict.valid) {',
+     '          const verdict = { valid: true };\n          if (!verdict.valid) {'),
+
     ("canonicalizeProfiles drops unknown PROFILE fields in silence again", CAN,
      '        if (!PROFILE_KEYS.has(key)) {',
      '        if (false) {'),
