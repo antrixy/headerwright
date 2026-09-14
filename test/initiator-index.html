@@ -1,0 +1,114 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HeaderWright initiator oracle</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 2rem auto; padding: 0 1rem; }
+  code, pre { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+  pre { background: #f4f4f4; padding: .5rem; overflow-x: auto; }
+  .verdict { font-size: 1rem; padding: .5rem; margin-top: 1rem;
+             background: #f4f4f4; border-left: 3px solid #6c757d; }
+  .failed { background: #f8d7da; border-left-color: #a40e26; }
+  .note { background: #fff8e1; border-left: 3px solid #b38600; padding: .5rem; margin: 1rem 0; }
+  button { font: inherit; padding: .4rem .8rem; }
+</style>
+
+<h1>Initiator oracle</h1>
+
+<p>
+  This page exists to answer one question that <code>test/oracle/</code>
+  <strong>cannot</strong>: does a HeaderWright profile scoped to the target
+  apply to a request made by a page on a <em>different</em> site?
+</p>
+
+<div class="note">
+  <strong>Colour does not encode pass or fail here either.</strong> Whether an
+  absent header is the right answer depends entirely on which grants are held,
+  and this page does not know that — Chrome does not tell it. Red marks one
+  thing only: the measurement did not happen. Read the row against the
+  prediction you registered in the runbook <em>before</em> you opened Chrome.
+</div>
+
+<p>
+  This page is loaded from <code id="thisHost">__THIS_HOST__</code>.
+  It will fetch <code id="targetOrigin">__TARGET_ORIGIN__</code><code>/echo</code>.
+</p>
+
+<p>
+  <button id="run">Measure</button>
+</p>
+
+<div id="out"></div>
+
+<h2>How to read it</h2>
+<ul>
+  <li>
+    <strong>Cross-origin row</strong> — open this page on
+    <code id="initOrigin">__INITIATOR_ORIGIN__</code>. The fetch crosses to the
+    target. If only the target is granted, HW-V6-01 predicts the profile's
+    header is <strong>absent</strong>.
+  </li>
+  <li>
+    <strong>Same-origin control</strong> — open this page on
+    <code id="targetOrigin2">__TARGET_ORIGIN__</code>. Initiator and target are
+    the same host, so the one grant covers both and the header should be
+    <strong>present</strong>. This control is what separates “the initiator
+    grant is missing” from “HeaderWright is not applying anything at all”.
+    <strong>A cross-origin absence means nothing without it.</strong>
+  </li>
+</ul>
+
+<script type="module">
+  const TARGET = document.getElementById("targetOrigin").textContent;
+  const out = document.getElementById("out");
+
+  document.getElementById("run").addEventListener("click", async () => {
+    out.innerHTML = "";
+    let data;
+    try {
+      const res = await fetch(`${TARGET}/echo?t=${Date.now()}`, {
+        cache: "no-store",
+      });
+      data = await res.json();
+    } catch (err) {
+      // NOT A NULL RESULT. A failed fetch says nothing about headers, and
+      // rendering it as "absent" would manufacture a confirmation of the very
+      // thing this page is testing.
+      const p = document.createElement("p");
+      p.className = "verdict failed";
+      p.textContent =
+        `MEASUREMENT FAILED — ${err.message}. Nothing was observed. ` +
+        `This is not evidence that the header was absent.`;
+      out.appendChild(p);
+      return;
+    }
+
+    const sameOrigin = data.initiatorOrigin === null;
+    const rows = Object.entries(data.received);
+
+    const verdict = document.createElement("div");
+    verdict.className = "verdict";
+    verdict.textContent =
+      `${sameOrigin ? "SAME-ORIGIN" : "CROSS-ORIGIN"} — page on ` +
+      `${location.host}, target ${data.servedBy}, ` +
+      `initiator origin ${data.initiatorOrigin ?? "(none sent — same origin)"}.`;
+    out.appendChild(verdict);
+
+    const list = document.createElement("ul");
+    for (const [name, value] of rows) {
+      const li = document.createElement("li");
+      // textContent throughout: these values come from whatever the browser
+      // sent, which includes anything a HeaderWright profile put there. The
+      // other oracle used innerHTML for its table and that was a real finding
+      // (HW-V6-16) — an instrument a test subject can inject markup into can
+      // be made to lie about its own result.
+      li.textContent =
+        `${name}: ${value === null ? "ABSENT" : JSON.stringify(value)}`;
+      list.appendChild(li);
+    }
+    out.appendChild(list);
+
+    const pre = document.createElement("pre");
+    pre.textContent = JSON.stringify(data, null, 2);
+    out.appendChild(pre);
+  });
+</script>

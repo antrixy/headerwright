@@ -117,27 +117,43 @@ syntaxGate();
 
 for (const [label, cmd, args] of GATES) run(label, cmd, args);
 
-// Oracle: start the server, run the selfcheck against it, always stop it.
-// The port is deliberately not the default, so a stray server left running
-// from a browser sitting cannot answer for this one and turn a broken
-// instrument into a pass.
-const PORT = "8788";
-const server = spawnSync("node", ["-e", `
-  const { spawn } = require("node:child_process");
-  const s = spawn("node", ["test/oracle/server.mjs", "${PORT}"], { cwd: ${JSON.stringify(ROOT)}, stdio: "ignore", detached: true });
-  setTimeout(() => { console.log(s.pid); process.exit(0); }, 1200);
-`], { cwd: ROOT, encoding: "utf8" });
-const pid = parseInt((server.stdout || "").trim(), 10);
-try {
-  run("oracle-selfcheck", "node", ["test/oracle/selfcheck.mjs"], {
-    env: { ...process.env, ORACLE_PORT: PORT },
-  });
-} finally {
-  if (Number.isInteger(pid)) {
-    try { process.kill(-pid); } catch { /* already gone */ }
-    try { process.kill(pid); } catch { /* already gone */ }
+// Instrument selfchecks: start the server, run its selfcheck, always stop it.
+//
+// TWO INSTRUMENTS, TWO GATES, and they are separate for the reason the
+// initiator oracle exists at all: test/oracle/ is same-origin by ruling, so
+// initiator equals target there and every row passes whether or not
+// HeaderWright models initiators. Folding them into one gate would let a green
+// line stand for a property only one of them can see.
+//
+// Ports are deliberately NOT the defaults, so a stray server left running from
+// a browser sitting cannot answer for these and turn a broken instrument into
+// a pass.
+function instrumentGate(label, serverPath, checkPath, port) {
+  const started = spawnSync("node", ["-e", `
+    const { spawn } = require("node:child_process");
+    const s = spawn("node", ["${serverPath}", "${port}"], { cwd: ${JSON.stringify(ROOT)}, stdio: "ignore", detached: true });
+    setTimeout(() => { console.log(s.pid); process.exit(0); }, 1200);
+  `], { cwd: ROOT, encoding: "utf8" });
+  const pid = parseInt((started.stdout || "").trim(), 10);
+  try {
+    run(label, "node", [checkPath], {
+      env: { ...process.env, ORACLE_PORT: String(port) },
+    });
+  } finally {
+    if (Number.isInteger(pid)) {
+      try { process.kill(-pid); } catch { /* already gone */ }
+      try { process.kill(pid); } catch { /* already gone */ }
+    }
   }
 }
+
+instrumentGate("oracle-selfcheck",
+  "test/oracle/server.mjs", "test/oracle/selfcheck.mjs", 8788);
+// The initiator oracle's selfcheck talks to 127.0.0.1 directly and does NOT
+// need hw.test / nothw.test to resolve — the hosts file only matters for the
+// browser rows. So this gate runs anywhere, including CI.
+instrumentGate("initiator-selfcheck",
+  "test/initiator/server.mjs", "test/initiator/selfcheck.mjs", 8789);
 
 // "AUTOMATED" IS LOAD-BEARING, NOT MODESTY. Every gate above runs in Node
 // against source or pure functions. NOTHING HERE TOUCHES A BROWSER: no rule
