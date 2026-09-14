@@ -73,7 +73,7 @@ import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 387;
+const EXPECTED_CHECKS = 394;
 
 let passed = 0;
 let failed = 0;
@@ -1846,6 +1846,54 @@ check("R10: ineligible profiles are still counted as skipped",
 // definition of "duplicate" free.
 check("R10: a repeated id means BOTH holders skipped, not the later one",
   /filter\(\(\[, count\]\) => count > 1\)/.test(swJs));
+
+// ------------------------------ scope language honesty (HW-V6-01 interim)
+//
+// THE GREEN DOT REPORTS A GRANT, NOT AN EFFECT, and the tooltip used to say
+// "headers apply" without qualification. Chrome needs host permission for the
+// request URL AND its INITIATOR for everything except navigations, and
+// HeaderWright grants only the target — so a profile on api.example.com does
+// nothing when app.example.com calls it, while this tooltip asserted it did.
+//
+// These pin WORDING, which is unusual for this suite and deliberate. The
+// interim fix for HW-V6-01 is entirely a claims fix: no code behaviour
+// changes, `RESOURCE_TYPES` is untouched, and the only thing that could
+// regress is the text quietly going back to the confident version.
+const readmeText = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+const scopeText = readFileSync(new URL("../SCOPE.md", import.meta.url), "utf8");
+
+// The exact false claim, so it cannot return by copy-paste.
+check("HW-V6-01: the tooltip no longer claims headers simply apply",
+  !/permission granted, headers apply/.test(popupJs));
+check("HW-V6-01: the granted tooltip names the initiator condition",
+  /another granted domain/.test(popupJs));
+// Same-origin subresources DO work — sitting G observed /favicon.ico. Wording
+// that implied otherwise would be a different false claim, not a fix.
+check("HW-V6-01: the tooltip still credits page loads on this domain",
+  /page loads here/.test(popupJs));
+check("HW-V6-01: README documents the initiator requirement",
+  /initiator/.test(readmeText) && /A second exception/.test(readmeText));
+check("HW-V6-01: SCOPE states the constraint and its consequence",
+  /second constraint/i.test(scopeText) && /initiator/.test(scopeText) &&
+  /api\.example\.com/.test(scopeText));
+// THE TWO TRAPS, DOCUMENTED SO THEY ARE NOT TAKEN QUIETLY. Adding
+// initiatorDomains to the current rule is not a grant and would break
+// navigations; putting the initiator in the target list would send
+// Authorization and Cookie values to the initiator site.
+// THE HEADING IS PART OF THE WARNING, not decoration around it. A mutant that
+// replaced "Not fixable by widening the rule." with "Note." scored ZERO
+// against a check that only read the body — the trap stayed documented and
+// stopped being findable, which for a warning is most of its value.
+check("HW-V6-01: SCOPE records why widening the rule is not the fix",
+  /\*\*Not fixable by widening the rule\.\*\*/.test(scopeText) &&
+  /does not grant anything/.test(scopeText) &&
+  /Authorization, Cookie/.test(scopeText));
+// RESOURCE_TYPES MUST NOT BE NARROWED as part of this. Same-origin
+// subresources work today; dropping types would remove them.
+check("HW-V6-01: the interim did not narrow RESOURCE_TYPES",
+  RESOURCE_TYPES.includes("xmlhttprequest") &&
+  RESOURCE_TYPES.includes("image") &&
+  RESOURCE_TYPES.includes("main_frame"));
 
 check("F002: the chip's click handler requests THAT DOMAIN only",
   /permissions\.request\(\{\s*origins: originsForDomain\(domain\),?\s*\}\)/.test(popupJs));

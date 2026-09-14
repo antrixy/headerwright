@@ -20,6 +20,8 @@ CAN = ROOT / "extension/lib/canonical.js"
 POP = ROOT / "extension/popup/popup.js"
 HTML = ROOT / "extension/popup/popup.html"
 SW  = ROOT / "extension/background/sw.js"
+RDM = ROOT / "README.md"
+SCP = ROOT / "SCOPE.md"
 MAN = ROOT / "extension/manifest.json"
 ORC = ROOT / "test/oracle/index.html"
 MC  = ROOT / "test/mutate-scans.py"
@@ -274,6 +276,29 @@ MUTATIONS = [
     ("canonicalizeProfiles drops unknown PROFILE fields in silence again", CAN,
      '        if (!PROFILE_KEYS.has(key)) {',
      '        if (false) {'),
+
+    # ---- HW-V6-01 interim. The whole fix is a claims fix, so the only way it
+    # can regress is the text going back to the confident version. Each of
+    # these leaves an extension that works exactly as well as before and lies
+    # about it again.
+    ("the tooltip goes back to claiming headers simply apply", POP,
+     '`${domain}: access granted. Headers apply to page loads here, and to ` +\n      `requests made by pages on this or another granted domain.`',
+     '`${domain}: permission granted, headers apply`'),
+    ("the initiator condition is dropped from the tooltip", POP,
+     ', and to ` +\n      `requests made by pages on this or another granted domain.`',
+     '.`'),
+    ("README stops documenting the initiator requirement", RDM,
+     '**A second exception, as of v0.2.0 — and this one has been true since\n  v0.1.0.**',
+     '**A note.**'),
+    ("SCOPE stops warning that widening the rule is not the fix", SCP,
+     '**Not fixable by widening the rule.**',
+     '**Note.**'),
+    # NARROWING RESOURCE_TYPES WAS THE WRONG FIX and is mutated here so the
+    # reasoning cannot be lost: same-origin subresources work today, and
+    # dropping types would remove them.
+    ("RESOURCE_TYPES is narrowed to navigations (removes working cases)", RUL,
+     '  "main_frame", "sub_frame", "stylesheet", "script", "image", "font",',
+     '  "main_frame", "sub_frame",\n  // removed:'),
 
     # ---- HW-V6-06. The harness safety property, mutated in the harness that
     # enforces it. Self-referential on purpose: these are the only mutants that

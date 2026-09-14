@@ -28,6 +28,17 @@ import tempfile
 # would also copy .git, which is large and pointless here.
 SUBTREES = ("extension", "test")
 
+# ROOT-LEVEL FILES THE SUITE READS. Added 2026-09-13 when a mutant first
+# targeted README.md and the run died with FileNotFoundError inside the copy.
+# That was the revisit trigger written into the harness-safety ruling, and it
+# fired exactly as described — SAFELY, because the missing file was in the
+# throwaway tree and the real README was never touched. Under the old
+# mutate-in-place harnesses the same mutant would have edited the real file
+# and left it edited.
+#
+# ANY NEW MUTANT TARGETING A ROOT FILE MUST ADD IT HERE in the same commit.
+ROOT_FILES = ("README.md", "SCOPE.md", "PRIVACY.md")
+
 
 def disposable_root(source_root):
     """Copy the minimal tree to a temp dir and return it.
@@ -43,6 +54,10 @@ def disposable_root(source_root):
     atexit.register(shutil.rmtree, tmp, ignore_errors=True)
     for sub in SUBTREES:
         shutil.copytree(source_root / sub, tmp / sub)
+    for name in ROOT_FILES:
+        src = source_root / name
+        if src.exists():
+            shutil.copy2(src, tmp / name)
     return tmp
 
 
@@ -56,6 +71,11 @@ def tree_digest(root):
     project's most repeated defect.
     """
     h = hashlib.sha256()
+    for name in ROOT_FILES:
+        path = root / name
+        if path.exists():
+            h.update(name.encode())
+            h.update(path.read_bytes())
     for sub in SUBTREES:
         base = root / sub
         # __pycache__ is created by importing THIS module, so including it
