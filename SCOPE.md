@@ -17,6 +17,33 @@ Every decision below is downstream of that. Where a feature would require
 permanently unavailable, and saying so plainly is more useful than leaving it
 open.
 
+## The second constraint, added 2026-09-13
+
+`declarativeNetRequestWithHostAccess` requires host permission for the request
+URL **and for the request's initiator** — the page that made the request —
+before Chrome will act. Navigations (`main_frame`, `sub_frame`) are the
+exception and need only the target.
+
+HeaderWright grants the target domain only. The consequence, stated plainly
+because it has been true since v0.1.0 and was not documented until now:
+
+| Request | Applies? |
+| --- | --- |
+| Loading the domain itself | Yes |
+| A request from a page on that same domain | Yes — one grant covers both |
+| A request from a page on a different site | **No**, unless that site is also granted |
+
+So a profile scoped to `api.example.com` does nothing when `app.example.com`
+calls it. That is the canonical CORS case, and it is the one v0.2 exists to
+serve — which is why separating target and initiator domains is now a planned
+feature rather than a possibility.
+
+**Not fixable by widening the rule.** Adding `initiatorDomains` to the rule
+condition changes what the rule MATCHES; it does not grant anything, and the
+permission is what Chrome enforces. And putting the initiator into the target
+list would send the profile's headers — Authorization, Cookie — to the
+initiator site. The fix is a second, separately granted list.
+
 ## v0.2 — response headers
 
 One feature, per the versioning rule.

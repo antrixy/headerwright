@@ -59,6 +59,25 @@ Why:
   isn't and the headers will not apply. Both are read from Chrome at render
   time rather than remembered.
 
+  **A second exception, as of v0.2.0 — and this one has been true since
+  v0.1.0.** Chrome requires host permission for the request URL *and* for the
+  request's **initiator** — the page that made the request — before it will act
+  on it. That applies to everything except top-level and frame navigations.
+  HeaderWright grants only the target domain. So:
+
+  - **Loading the domain itself: headers apply.** Navigations need no initiator
+    grant.
+  - **Requests made by a page on that same domain: headers apply.** The
+    initiator is the same domain, so the one grant covers both. Observed on
+    `/favicon.ico` during v0.1.7 testing.
+  - **Requests made by a page on a DIFFERENT site: headers do NOT apply**,
+    unless that site is also granted. A profile on `api.example.com` does
+    nothing when `app.example.com` calls it.
+
+  The dot is still green in that last case, because the grant genuinely is
+  held. Nothing currently reports it. Separating target and initiator domains
+  is the fix and is planned; see SCOPE.md.
+
   **One exception, as of v0.1.5.** A green dot means the GRANT is held, which
   is not quite the same as the headers applying. If two profiles write the same
   header on overlapping domains, neither applies — but the grant is still held,
