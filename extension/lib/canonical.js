@@ -116,6 +116,32 @@ export function canonicalizeProfiles(profiles) {
               );
             }
           }
+          // NAMES WERE CHECKED ABOVE; NOW THE VALUES. The unknown-field
+          // refusal added for R24 guards the SHAPE of an entry and says
+          // nothing about what is in it, so `side: "respones"` — a plain
+          // typo — passed the field check, failed no test, and was written
+          // out with the side dropped. It re-imported as a REQUEST header.
+          // That is the original wrong-side defect reached through a
+          // misspelling instead of a missing field.
+          //
+          // validateHeaderEntry() already refuses unknown sides and unknown
+          // operations; the export path simply never asked it. Asymmetry
+          // between a strict reader and a permissive writer is what this
+          // whole class of defect is made of.
+          //
+          // THE WHOLE EXPORT IS REFUSED, not the offending entry, and that
+          // is deliberate despite the opposite ruling for the worker's
+          // stored-state decoder. There, dropping one bad profile keeps the
+          // others applying. Here the artifact is a single snapshot the user
+          // will keep and re-import, so a partial export that silently omits
+          // an entry is the data-loss case, not a mitigation of it.
+          const verdict = validateHeaderEntry(entry);
+          if (!verdict.valid) {
+            throw new Error(
+              `profile ${profile.id}, header ${index + 1}: ${verdict.reason} — ` +
+                `refusing to export a profile that cannot be re-imported faithfully`
+            );
+          }
           const out = { name: entry.name, operation: entry.operation };
           if (entry.operation !== "remove") out.value = entry.value;
           // REQUEST IS WRITTEN AS ABSENCE, matching what the popup stores and
