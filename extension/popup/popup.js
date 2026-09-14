@@ -463,8 +463,25 @@ function renderDomainChip(domain, grants) {
 
   if (legacyOnly) chip.classList.add("migrating");
 
+  // THE GREEN-DOT TOOLTIP USED TO SAY "headers apply", FULL STOP, AND THAT WAS
+  // FALSE for a whole class of request. Chrome requires host permission for
+  // the request URL AND the request's INITIATOR before it will act, for
+  // everything except main_frame and sub_frame. HeaderWright grants only the
+  // target. So a header set on api.example.com silently did not apply when
+  // app.example.com fetched it — and this tooltip asserted that it did.
+  //
+  // Same-origin subresources DO work, because the initiator is this same
+  // domain and one grant covers both: sitting G observed headers applying on
+  // /favicon.ico. The wording has to admit the cross-site case without
+  // implying the same-site one is broken.
+  //
+  // This is the SECOND exception to "green means applying", after the v0.1.5
+  // collision case in README.md. A dot reports the GRANT, which is not the
+  // same claim as the headers taking effect, and every time those two have
+  // been conflated a user has been told something untrue.
   chip.title = granted
-    ? `${domain}: permission granted, headers apply`
+    ? `${domain}: access granted. Headers apply to page loads here, and to ` +
+      `requests made by pages on this or another granted domain.`
     : legacyOnly
       ? `${domain}: this domain was granted under an older version that did ` +
         `not cover subdomains. Headers will not apply until you click to ` +
