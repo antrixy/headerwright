@@ -21,6 +21,7 @@ import {
 } from "../lib/collisions.js";
 import { computeBadge } from "../lib/status.js";
 import { createSerialQueue } from "../lib/queue.js";
+import { decodeStoredState } from "../lib/stored.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
@@ -31,18 +32,13 @@ const STORAGE_KEY_SYNC = "hw:sync";
 // an unnormalized list reaches DNR's requestDomains verbatim and is also
 // checked once per duplicate by grantedDomainsFor(). Both write paths store a
 // normalized set now, so this only covers what is already on disk.
+// decodeStoredState lives in lib/stored.js so the suite can exercise it with
+// real malformed inputs instead of scanning this file for its shape.
 async function getStoredState() {
-  const stored = await chrome.storage.local.get([
-    STORAGE_KEY_PROFILES,
-    STORAGE_KEY_ENABLED,
-  ]);
-  return {
-    profiles: (stored[STORAGE_KEY_PROFILES] || []).map((profile) => ({
-      ...profile,
-      domains: normalizeDomains(profile.domains),
-    })),
-    enabled: stored[STORAGE_KEY_ENABLED] === true,
-  };
+  return decodeStoredState(
+    await chrome.storage.local.get([STORAGE_KEY_PROFILES, STORAGE_KEY_ENABLED]),
+    { profiles: STORAGE_KEY_PROFILES, enabled: STORAGE_KEY_ENABLED }
+  );
 }
 
 // A profile's domain is only used in a rule if currently granted — a rule
@@ -225,16 +221,35 @@ async function updateBadge(state) {
 }
 
 async function runSync() {
-  const { profiles, enabled } = await getStoredState();
-
+  // READ INSIDE THE TRANSACTION. This was outside the try, so a storage read
+  // or decode failure skipped the DNR update, the status write AND the badge
+  // in one go — the extension went quiet rather than reporting. Anything that
+  // can fail belongs where the failure is caught.
+  let enabled = false;
   let syncOk = true;
   let error = null;
 
   try {
+    const state = await getStoredState();
+    enabled = state.enabled;
+
+    if (state.problems.length > 0) {
+      // Reported, not thrown. A corrupt record must not be able to stop the
+      // rest of the reconciliation — least of all a disable.
+      console.warn(
+        `HeaderWright: ${state.problems.length} stored configuration ` +
+          `problem(s), those profiles are not applied: ` +
+          state.problems.join("; ")
+      );
+    }
+
     const existing = await chrome.declarativeNetRequest.getDynamicRules();
     const removeRuleIds = existing.map((rule) => rule.id);
 
-    const addRules = enabled ? (await buildRules(profiles)).rules : [];
+    // DISABLE CLEARS UNCONDITIONALLY. When enabled is false the profiles are
+    // never consulted, so no amount of corruption in them can keep old rules
+    // registered. buildRules() is only reached on the enabled path.
+    const addRules = enabled ? (await buildRules(state.profiles)).rules : [];
 
     // Single atomic call — per Chrome's docs, either all specified rules are
     // added and removed, or an error is returned and nothing changes. Rule
@@ -268,11 +283,23 @@ async function runSync() {
   // Writing this key does NOT re-enter syncRules: the storage listener below
   // reacts to the profiles and enabled keys only. Worth stating plainly,
   // because a listener that matched every key would loop here forever.
-  await chrome.storage.local.set({
-    [STORAGE_KEY_SYNC]: { ok: syncOk, error },
-  });
+  // SETTLED SEPARATELY, because they are separate reporting channels and one
+  // failing must not silence the other. Previously a rejected status write
+  // skipped the badge update, leaving the toolbar asserting a state nothing
+  // had confirmed.
+  try {
+    await chrome.storage.local.set({
+      [STORAGE_KEY_SYNC]: { ok: syncOk, error },
+    });
+  } catch (err) {
+    console.error("HeaderWright: could not record sync status —", err);
+  }
 
-  await updateBadge({ enabled, syncOk });
+  try {
+    await updateBadge({ enabled, syncOk });
+  } catch (err) {
+    console.error("HeaderWright: could not update the badge —", err);
+  }
 }
 
 // Every entry point goes through this, never runSync directly. Overlapping
