@@ -70,9 +70,10 @@ import {
   describeImportRefusal,
 } from "../extension/lib/collisions.js";
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
+import { decodeStoredState } from "../extension/lib/stored.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 367;
+const EXPECTED_CHECKS = 382;
 
 let passed = 0;
 let failed = 0;
@@ -232,6 +233,68 @@ check("rule id refused above MAX_RULE_ID", withId(MAX_RULE_ID + 1) === null);
 // scan in the popup/source-scan section below, where stripJsComments() is
 // already defined — duplicate ids fail the atomic call by a different
 // mechanism than invalid ones and need their own coverage.
+
+// ------------------------------- total stored-state decoder (HW-V6-04)
+//
+// BEHAVIOURAL, NOT A SOURCE SCAN, and that is the point of the function
+// living in lib/ at all. sw.js cannot be imported here — it calls chrome.* at
+// module scope — so everything else in the worker is checked by reading it as
+// text, which proves the shape of a fix and not its behaviour.
+//
+// What broke: `(stored[KEY] || []).map(...)` throws on a truthy non-array, and
+// the read sat outside runSync's try. A user switching HeaderWright OFF with
+// malformed profile data kept the old dynamic rules ACTIVE — headers went on
+// being modified by an extension the user had turned off — with no status
+// written and no badge update.
+//
+// The whole protection now rests on this function never throwing, so that is
+// what is asserted, for every shape storage can actually hold.
+const KEYS = { profiles: "hw:profiles", enabled: "hw:enabled" };
+// RETURNS null ON THROW, and every check below must FAIL on null rather than
+// crash. decodeStoredState is the function whose entire contract is "never
+// throws", so the checks that verify the rest of its behaviour are exactly the
+// ones a throwing mutant would abort — scoring whatever ran first and hiding
+// the rest. Two mutants demonstrated this before the guard went in.
+const decode = (raw, enabled = true) => {
+  try {
+    return decodeStoredState(
+      { "hw:profiles": raw, "hw:enabled": enabled }, KEYS
+    );
+  } catch {
+    return null;
+  }
+};
+
+for (const [label, raw] of [
+  ["undefined", undefined], ["null", null], ["an object", { a: 1 }],
+  ["a string", "nope"], ["a number", 42], ["a boolean", true],
+  ["an empty array", []], ["a null element", [null]],
+  ["a string element", ["x"]], ["a nested array", [[1]]],
+  ["unreadable domains", [{ id: 1, name: "p", domains: "a.com" }]],
+]) {
+  check(`HW-V6-04: decoding ${label} does not throw`, decode(raw) !== null);
+}
+
+// ENABLED IS INDEPENDENT OF PROFILE SHAPE. This is the line that makes disable
+// work from a corrupt configuration: runSync never consults profiles when
+// enabled is false, so nothing in them can keep stale rules registered.
+check("HW-V6-04: enabled survives a completely malformed profiles value",
+  decode({ junk: true }, true)?.enabled === true &&
+  decode({ junk: true }, false)?.enabled === false);
+check("HW-V6-04: a malformed profiles value yields no profiles and a reason",
+  decode({ junk: true })?.profiles.length === 0 &&
+  decode({ junk: true })?.problems.length === 1);
+// ONE BAD PROFILE MUST NOT TAKE THE GOOD ONES DOWN. The old code threw on the
+// whole array; the previous atomic-update defect had the same shape one layer
+// down. Both are the same mistake: letting one bad record decide for the rest.
+const mixed = decode([{ id: 1, name: "ok", domains: ["a.com"], headers: [] }, null]);
+check("HW-V6-04: a valid profile survives alongside an invalid one",
+  mixed?.profiles.length === 1 && mixed?.profiles[0].id === 1 &&
+  mixed?.problems.length === 1);
+// Malformed entries are DROPPED, never repaired. Guessing what a corrupt
+// record meant is how the wrong-side defects happened.
+check("HW-V6-04: problems name which profile, not just that there was one",
+  /profile 2/.test(mixed?.problems[0] ?? ""));
 
 // -------------------------------------- mutation harness safety (HW-V6-06)
 //

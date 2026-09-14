@@ -23,6 +23,7 @@ SW  = ROOT / "extension/background/sw.js"
 MAN = ROOT / "extension/manifest.json"
 ORC = ROOT / "test/oracle/index.html"
 MC  = ROOT / "test/mutate-scans.py"
+STO = ROOT / "extension/lib/stored.js"
 
 MUTATIONS = [
     ("drop the leading dot (suffix-confusable guard removed)", COL,
@@ -275,6 +276,22 @@ MUTATIONS = [
     ("a harness points ROOT back at the real source tree", MC,
      'ROOT = disposable_root(SOURCE_ROOT)',
      'ROOT = SOURCE_ROOT'),
+    # ---- HW-V6-04. Each of these restores a worker that goes SILENT on
+    # malformed storage: no rule update, no status, no badge — and on a
+    # disable, stale rules left registered.
+    ("the decoder throws on a non-array again (disable stops clearing)", STO,
+     '  } else {\n    // Not a list at all. Enabled state is independent and still honoured,\n    // which is what lets disable clear rules from a corrupt configuration.\n    problems.push(`stored profiles are ${typeof raw}, expected an array`);\n  }',
+     '  } else {\n    list = raw.map((x) => x);\n  }'),
+    ("a malformed element aborts the whole set instead of being skipped", STO,
+     '      problems.push(`profile ${index + 1} is not an object`);\n      return;',
+     '      throw new Error("bad profile");'),
+    ("enabled is read from the profiles value, coupling the two", STO,
+     'enabled: stored[keys.enabled] === true,',
+     'enabled: stored[keys.enabled] === true && profiles.length > 0,'),
+    ("problems stop naming which profile failed", STO,
+     '`profile ${index + 1} is not an object`',
+     '"a profile is not an object"'),
+
     ("the digest stops deciding whether a harness fails", MC,
      'if bad or DIGEST_AFTER != DIGEST_BEFORE:',
      'if bad:'),
