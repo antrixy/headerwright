@@ -72,7 +72,7 @@ import {
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 358;
+const EXPECTED_CHECKS = 367;
 
 let passed = 0;
 let failed = 0;
@@ -232,6 +232,43 @@ check("rule id refused above MAX_RULE_ID", withId(MAX_RULE_ID + 1) === null);
 // scan in the popup/source-scan section below, where stripJsComments() is
 // already defined — duplicate ids fail the atomic call by a different
 // mechanism than invalid ones and need their own coverage.
+
+// -------------------------------------- mutation harness safety (HW-V6-06)
+//
+// A VERIFICATION COMMAND MUST NOT BE ABLE TO BREAK THE PRODUCT. All three
+// harnesses used to write mutants into the real tree and restore only on
+// normal completion. SIGKILL mid-run left collisions.js carrying the
+// FINDING-021 mutant, and because each harness captures its "original" at
+// startup, the NEXT run would have baselined on the mutant and reported green
+// against a broken file.
+//
+// Source scan, because these are Python and this suite is Node. What it pins
+// is the property, not the implementation: mutants must land in a copy, and
+// the harness must reach its own verdict rather than leaving the reader to
+// notice problems in its output.
+const harnesses = ["mutate-collisions", "mutate-grants", "mutate-scans"].map(
+  (name) => [name, readFileSync(new URL(`./${name}.py`, import.meta.url), "utf8")]
+);
+for (const [name, src] of harnesses) {
+  check(`HW-V6-06: ${name}.py mutates a disposable copy, not the source`,
+    /ROOT = disposable_root\(SOURCE_ROOT\)/.test(src) &&
+    !/^ROOT = pathlib\.Path\(__file__\)/m.test(src));
+  // The before/after digest is evidence rather than defence — the copy already
+  // provides the protection. It exists so "mutation testing does not modify
+  // the source" is measured every run instead of asserted in a comment, which
+  // is this project's most repeated defect.
+  // PIN THE EXIT DECISION, NOT THE WARNING. The first version of this check
+  // matched the digest comparison anywhere in the file, so deleting the
+  // warning print still passed — the mutant scored ZERO and exposed it. What
+  // makes the assertion load-bearing is that the digest participates in
+  // whether the harness FAILS, not that it prints something.
+  check(`HW-V6-06: ${name}.py fails when the source tree changed`,
+    /DIGEST_AFTER = tree_digest\(SOURCE_ROOT\)/.test(src) &&
+    /sys\.exit\(1\)/.test(src) &&
+    /(if|or) .*DIGEST_AFTER != DIGEST_BEFORE:\n    sys\.exit\(1\)/.test(src));
+  check(`HW-V6-06: ${name}.py exits nonzero on its own findings`,
+    /sys\.exit\(1\)/.test(src));
+}
 
 // ------------------------------------------------------- manifest (R6, 0.2.0)
 //

@@ -3,7 +3,17 @@ import subprocess, shutil, pathlib, sys, re
 # Repo root, derived from this file so the script runs anywhere. It was
 # committed with a hardcoded container path, which meant it could not run
 # for anyone — defeating the point of committing it.
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+import sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from mutate_common import disposable_root, tree_digest
+
+# MUTANTS ARE APPLIED IN A THROWAWAY COPY, NEVER IN THE REAL TREE. See
+# test/mutate_common.py for what happened when they were not. SOURCE_ROOT is
+# read once for the copy and for the before/after digest; ROOT is the copy, so
+# every path below and every subprocess cwd resolves inside it.
+SOURCE_ROOT = pathlib.Path(__file__).resolve().parent.parent
+DIGEST_BEFORE = tree_digest(SOURCE_ROOT)
+ROOT = disposable_root(SOURCE_ROOT)
 COL = ROOT / "extension/lib/collisions.js"
 RUL = ROOT / "extension/lib/rules.js"
 CAN = ROOT / "extension/lib/canonical.js"
@@ -12,6 +22,7 @@ HTML = ROOT / "extension/popup/popup.html"
 SW  = ROOT / "extension/background/sw.js"
 MAN = ROOT / "extension/manifest.json"
 ORC = ROOT / "test/oracle/index.html"
+MC  = ROOT / "test/mutate-scans.py"
 
 MUTATIONS = [
     ("drop the leading dot (suffix-confusable guard removed)", COL,
@@ -256,6 +267,17 @@ MUTATIONS = [
     ("canonicalizeProfiles drops unknown PROFILE fields in silence again", CAN,
      '        if (!PROFILE_KEYS.has(key)) {',
      '        if (false) {'),
+
+    # ---- HW-V6-06. The harness safety property, mutated in the harness that
+    # enforces it. Self-referential on purpose: these are the only mutants that
+    # could, if the property regressed, damage the real tree. They are safe
+    # precisely BECAUSE the property holds.
+    ("a harness points ROOT back at the real source tree", MC,
+     'ROOT = disposable_root(SOURCE_ROOT)',
+     'ROOT = SOURCE_ROOT'),
+    ("the digest stops deciding whether a harness fails", MC,
+     'if bad or DIGEST_AFTER != DIGEST_BEFORE:',
+     'if bad:'),
     ("only the LATER duplicate is skipped (a winner is picked)", SW,
      '    [...idCounts].filter(([, count]) => count > 1).map(([id]) => id)',
      '    [...idCounts].filter(([, count]) => count > 2).map(([id]) => id)'),
@@ -327,3 +349,20 @@ if zero:
 crashing = [n for n, a, f, c in results if a and c]
 if crashing:
     print("CRASHING MUTATIONS (count is a floor, not coverage):", crashing)
+notapplied = [n for n, a, f, c in results if not a]
+
+# THE HARNESS NOW DECIDES ITS OWN VERDICT. It used to exit 0 unconditionally,
+# printing its problems and leaving the reader to notice them. verify.mjs
+# compensated by scanning output for failure phrases — a workaround for a tool
+# that would not say whether it had passed. Both signals now exist and must
+# agree; a harness that reports a problem and exits 0 is the shape that let a
+# red mutate-scans sit unnoticed across two sessions.
+DIGEST_AFTER = tree_digest(SOURCE_ROOT)
+if DIGEST_AFTER != DIGEST_BEFORE:
+    # Cannot happen while mutants land in the copy — which is exactly why it is
+    # asserted rather than assumed. This is the check that would have fired on
+    # the pre-2026-09-13 harness after any interrupted run.
+    print("SOURCE TREE MODIFIED BY A MUTATION RUN — this must never happen")
+if zero or crashing or notapplied or DIGEST_AFTER != DIGEST_BEFORE:
+    sys.exit(1)
+print(f"all {len(results)} mutants applied and covered; source tree untouched")

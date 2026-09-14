@@ -13,7 +13,17 @@ import subprocess, shutil, pathlib, sys, re
 #
 # Read the expect column as: what the suite SHOULD say about a tree in this
 # state. A row is PASS when the observed count matches.
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+import sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from mutate_common import disposable_root, tree_digest
+
+# MUTANTS ARE APPLIED IN A THROWAWAY COPY, NEVER IN THE REAL TREE. See
+# test/mutate_common.py for what happened when they were not. SOURCE_ROOT is
+# read once for the copy and for the before/after digest; ROOT is the copy, so
+# every path below and every subprocess cwd resolves inside it.
+SOURCE_ROOT = pathlib.Path(__file__).resolve().parent.parent
+DIGEST_BEFORE = tree_digest(SOURCE_ROOT)
+ROOT = disposable_root(SOURCE_ROOT)
 HTML = ROOT / "extension/popup/popup.html"
 TEST = ROOT / "test/selftest.mjs"
 
@@ -112,7 +122,13 @@ r = subprocess.run(["node", "test/selftest.mjs"], cwd=ROOT, capture_output=True,
 print("-" * 92)
 print("restored:", r.stdout.strip())
 bad = [n for n, ok in verdicts if not ok]
+# The source-untouched assertion is evidence, not defence — mutants land in a
+# throwaway copy, so this can only fail if that stopped being true.
+DIGEST_AFTER = tree_digest(SOURCE_ROOT)
+if DIGEST_AFTER != DIGEST_BEFORE:
+    print("SOURCE TREE MODIFIED BY A MUTATION RUN — this must never happen")
 if bad:
     print("MUTANTS NOT MATCHING EXPECT:", bad)
+if bad or DIGEST_AFTER != DIGEST_BEFORE:
     sys.exit(1)
-print(f"all {len(verdicts)} mutants matched expect")
+print(f"all {len(verdicts)} mutants matched expect; source tree untouched")
