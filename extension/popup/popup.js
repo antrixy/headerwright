@@ -34,6 +34,7 @@ import {
 } from "../lib/collisions.js";
 import { describeSync, DEFAULT_SYNC_STATE } from "../lib/status.js";
 import { createSerialQueue, createDebounced } from "../lib/queue.js";
+import { decodeStoredState } from "../lib/stored.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
@@ -54,12 +55,33 @@ let editingProfileId = null; // null = creating a new profile
 // referencedDomains(), which has always deduplicated. Normalizing here is what
 // makes those two counts agree BY CONSTRUCTION rather than by two call sites
 // remembering to agree. Same posture as A2 — storage is untrusted input.
+// THE SAME DECODER THE WORKER USES. This function used to hold the popup's own
+// interpretation of stored data — `(stored[KEY] || []).map(...)` — which meant
+// a truthy non-array threw here, and a nested malformed record could fail
+// during render or collision computation. More importantly it meant the popup
+// and the worker could DISAGREE about which profiles exist: the worker would
+// drop a record the popup still listed and offered to edit.
+//
+// Both now route through lib/stored.js, which routes through lib/profile.js.
+// If a profile is not shown here, it is because the worker will not apply it.
 async function getProfiles() {
-  const stored = await chrome.storage.local.get(STORAGE_KEY_PROFILES);
-  return (stored[STORAGE_KEY_PROFILES] || []).map((profile) => ({
-    ...profile,
-    domains: normalizeDomains(profile.domains),
-  }));
+  const stored = await chrome.storage.local.get([
+    STORAGE_KEY_PROFILES,
+    STORAGE_KEY_ENABLED,
+  ]);
+  const state = decodeStoredState(stored, {
+    profiles: STORAGE_KEY_PROFILES,
+    enabled: STORAGE_KEY_ENABLED,
+  });
+  // Reported rather than swallowed. A dropped record is invisible to the user
+  // otherwise — the profile simply is not there, with no account of why.
+  if (state.problems.length > 0) {
+    console.warn(
+      `HeaderWright: ${state.problems.length} stored profile(s) could not be ` +
+        `read and are not shown: ${state.problems.join("; ")}`
+    );
+  }
+  return state.profiles;
 }
 
 async function setProfiles(profiles) {
