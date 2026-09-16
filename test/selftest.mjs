@@ -73,7 +73,7 @@ import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 410;
+const EXPECTED_CHECKS = 423;
 
 let passed = 0;
 let failed = 0;
@@ -357,6 +357,67 @@ for (const [label, profile] of [
 // would pass every check above.
 const okProfile = { id: 3, name: "ok", domains: ["a.com"],
   headers: [{ name: "x", operation: "set", value: "v" }] };
+// ------------------------- writer/reader symmetry (HW-V7-02)
+//
+// THE INVARIANT, MADE EXECUTABLE: everything serializeProfiles() accepts,
+// parseProfilesFile() accepts. It did not hold. The writer checked field names
+// and header values and nothing else, so this build serialized profiles its
+// own importer rejected — an export the user believes they have and does not:
+//
+//     {id: 0, name: "", domains: []}  ->  serialized fine, then rejected
+//
+// Table-driven rather than one example, because the asymmetry existed for
+// every profile-level field independently and a single case would have proved
+// only that one of them was fixed.
+const SYMMETRY_CASES = [
+  ["id zero", { id: 0, name: "n", domains: ["a.com"], headers: [{ name: "x", operation: "set", value: "v" }] }],
+  ["id negative", { id: -1, name: "n", domains: ["a.com"], headers: [{ name: "x", operation: "set", value: "v" }] }],
+  ["id NaN", { id: NaN, name: "n", domains: ["a.com"], headers: [{ name: "x", operation: "set", value: "v" }] }],
+  ["id fractional", { id: 1.5, name: "n", domains: ["a.com"], headers: [{ name: "x", operation: "set", value: "v" }] }],
+  ["name empty", { id: 1, name: "", domains: ["a.com"], headers: [{ name: "x", operation: "set", value: "v" }] }],
+  ["name blank", { id: 1, name: "   ", domains: ["a.com"], headers: [{ name: "x", operation: "set", value: "v" }] }],
+  ["domains empty", { id: 1, name: "n", domains: [], headers: [{ name: "x", operation: "set", value: "v" }] }],
+  ["domain invalid", { id: 1, name: "n", domains: ["not a domain"], headers: [{ name: "x", operation: "set", value: "v" }] }],
+  ["headers empty", { id: 1, name: "n", domains: ["a.com"], headers: [] }],
+  ["headers object", { id: 1, name: "n", domains: ["a.com"], headers: {} }],
+];
+
+for (const [label, profile] of SYMMETRY_CASES) {
+  // NaN is the awkward one: the stable JSON writer emits it as null, so the
+  // value CHANGES before the reader ever sees it. Refusing at write time is
+  // the only point where the original fault is still visible.
+  check(`HW-V7-02: export refuses what import would reject — ${label}`,
+    attempt(() => serializeProfiles([profile])) === THREW);
+}
+
+// AND THE INVARIANT ITSELF, over everything the writer does accept.
+check("HW-V7-02: anything serializeProfiles accepts, parseProfilesFile accepts",
+  [
+    [{ id: 1, name: "n", domains: ["a.com"], headers: [{ name: "x", operation: "set", value: "v" }] }],
+    [{ id: 1, name: "n", domains: ["a.com"], headers: [{ name: "x", operation: "remove" }] }],
+    [{ id: 1, name: "n", domains: ["A.com", "a.com"], headers: [{ name: "X", operation: "set", value: "v", side: "response" }] }],
+    [{ id: 2, name: "n", domains: ["a.com"], headers: [{ name: "x", operation: "set", value: "v" }] },
+     { id: 1, name: "m", domains: ["b.com"], headers: [{ name: "y", operation: "set", value: "w" }] }],
+  ].every((profiles) => {
+    const text = attempt(() => serializeProfiles(profiles));
+    if (text === THREW) return false;
+    return attempt(() => parseProfilesFile(text)) !== THREW;
+  }));
+
+// THE ENVELOPE GETS THE SAME POLICY AS PROFILES AND HEADERS. It was the one
+// level never checked, so an unknown top-level key was accepted and silently
+// dropped — in the file whose comment claimed unknown fields were refused.
+checkThrows("HW-V7-02: an unknown top-level field is refused, not dropped", () =>
+  parseProfilesFile(JSON.stringify({
+    format: FILE_FORMAT, version: 1, futureEnvelopeField: "keep", profiles: [],
+  })), 'unknown top-level field "futureEnvelopeField"');
+check("HW-V7-02: the three known envelope keys are still accepted",
+  attempt(() => parseProfilesFile(JSON.stringify({
+    format: FILE_FORMAT, version: 1,
+    profiles: [{ id: 1, name: "n", domains: ["a.com"],
+      headers: [{ name: "x", operation: "set", value: "v" }] }],
+  }))) !== THREW);
+
 check("HW-V7-01: both modes accept a valid profile",
   strictOf(okProfile) === null &&
   tolerantOf(okProfile)?.profiles.length === 1 &&
@@ -592,7 +653,9 @@ check("codec: the export refusal names the field and where it is",
         headers: [{ name: "x", operation: "set", value: "v", zzz: 1 }] }]);
       return false;
     } catch (err) {
-      return err.message.includes("profile 7") &&
+      // Position AND id: position correlates with the importer's messages,
+      // the id finds the profile in a large file.
+      return err.message.includes("profile 1 (id 7)") &&
              err.message.includes("header 1") && err.message.includes("zzz");
     }
   })());
@@ -631,7 +694,8 @@ check("codec: the value refusal explains the consequence, not just the fault",
         headers: [{ name: "x", operation: "set", value: "v", side: "respones" }] }]);
       return false;
     } catch (err) {
-      return err.message.includes("profile 9") && err.message.includes("header 1") &&
+      return err.message.includes("profile 1 (id 9)") &&
+             err.message.includes("header 1") &&
              err.message.includes("re-imported");
     }
   })());

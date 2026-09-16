@@ -271,18 +271,21 @@ MUTATIONS = [
      '      ineligible.add(profile);\n      skippedProfileIds.push(profile.id);\n',
      '      ineligible.add(profile);\n'),
     # ---- export-side strictness (the R1 mitigation that was not implemented)
-    ("canonicalizeProfiles drops unknown ENTRY fields in silence again", CAN,
-     '            if (!ENTRY_KEYS_V2.has(key)) {',
-     '            if (false) {'),
     # ---- HW-V6-05. Removing the value check restores a codec that writes a
     # typo out as a request header and re-imports it as one.
-    ("the export path stops validating known field VALUES", CAN,
-     '          const verdict = validateHeaderEntry(entry);\n          if (!verdict.valid) {',
-     '          const verdict = { valid: true };\n          if (!verdict.valid) {'),
+    # ---- HW-V7-02. Writer/reader symmetry. Each of these restores a build
+    # that can write a file it cannot read.
+    ("the writer stops validating the whole profile", CAN,
+     '      const verdict = validateProfile(profile, { version: FILE_VERSION });',
+     '      const verdict = { valid: true };'),
+    ("the writer validates at the file version, not the model version", CAN,
+     'const verdict = validateProfile(profile, { version: FILE_VERSION });',
+     'const verdict = validateProfile(profile, { version: versionFor([profile]) });'),
+    ("unknown envelope fields are accepted and dropped again", CAN,
+     '    if (!DOC_KEYS.has(key)) {',
+     '    if (false) {'),
 
-    ("canonicalizeProfiles drops unknown PROFILE fields in silence again", CAN,
-     '        if (!PROFILE_KEYS.has(key)) {',
-     '        if (false) {'),
+
 
     # ---- HW-V6-01 interim. The whole fix is a claims fix, so the only way it
     # can regress is the text going back to the confident version. Each of
