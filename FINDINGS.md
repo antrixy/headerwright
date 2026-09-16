@@ -870,7 +870,7 @@ so an added-but-already-granted domain still causes no churn. Recovery for a
 denied or legacy domain is the chip, exclusively — which is what the migration
 notice already tells the user ("Click any underlined domain below to re-approve
 it"), a sentence the pre-0.1.7 code contradicted by re-requesting all of them at
-once. Rejected alternatives and the revisit trigger are in `decisions.md`.
+once. Rejected alternatives and the revisit trigger are in `antrixy/project-planning/decisions.md`.
 
 **Evidence — set arithmetic.** Selftest 273 -> 281. Six new rows on the
 narrowing, including OBS-E5's exact five-profile shape, plus two positive rows
