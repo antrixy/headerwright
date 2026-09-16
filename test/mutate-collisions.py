@@ -20,6 +20,7 @@ CAN = ROOT / "extension/lib/canonical.js"
 POP = ROOT / "extension/popup/popup.js"
 HTML = ROOT / "extension/popup/popup.html"
 SW  = ROOT / "extension/background/sw.js"
+STA = ROOT / "extension/lib/status.js"
 RDM = ROOT / "README.md"
 SCP = ROOT / "SCOPE.md"
 MAN = ROOT / "extension/manifest.json"
@@ -334,8 +335,35 @@ MUTATIONS = [
      '"a profile was dropped"'),
     # ---- HW-V7-01. The convergence itself: one validator, two modes.
     ("dropped profiles vanish from the persisted status again", SW,
-     '[STORAGE_KEY_SYNC]: { ok: syncOk, error, dropped },',
-     '[STORAGE_KEY_SYNC]: { ok: syncOk, error },'),
+     '        skipped,\n        dropped,\n',
+     '        skipped,\n'),
+    # ---- HW-V7-04. Each restores a status that makes a claim it cannot
+    # support. None of them breaks a rule on the wire; they break the only
+    # surface telling the user what reached it.
+    ("skipped profiles are discarded again (partial reads as applied)", SW,
+     '    skipped = plan.skippedProfileIds.map((profileId) => ({ profileId }));',
+     '    skipped = [];'),
+    ("a failed sync overwrites the last applied revision", SW,
+     '        appliedRevision: syncOk ? desiredRevision : previousApplied,',
+     '        appliedRevision: desiredRevision,'),
+    ("the status record loses its configuration revision", SW,
+     '    desiredRevision = configRevision(state.profiles, enabled);',
+     '    desiredRevision = null;'),
+    ("a failed sync claims rules are not applying", STA,
+     'return "sync failed \\u2014 previous rules may still be applying";',
+     'return "not applying \\u2014 last sync failed";'),
+    ("a zero-rule success claims to be applying", STA,
+     '  if ((r.activeRuleCount ?? 0) === 0) return "nothing to apply";',
+     '  if (false) return "nothing to apply";'),
+    ("skipped profiles no longer make the result partial", STA,
+     '  if ((r.skipped?.length ?? 0) > 0 || (r.dropped?.length ?? 0) > 0) {',
+     '  if (false) {'),
+    ("staleness is never detected (old results read as current)", STA,
+     '    r.desiredRevision !== desiredRevision\n  ) {',
+     '    false\n  ) {'),
+    ("v0.1.x status records are misread as successful", STA,
+     '    state: raw.ok === false ? "failed" : "paused",',
+     '    state: "paused",'),
 
     ("the stored decoder stops validating profiles (shallow check returns)", STO,
      '    const verdict = validateProfile(profile);',

@@ -52,9 +52,14 @@ import {
 import {
   computeBadge,
   describeSync,
+  classify,
+  readSyncRecord,
+  configRevision,
   BADGE_ON,
   BADGE_OFF,
   BADGE_FAILED,
+  BADGE_PARTIAL,
+  BADGE_STALE,
   DEFAULT_SYNC_STATE,
 } from "../extension/lib/status.js";
 import {
@@ -73,7 +78,7 @@ import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 423;
+const EXPECTED_CHECKS = 440;
 
 let passed = 0;
 let failed = 0;
@@ -2039,9 +2044,33 @@ check("HW-V6-01: the interim did not narrow RESOURCE_TYPES",
 // worker; hw:sync is what the popup can read. Persisting is not the same as
 // rendering — the badge and status line still cannot say "partial", which is
 // HW-V7-04 and is out of this slice on purpose.
+// The persisted record is now the v2 reconciliation result, so this pins the
+// field inside it rather than the old two-boolean shape. HW-V7-04 also made
+// `dropped` RENDERED rather than merely stored — see the partial checks above.
 check("HW-V7-01: dropped-profile reasons are persisted, not console-only",
   /dropped = state\.problems;/.test(swJs) &&
-  /\[STORAGE_KEY_SYNC\]: \{ ok: syncOk, error, dropped \}/.test(swJs));
+  /schemaVersion: SYNC_SCHEMA_VERSION/.test(swJs) &&
+  // ANCHORED TO THE PERSISTED RECORD, not to `dropped,` anywhere. The first
+  // version matched a second occurrence in the badge call, so a mutant that
+  // removed the field from the STORED record scored zero — the check watched
+  // the wrong one of two identical-looking lines.
+  /dropped,\s*\n\s*error,/.test(swJs));
+
+// ---- HW-V7-04, worker half. Source scans because sw.js calls chrome.* at
+// module scope and cannot be imported. Each pins a line whose removal makes
+// the status claim something it cannot support — and none of them breaks a
+// rule on the wire, which is exactly why only a check will catch it.
+check("HW-V7-04: skipped profile ids reach the status record",
+  /skipped = plan\.skippedProfileIds\.map\(\(profileId\) => \(\{ profileId \}\)\);/
+    .test(swJs));
+// THE LINE THAT KEEPS THE FAILURE HONEST. A failed atomic update changes
+// nothing, so the last revision that actually reached the wire is still live.
+// Overwriting it erases the only record of what is really applying.
+check("HW-V7-04: a failed sync preserves the last applied revision",
+  /appliedRevision: syncOk \? desiredRevision : previousApplied/.test(swJs) &&
+  /activeRuleCount: syncOk \? activeRuleCount : previousRuleCount/.test(swJs));
+check("HW-V7-04: the worker ties its result to a configuration revision",
+  /desiredRevision = configRevision\(state\.profiles, enabled\);/.test(swJs));
 
 check("HW-V7-01: the popup decodes storage through the shared module",
   /decodeStoredState\(stored, \{/.test(popupJs) &&
@@ -2269,38 +2298,116 @@ check("F023: a plain ungranted chip is marked by its BORDER, not an underline",
   /button\.domain\s*\{[^}]*border-style:\s*dashed/.test(styleBlock) &&
   !/button\.domain\s*\{[^}]*text-decoration/.test(styleBlock));
 
-// ------------------------------------------ badge honesty (finding 4, A5)
-// The narrow half only: does the badge stop asserting ON when registration
-// failed. activeRuleCount and the four-state scheme are NOT here on purpose.
+// -------------------------- status honesty (finding 4 A5, then HW-V7-04)
+//
+// THE v0.1.1 CLAIMS ARE ALL STILL HERE, rewritten for the record shape rather
+// than deleted. Each one was a false assertion the badge used to make, and a
+// check that stops being expressible when the API changes is a guarantee
+// quietly dropped. The 2026-09-14 additions sit below them.
+//
+// The old note said activeRuleCount and the four-state scheme were "NOT here
+// on purpose" and belonged in their own minor. This is that minor.
+
+const REC = (o) => ({ ...DEFAULT_SYNC_STATE, desiredRevision: "r", ...o });
+const applied = (o = {}) => REC({ state: "applied", activeRuleCount: 1, ...o });
+const failedRec = (o = {}) => REC({ state: "failed", error: "boom", ...o });
+const at = (enabled, record) => ({ enabled, desiredRevision: "r", record });
 
 check("enabled + successful sync shows ON",
-  computeBadge({ enabled: true, syncOk: true }) === BADGE_ON);
+  computeBadge(at(true, applied())) === BADGE_ON);
 check("disabled + successful sync shows OFF",
-  computeBadge({ enabled: false, syncOk: true }) === BADGE_OFF);
+  computeBadge(at(false, REC({ state: "paused" }))) === BADGE_OFF);
 check("enabled + FAILED sync does not show ON",
-  computeBadge({ enabled: true, syncOk: false }) !== BADGE_ON);
+  computeBadge(at(true, failedRec())) !== BADGE_ON);
 check("enabled + FAILED sync shows the failure badge",
-  computeBadge({ enabled: true, syncOk: false }) === BADGE_FAILED);
+  computeBadge(at(true, failedRec())) === BADGE_FAILED);
+// FAILURE OUTRANKS THE TOGGLE. When the toggle goes off, the sync that runs is
+// the one CLEARING the rules; if that failed, OFF is as false as ON.
 check("DISABLED + failed sync does not show OFF either (clear may have failed)",
-  computeBadge({ enabled: false, syncOk: false }) === BADGE_FAILED);
+  computeBadge(at(false, failedRec())) === BADGE_FAILED);
 check("badge text fits Chrome's badge (<= 4 chars) in every state",
-  [BADGE_ON, BADGE_OFF, BADGE_FAILED].every((b) => b.text.length <= 4));
+  [BADGE_ON, BADGE_OFF, BADGE_FAILED, BADGE_PARTIAL, BADGE_STALE]
+    .every((b) => b.text.length <= 4));
 check("every badge state carries a colour",
-  [BADGE_ON, BADGE_OFF, BADGE_FAILED].every((b) => /^#[0-9a-f]{6}$/i.test(b.color)));
+  [BADGE_ON, BADGE_OFF, BADGE_FAILED, BADGE_PARTIAL, BADGE_STALE]
+    .every((b) => /^#[0-9a-f]{6}$/i.test(b.color)));
 
 check("status line says applying when enabled and synced",
-  describeSync({ enabled: true, syncOk: true }) === "applying");
+  describeSync(at(true, applied())) === "applying 1");
 check("status line says paused when disabled and synced",
-  describeSync({ enabled: false, syncOk: true }) === "paused");
+  describeSync(at(false, REC({ state: "paused" }))) === "paused");
 check("status line does not claim applying after a failed sync",
-  describeSync({ enabled: true, syncOk: false }) !== "applying");
+  !describeSync(at(true, failedRec())).startsWith("applying"));
 check("status line does not claim paused after a failed sync",
-  describeSync({ enabled: false, syncOk: false }) !== "paused");
+  describeSync(at(false, failedRec())) !== "paused");
 check("failed-sync text names the failure rather than a stale good state",
-  describeSync({ enabled: true, syncOk: false }).includes("failed"));
+  describeSync(at(true, failedRec())).includes("failed"));
 check("missing sync state defaults to ok, not to a claimed failure",
-  DEFAULT_SYNC_STATE.ok === true &&
-  computeBadge({ enabled: true, syncOk: DEFAULT_SYNC_STATE.ok }) === BADGE_ON);
+  DEFAULT_SYNC_STATE.state !== "failed" &&
+  computeBadge({ enabled: true, desiredRevision: null, record: null }) === BADGE_ON);
+
+// ---- HW-V7-04. Two claims the two-boolean model made that were FALSE.
+//
+// 1. "not applying" after a failed atomic update. Chrome documents that a
+//    failed updateDynamicRules() changes NOTHING, so the previous rules are
+//    still registered and still modifying traffic. Telling a user nothing is
+//    applying, when something may be, is the more dangerous of the two errors.
+check("HW-V7-04: a failed sync never claims rules are not applying",
+  !/not applying/.test(describeSync(at(true, failedRec()))) &&
+  !/not applying/.test(describeSync(at(false, failedRec()))));
+check("HW-V7-04: a failed sync says the previous rules may still be live",
+  /previous rules may still be applying/.test(describeSync(at(true, failedRec()))));
+
+// 2. "applying" after a successful update that registered nothing, or that
+//    skipped profiles. buildRules() computed skippedProfileIds and runSync()
+//    discarded it, so every reason a profile did not apply was known and
+//    thrown away.
+check("HW-V7-04: a successful zero-rule sync does not claim to be applying",
+  describeSync(at(true, applied({ activeRuleCount: 0 }))) === "nothing to apply");
+check("HW-V7-04: skipped profiles produce partial, not applied",
+  classify(at(true, applied({ skipped: [{ profileId: 9 }] }))) === "partial" &&
+  computeBadge(at(true, applied({ skipped: [{ profileId: 9 }] }))) === BADGE_PARTIAL);
+check("HW-V7-04: partial says how many applied AND how many did not",
+  describeSync(at(true, applied({ activeRuleCount: 2, skipped: [{ profileId: 9 }] })))
+    === "applying 2 \u00b7 1 not applied");
+// Dropped malformed records count too. They were persisted but invisible.
+check("HW-V7-04: dropped records also make the result partial",
+  classify(at(true, applied({ dropped: ["profile 2 dropped: bad"] }))) === "partial");
+
+// 3. A result that does not describe the CURRENT configuration claims nothing.
+//    The popup can render from a storage change before the worker reconciles.
+check("HW-V7-04: a record for a different configuration reads as stale",
+  classify({ enabled: true, desiredRevision: "new", record: applied() }) === "stale" &&
+  !/applying/.test(describeSync({ enabled: true, desiredRevision: "new", record: applied() })));
+// But a KNOWN FAILURE beats "we do not know" — it describes reality better.
+check("HW-V7-04: failure outranks staleness",
+  classify({ enabled: true, desiredRevision: "new", record: failedRec() }) === "failed");
+
+// 4. v0.1.x records must still be readable. An upgrading install holds
+//    {ok, error} and the worker may not rewrite it until something changes.
+check("HW-V7-04: a v0.1.x {ok:false} record still reads as failed",
+  readSyncRecord({ ok: false, error: "old" }).state === "failed" &&
+  readSyncRecord({ ok: false, error: "old" }).error === "old");
+check("HW-V7-04: a v0.1.x {ok:true} record does not invent an applied count",
+  readSyncRecord({ ok: true, error: null }).activeRuleCount === 0 &&
+  readSyncRecord({ ok: true, error: null }).appliedRevision === null);
+check("HW-V7-04: garbage in the status key does not claim a failure",
+  readSyncRecord(null).state !== "failed" &&
+  readSyncRecord("nonsense").state !== "failed" &&
+  readSyncRecord([]).state !== "failed");
+
+// 5. The revision must actually distinguish configurations, or staleness is
+//    undetectable and every check above passes vacuously.
+const pA = [{ id: 1, name: "n", domains: ["a.com"],
+  headers: [{ name: "x", operation: "set", value: "v" }] }];
+const pB = [{ id: 1, name: "n", domains: ["a.com"],
+  headers: [{ name: "x", operation: "set", value: "CHANGED" }] }];
+check("HW-V7-04: configRevision is stable for the same configuration",
+  configRevision(pA, true) === configRevision(pA, true));
+check("HW-V7-04: configRevision changes when a header value changes",
+  configRevision(pA, true) !== configRevision(pB, true));
+check("HW-V7-04: configRevision changes when the toggle changes",
+  configRevision(pA, true) !== configRevision(pA, false));
 
 // ------------------------------------------- serial queue (finding 5)
 // Async, so these run after the synchronous checks above and their results
