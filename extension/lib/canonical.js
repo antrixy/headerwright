@@ -29,6 +29,7 @@
 //   - the master toggle is deliberately NOT part of the file: it is
 //     local runtime state, not shareable configuration
 
+import { validateProfile, PROFILE_KEYS, ENTRY_KEYS_V2 } from "./profile.js";
 import {
   validateHeaderEntry,
   isValidDomain,
@@ -51,9 +52,9 @@ export const READABLE_VERSIONS = [1, 2];
 // into a request header on export. A rebuild that names its fields will always
 // drop the field nobody remembered to add. Refusing unknown keys means the
 // next field added elsewhere fails loudly here instead.
-const PROFILE_KEYS = new Set(["id", "name", "domains", "headers"]);
-const ENTRY_KEYS_V1 = new Set(["name", "operation", "value"]);
-const ENTRY_KEYS_V2 = new Set(["name", "operation", "value", "side"]);
+// Key sets live in lib/profile.js with the validator that uses them; they are
+// imported rather than redeclared so a new field cannot be added to one list
+// and forgotten in the other.
 
 /**
  * The LOWEST version that can read this profile set without losing meaning.
@@ -260,68 +261,26 @@ export function parseProfilesFile(text) {
     );
   }
 
+  // ONE VALIDATOR, TWO MODES. The per-profile rules used to be written out
+  // inline here and, in a shallower form, again in stored.js. They now live in
+  // lib/profile.js and both callers share them: import STOPS on the first
+  // invalid profile because a file is all-or-nothing, storage DROPS the
+  // invalid profile because a working configuration must survive one bad
+  // record. Same rules, different response to failure.
   const seenIds = new Set();
   doc.profiles.forEach((profile, index) => {
     const where = `profile ${index + 1}`;
-    if (profile === null || typeof profile !== "object" || Array.isArray(profile)) {
-      throw new Error(`${where}: must be an object`);
+    const verdict = validateProfile(profile, { version: doc.version });
+    if (!verdict.valid) {
+      throw new Error(`${where}: ${verdict.reason}`);
     }
-    // The id is used verbatim as the DNR dynamic rule id, and one bad id
-    // fails the whole atomic updateDynamicRules() call — every other
-    // profile's rules go down with it. Import accepts hand-edited JSON, so
-    // this is the boundary where a crafted or fat-fingered id is caught.
-    if (!isValidRuleId(profile.id)) {
-      throw new Error(
-        `${where}: "id" must be an integer between 1 and ${MAX_RULE_ID}`
-      );
-    }
+    // Duplicate ids are a property of the SET, not of a profile, so they are
+    // checked here rather than inside validateProfile(). The worker checks the
+    // same property over stored profiles in buildRules().
     if (seenIds.has(profile.id)) {
       throw new Error(`${where}: duplicate id ${profile.id}`);
     }
     seenIds.add(profile.id);
-    if (typeof profile.name !== "string" || profile.name.trim() === "") {
-      throw new Error(`${where}: "name" must be a non-empty string`);
-    }
-    if (!Array.isArray(profile.domains) || profile.domains.length === 0) {
-      throw new Error(`${where}: "domains" must be a non-empty array`);
-    }
-    for (const domain of profile.domains) {
-      if (typeof domain !== "string" || !isValidDomain(domain.toLowerCase())) {
-        throw new Error(`${where}: "${domain}" is not a valid domain`);
-      }
-    }
-    if (!Array.isArray(profile.headers) || profile.headers.length === 0) {
-      throw new Error(`${where}: "headers" must be a non-empty array`);
-    }
-    for (const key of Object.keys(profile)) {
-      if (!PROFILE_KEYS.has(key)) {
-        throw new Error(`${where}: unknown field "${key}"`);
-      }
-    }
-    profile.headers.forEach((entry, headerIndex) => {
-      const at = `${where}, header ${headerIndex + 1}`;
-      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-        const allowed = doc.version >= 2 ? ENTRY_KEYS_V2 : ENTRY_KEYS_V1;
-        for (const key of Object.keys(entry)) {
-          if (!allowed.has(key)) {
-            // A `side` key inside a version 1 envelope is the dangerous case
-            // rather than a typo: the file carries v2 meaning while claiming
-            // v1, so every shipped 0.1.x build would accept it and apply a
-            // response header on the request side. Refusing is the whole
-            // point of the version bump.
-            throw new Error(
-              key === "side" && doc.version < 2
-                ? `${at}: "side" requires version 2 (file claims version ${doc.version})`
-                : `${at}: unknown field "${key}"`
-            );
-          }
-        }
-      }
-      const result = validateHeaderEntry(entry);
-      if (!result.valid) {
-        throw new Error(`${at}: ${result.reason}`);
-      }
-    });
   });
 
   // FINDING-021, the import half of the write-path refusal. Runs AFTER every

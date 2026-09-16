@@ -11,6 +11,7 @@
 // independent of the worker's constants and the dependency runs one way.
 
 import { normalizeDomains } from "./rules.js";
+import { validateProfile } from "./profile.js";
 
 // TOTAL: accepts anything storage can hold and never throws. The previous
 // version did `(stored[KEY] || []).map(...)`, which throws on a truthy
@@ -42,20 +43,28 @@ export function decodeStoredState(stored, keys) {
     problems.push(`stored profiles are ${typeof raw}, expected an array`);
   }
 
+  // EACH PROFILE IS JUDGED INDEPENDENTLY, against the SAME rules the importer
+  // and the export writer use. The previous version checked only that each
+  // entry was a non-array object and that its domains normalized — so
+  // `headers: {}` passed here and then threw inside headerKeysFor() and
+  // profileToRule(), and because updateDynamicRules() is atomic the failure
+  // left the PREVIOUS rules registered while hw:sync reported a failure. One
+  // malformed nested field disabled every valid profile, in a worker whose own
+  // comment promised that could not happen.
+  //
+  // Validation is shared rather than reimplemented: see lib/profile.js for why
+  // eight local definitions of "valid profile" were the actual defect.
   const profiles = [];
   list.forEach((profile, index) => {
-    if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
-      problems.push(`profile ${index + 1} is not an object`);
+    const verdict = validateProfile(profile);
+    if (!verdict.valid) {
+      // DROPPED WITH A REASON, NEVER REPAIRED. Guessing what a corrupt record
+      // meant is how the wrong-side defects happened; the problems list is
+      // where it becomes visible instead.
+      problems.push(`profile ${index + 1} dropped: ${verdict.reason}`);
       return;
     }
-    let domains;
-    try {
-      domains = normalizeDomains(profile.domains);
-    } catch {
-      problems.push(`profile ${index + 1} has unreadable domains`);
-      return;
-    }
-    profiles.push({ ...profile, domains });
+    profiles.push({ ...profile, domains: normalizeDomains(profile.domains) });
   });
 
   return {
