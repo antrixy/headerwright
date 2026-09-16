@@ -228,7 +228,7 @@ export function staleManagedOrigins(profiles, grantedOrigins) {
  *    what FINDING-002 built and what the migration notice already tells the
  *    user to use ("Click any underlined domain below to re-approve it") —
  *    a sentence the pre-0.1.7 code contradicted by re-requesting all of them
- *    at once. See decisions.md, and the chip rows in the v0.1.7 runbook.
+ *    at once. See antrixy/project-planning/decisions.md, and the chip rows in the v0.1.7 runbook.
  */
 export function diffDomainGrants({
   previousProfiles,
