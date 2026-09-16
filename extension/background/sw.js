@@ -19,7 +19,12 @@ import {
   findCollisions,
   collidingProfileIds,
 } from "../lib/collisions.js";
-import { computeBadge } from "../lib/status.js";
+import {
+  computeBadge,
+  configRevision,
+  readSyncRecord,
+  SYNC_SCHEMA_VERSION,
+} from "../lib/status.js";
 import { createSerialQueue } from "../lib/queue.js";
 import { decodeStoredState } from "../lib/stored.js";
 
@@ -228,6 +233,19 @@ async function runSync() {
   let enabled = false;
   let syncOk = true;
   let error = null;
+  // Read before the transaction so a failure can carry forward what is
+  // actually registered rather than claiming nothing is.
+  let previousApplied = null;
+  let previousRuleCount = 0;
+  try {
+    const prior = readSyncRecord(
+      (await chrome.storage.local.get(STORAGE_KEY_SYNC))[STORAGE_KEY_SYNC]
+    );
+    previousApplied = prior.appliedRevision;
+    previousRuleCount = prior.activeRuleCount;
+  } catch {
+    // A status read failing must not stop the reconciliation it describes.
+  }
   // DROPPED RECORDS MUST OUTLIVE THE CONSOLE. Previously the decoder's
   // problems went only to console.warn, so a reconciliation that silently
   // discarded a profile still wrote {ok:true}, showed a green badge and read
@@ -240,6 +258,14 @@ async function runSync() {
   // decoders, and widening it is how the last three reviews' defects were
   // created.
   let dropped = [];
+  // THE RECONCILIATION RESULT, not two booleans. Reviewed finding HW-V7-04:
+  // {ok, error} could not distinguish "applied", "applied but three profiles
+  // were skipped", "failed with the PREVIOUS rules still live", or "no result
+  // for this configuration yet" — and it rendered two of those as their
+  // opposite.
+  let skipped = [];
+  let activeRuleCount = 0;
+  let desiredRevision = null;
 
   try {
     const state = await getStoredState();
@@ -262,7 +288,23 @@ async function runSync() {
     // DISABLE CLEARS UNCONDITIONALLY. When enabled is false the profiles are
     // never consulted, so no amount of corruption in them can keep old rules
     // registered. buildRules() is only reached on the enabled path.
-    const addRules = enabled ? (await buildRules(state.profiles)).rules : [];
+    // REVISION TIES THE RESULT TO THE CONFIGURATION IT DESCRIBES. Without it
+    // the popup can pair new profiles with an old successful record and render
+    // a stale success as current. Computed from the DECODED profiles, which is
+    // the same input the popup decodes through the same module — so both
+    // compute the same value without coordinating.
+    desiredRevision = configRevision(state.profiles, enabled);
+
+    const plan = enabled
+      ? await buildRules(state.profiles)
+      : { rules: [], skippedProfileIds: [] };
+    const addRules = plan.rules;
+    // skippedProfileIds was COMPUTED AND THEN DISCARDED here. Every reason a
+    // profile does not apply — ungranted, invalid id, duplicate id, colliding
+    // — was known at this point and thrown away, which is why a successful
+    // zero-rule update could report "applying".
+    skipped = plan.skippedProfileIds.map((profileId) => ({ profileId }));
+    activeRuleCount = addRules.length;
 
     // Single atomic call — per Chrome's docs, either all specified rules are
     // added and removed, or an error is returned and nothing changes. Rule
@@ -302,14 +344,38 @@ async function runSync() {
   // had confirmed.
   try {
     await chrome.storage.local.set({
-      [STORAGE_KEY_SYNC]: { ok: syncOk, error, dropped },
+      [STORAGE_KEY_SYNC]: {
+        schemaVersion: SYNC_SCHEMA_VERSION,
+        state: syncOk ? (enabled ? "applied" : "paused") : "failed",
+        desiredRevision,
+        // APPLIED REVISION IS UNCHANGED ON FAILURE, and that is the point.
+        // Chrome leaves the previous rules registered when an atomic update
+        // fails, so the last revision that actually reached the wire is still
+        // the one that is live. Overwriting it would erase the only record of
+        // what is really applying.
+        appliedRevision: syncOk ? desiredRevision : previousApplied,
+        activeRuleCount: syncOk ? activeRuleCount : previousRuleCount,
+        skipped,
+        dropped,
+        error,
+      },
     });
   } catch (err) {
     console.error("HeaderWright: could not record sync status —", err);
   }
 
   try {
-    await updateBadge({ enabled, syncOk });
+    await updateBadge({
+      enabled,
+      desiredRevision,
+      record: {
+        state: syncOk ? (enabled ? "applied" : "paused") : "failed",
+        desiredRevision,
+        activeRuleCount,
+        skipped,
+        dropped,
+      },
+    });
   } catch (err) {
     console.error("HeaderWright: could not update the badge —", err);
   }
