@@ -44,6 +44,12 @@ const CASES = {
   plain: [
     ["X-HW-Oracle", "baseline"],
     ["X-HW-Second", "two"],
+    // PRESENT SO RESPONSE `remove` HAS SOMETHING TO REMOVE. Added 2026-09-14:
+    // the v0.2 runbook tested response `set` and refused `append`, and had no
+    // wire row for `remove` at all — an operation that ships in this release.
+    // A removal row needs a header the server reliably sends and that nothing
+    // else in the fixture depends on.
+    ["X-HW-Removable", "present"],
   ],
 };
 
