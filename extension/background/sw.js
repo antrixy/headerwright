@@ -228,6 +228,18 @@ async function runSync() {
   let enabled = false;
   let syncOk = true;
   let error = null;
+  // DROPPED RECORDS MUST OUTLIVE THE CONSOLE. Previously the decoder's
+  // problems went only to console.warn, so a reconciliation that silently
+  // discarded a profile still wrote {ok:true}, showed a green badge and read
+  // "applying". The user's configuration was partly gone with nothing durable
+  // saying so.
+  //
+  // THIS IS NOT THE STATUS MODEL. It persists the diagnostic; it does not yet
+  // make the badge or the status line distinguish applied from partial. That
+  // is HW-V7-04 and is deliberately not attempted here — this slice converges
+  // decoders, and widening it is how the last three reviews' defects were
+  // created.
+  let dropped = [];
 
   try {
     const state = await getStoredState();
@@ -236,6 +248,7 @@ async function runSync() {
     if (state.problems.length > 0) {
       // Reported, not thrown. A corrupt record must not be able to stop the
       // rest of the reconciliation — least of all a disable.
+      dropped = state.problems;
       console.warn(
         `HeaderWright: ${state.problems.length} stored configuration ` +
           `problem(s), those profiles are not applied: ` +
@@ -289,7 +302,7 @@ async function runSync() {
   // had confirmed.
   try {
     await chrome.storage.local.set({
-      [STORAGE_KEY_SYNC]: { ok: syncOk, error },
+      [STORAGE_KEY_SYNC]: { ok: syncOk, error, dropped },
     });
   } catch (err) {
     console.error("HeaderWright: could not record sync status —", err);
