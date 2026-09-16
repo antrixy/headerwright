@@ -73,7 +73,7 @@ import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 399;
+const EXPECTED_CHECKS = 410;
 
 let passed = 0;
 let failed = 0;
@@ -287,12 +287,81 @@ check("HW-V6-04: a malformed profiles value yields no profiles and a reason",
 // ONE BAD PROFILE MUST NOT TAKE THE GOOD ONES DOWN. The old code threw on the
 // whole array; the previous atomic-update defect had the same shape one layer
 // down. Both are the same mistake: letting one bad record decide for the rest.
-const mixed = decode([{ id: 1, name: "ok", domains: ["a.com"], headers: [] }, null]);
+// THE "GOOD" PROFILE HERE MUST ACTUALLY BE GOOD. The first version used
+// `headers: []`, which the shallow decoder accepted and the converged
+// validator correctly rejects — so the check was asserting that a valid
+// profile survives while supplying an invalid one. It failed the moment the
+// validators converged, which is the check working.
+const mixed = decode([
+  { id: 1, name: "ok", domains: ["a.com"],
+    headers: [{ name: "x", operation: "set", value: "v" }] },
+  null,
+]);
 check("HW-V6-04: a valid profile survives alongside an invalid one",
   mixed?.profiles.length === 1 && mixed?.profiles[0].id === 1 &&
   mixed?.problems.length === 1);
 // Malformed entries are DROPPED, never repaired. Guessing what a corrupt
 // record meant is how the wrong-side defects happened.
+// ------------------------------- one validator, two modes (HW-V7-01)
+//
+// THE POINT IS CONVERGENCE, NOT ANOTHER GUARD. Three external reviews found
+// defects living between eight separate answers to "is this profile valid?".
+// The strict per-profile rules were inline in canonical.js, a shallower shape
+// check was inline in stored.js, and the popup read storage with its own
+// third interpretation. All three now route through lib/profile.js.
+//
+// These checks assert the two modes agree on the RULES and differ only in the
+// RESPONSE to failure: import rejects the file, storage drops the record.
+const strictOf = (profile) => {
+  try {
+    parseProfilesFile(JSON.stringify({
+      format: FILE_FORMAT, version: 2, profiles: [profile],
+    }));
+    return null;
+  } catch (err) {
+    return err.message;
+  }
+};
+// GUARDED. decodeStoredState's entire contract is that it does not throw, so
+// the checks verifying the rest of its behaviour are precisely the ones a
+// throwing mutant would abort — scoring whatever ran first and hiding the
+// rest. Returning null makes the refusal a FAIL.
+const tolerantOf = (profile) => {
+  try {
+    return decodeStoredState(
+      { "hw:profiles": [profile], "hw:enabled": true }, KEYS
+    );
+  } catch {
+    return null;
+  }
+};
+
+for (const [label, profile] of [
+  ["headers is an object", { id: 2, name: "b", domains: ["a.com"], headers: {} }],
+  ["id is zero", { id: 0, name: "b", domains: ["a.com"], headers: [{ name: "x", operation: "set", value: "v" }] }],
+  ["name is empty", { id: 2, name: "", domains: ["a.com"], headers: [{ name: "x", operation: "set", value: "v" }] }],
+  ["domains is empty", { id: 2, name: "b", domains: [], headers: [{ name: "x", operation: "set", value: "v" }] }],
+  ["headers is empty", { id: 2, name: "b", domains: ["a.com"], headers: [] }],
+  ["unknown profile field", { id: 2, name: "b", domains: ["a.com"], colour: "red", headers: [{ name: "x", operation: "set", value: "v" }] }],
+  ["misspelled side", { id: 2, name: "b", domains: ["a.com"], headers: [{ name: "x", operation: "set", value: "v", side: "respones" }] }],
+]) {
+  // Both modes must AGREE this is invalid. A shape one accepts and the other
+  // rejects is exactly the seam every one of these defects crossed.
+  check(`HW-V7-01: both modes reject — ${label}`,
+    strictOf(profile) !== null &&
+    tolerantOf(profile)?.profiles.length === 0 &&
+    tolerantOf(profile)?.problems.length === 1);
+}
+
+// AND A VALID PROFILE MUST SURVIVE BOTH. A validator that rejected everything
+// would pass every check above.
+const okProfile = { id: 3, name: "ok", domains: ["a.com"],
+  headers: [{ name: "x", operation: "set", value: "v" }] };
+check("HW-V7-01: both modes accept a valid profile",
+  strictOf(okProfile) === null &&
+  tolerantOf(okProfile)?.profiles.length === 1 &&
+  tolerantOf(okProfile)?.problems.length === 0);
+
 check("HW-V6-04: problems name which profile, not just that there was one",
   /profile 2/.test(mixed?.problems[0] ?? ""));
 
@@ -1894,6 +1963,39 @@ check("HW-V6-01: the interim did not narrow RESOURCE_TYPES",
   RESOURCE_TYPES.includes("xmlhttprequest") &&
   RESOURCE_TYPES.includes("image") &&
   RESOURCE_TYPES.includes("main_frame"));
+
+// THE POPUP MUST NOT KEEP ITS OWN DECODER. It read storage directly with
+// `(stored[KEY] || []).map(...)`, so it could list and offer to edit a profile
+// the worker had already dropped.
+// PIN WHAT IS RETURNED, not merely that the decoder is called. The first
+// version matched the call site, so a mutant that called the decoder and then
+// returned raw storage anyway scored ZERO — the check watched the wrong half
+// of the function.
+// A DROPPED RECORD MUST LEAVE A DURABLE TRACE. console.warn dies with the
+// worker; hw:sync is what the popup can read. Persisting is not the same as
+// rendering — the badge and status line still cannot say "partial", which is
+// HW-V7-04 and is out of this slice on purpose.
+check("HW-V7-01: dropped-profile reasons are persisted, not console-only",
+  /dropped = state\.problems;/.test(swJs) &&
+  /\[STORAGE_KEY_SYNC\]: \{ ok: syncOk, error, dropped \}/.test(swJs));
+
+check("HW-V7-01: the popup decodes storage through the shared module",
+  /decodeStoredState\(stored, \{/.test(popupJs) &&
+  /return state\.profiles;/.test(popupJs) &&
+  !/\(stored\[STORAGE_KEY_PROFILES\] \|\| \[\]\)\.map/.test(popupJs));
+check("HW-V7-01: validation is defined once, not re-declared per consumer", (() => {
+  const canonicalJs = readFileSync(
+    new URL("../extension/lib/canonical.js", import.meta.url), "utf8"
+  );
+  const storedJs = readFileSync(
+    new URL("../extension/lib/stored.js", import.meta.url), "utf8"
+  );
+  // Neither consumer may hold its own copy of the key sets or its own
+  // per-profile checks. Both must import the shared validator.
+  return !/const PROFILE_KEYS = new Set/.test(canonicalJs) &&
+    /from "\.\/profile\.js"/.test(canonicalJs) &&
+    /validateProfile/.test(storedJs);
+})());
 
 check("F002: the chip's click handler requests THAT DOMAIN only",
   /permissions\.request\(\{\s*origins: originsForDomain\(domain\),?\s*\}\)/.test(popupJs));

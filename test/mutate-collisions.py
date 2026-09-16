@@ -27,6 +27,7 @@ ORC = ROOT / "test/oracle/index.html"
 ORM = ROOT / "test/oracle/index.mjs"
 MC  = ROOT / "test/mutate-scans.py"
 STO = ROOT / "extension/lib/stored.js"
+PRO = ROOT / "extension/lib/profile.js"
 
 MUTATIONS = [
     ("drop the leading dot (suffix-confusable guard removed)", COL,
@@ -238,12 +239,12 @@ MUTATIONS = [
     ("version is stamped from the build, not from what the file needs", CAN,
      '    version: versionFor(profiles),',
      '    version: FILE_VERSION,'),
-    ("a v1 envelope carrying side is accepted (0.1.x would misapply it)", CAN,
-     '        const allowed = doc.version >= 2 ? ENTRY_KEYS_V2 : ENTRY_KEYS_V1;',
-     '        const allowed = ENTRY_KEYS_V2;'),
-    ("unknown fields are dropped in silence again", CAN,
-     '          if (!allowed.has(key)) {',
-     '          if (false) {'),
+    ("a v1 envelope carrying side is accepted (0.1.x would misapply it)", PRO,
+     '  const allowed = entryKeysFor(version);',
+     '  const allowed = ENTRY_KEYS_V2;'),
+    ("unknown fields are dropped in silence again", PRO,
+     '        if (!allowed.has(key)) {',
+     '        if (false) {'),
 
     # ---- R10 / R6. Each of these leaves an extension that loads and a popup
     # that renders. The damage is a FAILED ATOMIC UPDATE: every profile's
@@ -320,14 +321,31 @@ MUTATIONS = [
      '  } else {\n    // Not a list at all. Enabled state is independent and still honoured,\n    // which is what lets disable clear rules from a corrupt configuration.\n    problems.push(`stored profiles are ${typeof raw}, expected an array`);\n  }',
      '  } else {\n    list = raw.map((x) => x);\n  }'),
     ("a malformed element aborts the whole set instead of being skipped", STO,
-     '      problems.push(`profile ${index + 1} is not an object`);\n      return;',
-     '      throw new Error("bad profile");'),
+     '      problems.push(`profile ${index + 1} dropped: ${verdict.reason}`);\n      return;',
+     '      throw new Error(verdict.reason);'),
     ("enabled is read from the profiles value, coupling the two", STO,
      'enabled: stored[keys.enabled] === true,',
      'enabled: stored[keys.enabled] === true && profiles.length > 0,'),
     ("problems stop naming which profile failed", STO,
-     '`profile ${index + 1} is not an object`',
-     '"a profile is not an object"'),
+     '`profile ${index + 1} dropped: ${verdict.reason}`',
+     '"a profile was dropped"'),
+    # ---- HW-V7-01. The convergence itself: one validator, two modes.
+    ("dropped profiles vanish from the persisted status again", SW,
+     '[STORAGE_KEY_SYNC]: { ok: syncOk, error, dropped },',
+     '[STORAGE_KEY_SYNC]: { ok: syncOk, error },'),
+
+    ("the stored decoder stops validating profiles (shallow check returns)", STO,
+     '    const verdict = validateProfile(profile);',
+     '    const verdict = { valid: true };'),
+    ("headers is no longer required to be an array", PRO,
+     '  if (!Array.isArray(profile.headers) || profile.headers.length === 0) {',
+     '  if (false) {'),
+    ("the importer stops using the shared validator", CAN,
+     '    const verdict = validateProfile(profile, { version: doc.version });',
+     '    const verdict = { valid: true };'),
+    ("the popup reads storage directly again, bypassing the decoder", POP,
+     '  return state.profiles;',
+     '  return stored[STORAGE_KEY_PROFILES] || [];'),
 
     ("the digest stops deciding whether a harness fails", MC,
      'if bad or DIGEST_AFTER != DIGEST_BEFORE:',
