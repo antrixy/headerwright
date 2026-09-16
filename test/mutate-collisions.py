@@ -24,6 +24,7 @@ RDM = ROOT / "README.md"
 SCP = ROOT / "SCOPE.md"
 MAN = ROOT / "extension/manifest.json"
 ORC = ROOT / "test/oracle/index.html"
+ORM = ROOT / "test/oracle/index.mjs"
 MC  = ROOT / "test/mutate-scans.py"
 STO = ROOT / "extension/lib/stored.js"
 
@@ -211,12 +212,17 @@ MUTATIONS = [
      'sideSelect.className = "h-which";'),
 
     # ---- oracle page. No other check in the project reads this file.
-    ("the verdict goes back to pass/fail colour (pink reads as failure)", ORC,
-     '    <div class="verdict">',
-     '    <div class="verdict ${d.identical ? "unmodified" : "modified"}">'),
-    ("MEASUREMENT FAILED shares a class with UNMODIFIED again", ORC,
-     'class="verdict failed"',
-     'class="verdict unmodified"'),
+    ("the verdict goes back to pass/fail colour (pink reads as failure)", ORM,
+     '      "verdict"',
+     '      d.identical ? "verdict unmodified" : "verdict modified"'),
+    ("MEASUREMENT FAILED shares a class with UNMODIFIED again", ORM,
+     '"verdict failed"',
+     '"verdict unmodified"'),
+    # HW-V7-07. Measured header values reaching innerHTML let the profile under
+    # test write DOM into the page certifying it.
+    ("the results table goes back to innerHTML interpolation", ORM,
+     '    row.appendChild(el("td", name));',
+     '    row.innerHTML = `<td>${name}</td>`;'),
     ("the phase-inversion warning is dropped from the page", ORC,
      '<strong>\u201cUNMODIFIED\u201d is not a verdict on its own.</strong>',
      ''),

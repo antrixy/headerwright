@@ -111,7 +111,15 @@ for name, f, expect, old, new in MUTATIONS:
     out = r.stdout + r.stderr
     fails = len(re.findall(r"^FAIL:", out, re.M))
     tripwire = "count tripwire" in out
-    crashed = "SyntaxError" in out or "ReferenceError" in out or "TypeError" in out
+    # CRASH IS DETECTED BY ABSENCE OF A TERMINAL LINE, not by error name — the
+    # same fix mutate-collisions.py received on 2026-09-13 and which was not
+    # carried across at the time. String-matching three error names only catches
+    # the throws someone thought to enumerate: a RangeError or a bare Error read
+    # as a completed run, and if the partial FAIL count happened to equal the
+    # expected count the row would report PASS on a suite that died partway.
+    finished = ("checks passed" in out or "checks FAILED" in out
+                or "count tripwire" in out)
+    crashed = not finished
     ok = (fails == expect) and not tripwire and not crashed
     label = f"{fails}" + (" +tw" if tripwire else "") + (" CRASH" if crashed else "")
     print(f"{name:58s} {'yes':>8s} {label:>6s} {expect:>7d} {'PASS' if ok else 'FAIL':>5s}")

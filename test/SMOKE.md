@@ -216,7 +216,7 @@ below is backwards and is kept in its original wording.**
 Since v0.1.7 `toRequest` is diffed against MEMBERSHIP first, deliberately —
 `!before.has(d) && !granted.has(d)`. A dialog here would now mean the membership
 diff is wrong about what counts as ADDED, since an unchanged save adds nothing.
-See `decisions.md`, FINDING-028/024.
+See `antrixy/project-planning/decisions.md`, FINDING-028/024.
 
 ### 2c — An unchanged save does NOT re-request a denied domain
 

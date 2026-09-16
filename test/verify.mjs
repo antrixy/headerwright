@@ -3,7 +3,8 @@
 //
 // Why this exists, recorded plainly because the reason is embarrassing and
 // therefore worth keeping: on 2026-09-13 two sessions added checks to
-// selftest.mjs, ran mutate-collisions.py because handoffs/headerwright/NEXT.md
+// selftest.mjs, ran mutate-collisions.py because the handoff file in the private
+// planning repo (antrixy/project-planning/handoffs/headerwright/NEXT.md)
 // named that one in its FIRST ACTIONS list, and reported "the tree is green"
 // twice. mutate-scans.py had been failing the whole time — its pinned
 // string-scan count had drifted 7 -> 12 from those very additions. An external
@@ -48,6 +49,11 @@ const FAILURE_MARKERS = [
 ];
 
 let failed = 0;
+// Counted as gates RUN, not derived from the GATES array — the syntax gate and
+// the two instrument gates are not in that array, and the first version of
+// this tally said 6 where the output showed 7. A number computed from the
+// wrong source is the same defect as a number typed by hand.
+let gatesRun = 0;
 
 // ES-MODULE SYNTAX GATE. Nothing else in this project parses sw.js as code:
 // selftest.mjs reads it as TEXT for source scans, and no harness imports it,
@@ -74,6 +80,7 @@ function syntaxGate() {
   walk("extension");
   walk("test");
 
+  gatesRun += 1;
   process.stdout.write(`${"module-syntax".padEnd(20)} `);
   const broken = [];
   for (const rel of files) {
@@ -93,6 +100,7 @@ function syntaxGate() {
 }
 
 function run(label, cmd, args, opts = {}) {
+  gatesRun += 1;
   process.stdout.write(`${label.padEnd(20)} `);
   const r = spawnSync(cmd, args, { cwd: ROOT, encoding: "utf8", ...opts });
   const out = `${r.stdout || ""}${r.stderr || ""}`;
@@ -161,7 +169,29 @@ instrumentGate("initiator-selfcheck",
 // selfcheck proves the INSTRUMENT can detect a difference; it does not prove
 // HeaderWright makes one. A green run here means the tree is internally
 // consistent, which is a precondition for a release and not evidence of one.
-// The browser rows in handoffs/headerwright/NEXT.md are the other half.
+// The browser rows in antrixy/project-planning/handoffs/headerwright/NEXT.md
+// are the other half.
+// COUNTS ARE PRINTED, NOT MAINTAINED BY HAND. Twice now a hand-written total
+// has gone stale and been quoted as fact: the triage ledger stated a row count
+// that disagreed with its own table, and the v0.2 runbook said "79 mutants"
+// when three harnesses hold 90 scenarios. Prose cannot be kept in sync with a
+// tree; a command can print what is actually there. Quote this line rather
+// than a number typed into a document.
+const tally = [];
+try {
+  const checks = readFileSync(join(ROOT, "test/selftest.mjs"), "utf8")
+    .match(/^const EXPECTED_CHECKS = (\d+);/m);
+  if (checks) tally.push(`${checks[1]} checks`);
+  let mutants = 0;
+  for (const file of ["mutate-collisions", "mutate-grants", "mutate-scans"]) {
+    mutants += (readFileSync(join(ROOT, `test/${file}.py`), "utf8")
+      .match(/^ {4}\("/gm) || []).length;
+  }
+  tally.push(`${mutants} mutation scenarios`);
+  tally.push(`${gatesRun} gates`);
+} catch { /* the tally is reporting, never a gate */ }
+if (tally.length) console.log(`\ntree: ${tally.join(", ")}`);
+
 console.log(
   failed === 0
     ? "\nALL AUTOMATED GATES PASS — no browser evidence is included"

@@ -53,7 +53,7 @@ Profile on `g1.test`, dialog denied at save, `getAll().origins` → `[]`. The
 permission dialog.
 
 **This was the load-bearing row of the sitting.** The option A ruling in
-`decisions.md` was recorded conditional on it: had no dialog appeared, a denied
+`antrixy/project-planning/decisions.md` was recorded conditional on it: had no dialog appeared, a denied
 domain would have had no in-app recovery under v0.1.7 — FINDING-002
 reintroduced by this release's own fix — and the ruling reverted to option B.
 **The condition is discharged; option A stands.**
@@ -713,7 +713,7 @@ and became one only in v0.1.4. Refused, verbatim:
 
 **Step 2 — the STRICT decision — PASS.** Both profiles set `X-Collide` to the
 SAME value, so the outcome no longer depends on order. Refused anyway, same
-message. This is the deliberate choice in `decisions.md`, confirmed at the
+message. This is the deliberate choice in `antrixy/project-planning/decisions.md`, confirmed at the
 surface a user is most likely to report as wrong.
 
 The collision MARKER wording (Part 14, where two markers were on screen) is
@@ -934,7 +934,7 @@ loading, which was a live alternative explanation for OBS-E5.
 
 ## Correction found while running this row
 
-`handoffs/headerwright/NEXT.md` (planning repo) states the store fixture "holds
+`antrixy/project-planning/handoffs/headerwright/NEXT.md` (planning repo) states the store fixture "holds
 one granted profile". At the start of this row it held one UNGRANTED profile
 (`origins: []`), and it now holds five with two granted. The fixture's purpose —
 the 0.1.2 re-prompt test — was discharged long ago, so this is bookkeeping

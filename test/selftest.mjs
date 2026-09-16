@@ -73,7 +73,7 @@ import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 394;
+const EXPECTED_CHECKS = 399;
 
 let passed = 0;
 let failed = 0;
@@ -1977,18 +1977,61 @@ for (const hook of [...queriedHooks].sort()) {
 // phases no matter which way round it is set, which is why the fix was to stop
 // colouring the verdict rather than to swap the two values.
 
+// The page is now HTML plus an external module, so both are read. The split
+// exists for the syntax gate and for injection safety (HW-V7-07): an inline
+// module is invisible to verify.mjs, and measured header values reaching
+// innerHTML let the subject of the experiment write DOM into its own
+// certificate.
 const oracleHtml = readFileSync(
   new URL("../test/oracle/index.html", import.meta.url), "utf8"
-).replace(/<!--[\s\S]*?-->/g, "");
+) + readFileSync(
+  new URL("../test/oracle/index.mjs", import.meta.url), "utf8"
+);
+const initiatorJs = readFileSync(
+  new URL("../test/initiator/index.mjs", import.meta.url), "utf8"
+);
 
+// NO MEASURED DATA MAY REACH innerHTML on either page. Clearing a container
+// with "" is permitted and is not a sink; anything with an interpolation in it
+// is. Checked on both pages so the safe one cannot regress to match the other.
+// COMMENTS STRIPPED FIRST. The first version of this check failed on its own
+// documentation: the module's header comment names innerHTML and
+// insertAdjacentHTML while explaining why they are banned. A check that a file
+// cannot describe its own rule is a check that punishes writing the rule down.
+for (const [label, src] of [["response", oracleHtml], ["initiator", initiatorJs]]) {
+  const code = stripJsComments(src);
+  check(`HW-V7-07: the ${label} oracle never interpolates into innerHTML`,
+    !/innerHTML\s*=\s*`[^`]*\$\{/.test(code) &&
+    !/insertAdjacentHTML/.test(code));
+}
+check("HW-V7-07: the response oracle builds its rows with textContent",
+  /textContent/.test(oracleHtml) && /createElement\("td"\)|el\("td"/.test(oracleHtml));
+// Inline modules are outside the syntax gate, which walks .js and .mjs only.
+for (const [label, file] of [["response", "oracle"], ["initiator", "initiator"]]) {
+  const html = readFileSync(
+    new URL(`../test/${file}/index.html`, import.meta.url), "utf8"
+  );
+  check(`HW-V7-07: the ${label} oracle has no inline module script`,
+    !/<script type="module">/.test(html) &&
+    /<script type="module" src="\.\/index\.mjs">/.test(html));
+}
+
+// PIN THE CLASS STRINGS, NOT ONLY THE STYLESHEET. The first version checked
+// that `.unmodified` and `.modified` rules were absent from the CSS — but the
+// verdict class is now chosen in JS, so a mutant that reintroduced
+// `verdict unmodified` there changed no CSS and scored ZERO. Colour must not
+// encode the verdict at the point the verdict is decided.
 check("oracle: the verdict box carries no pass/fail colour class",
   !/class="verdict \$\{/.test(oracleHtml) &&
+  !/verdict (un)?modified/.test(oracleHtml) &&
   !/\.unmodified\s*\{/.test(oracleHtml) &&
   !/\.modified\s*\{/.test(oracleHtml));
 // The failure path used to reuse the UNMODIFIED class, so an instrument that
 // threw and an instrument that measured agreement rendered identically.
+// The class now reaches the DOM through el(..., "verdict failed") rather than
+// an HTML attribute, so match the class string itself and its stylesheet rule.
 check("oracle: MEASUREMENT FAILED renders in its own class",
-  /class="verdict failed"/.test(oracleHtml) && /\.failed\s*\{/.test(oracleHtml));
+  /"verdict failed"/.test(oracleHtml) && /\.failed\s*\{/.test(oracleHtml));
 check("oracle: the page states that UNMODIFIED inverts between phases",
   /UNMODIFIED.{0,40}not a verdict on its own/s.test(oracleHtml));
 
