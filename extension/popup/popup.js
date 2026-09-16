@@ -32,7 +32,12 @@ import {
   describeSaveRefusal,
   sideOf,
 } from "../lib/collisions.js";
-import { describeSync, DEFAULT_SYNC_STATE } from "../lib/status.js";
+import {
+  classify,
+  describeSync,
+  configRevision,
+  readSyncRecord,
+} from "../lib/status.js";
 import { createSerialQueue, createDebounced } from "../lib/queue.js";
 import { decodeStoredState } from "../lib/stored.js";
 
@@ -99,11 +104,13 @@ async function setEnabled(enabled) {
 
 // Written by sw.js after every rule registration attempt. Absent until the
 // first sync has run, which is not a failure — see DEFAULT_SYNC_STATE.
+// Migrated on read: an install upgrading from v0.1.x still holds a {ok, error}
+// record, and the worker may not rewrite it until something changes. The shape
+// check that used to live here — `typeof state.ok !== "boolean"` — would
+// discard a v2 record entirely, since v2 has no `ok` field.
 async function getSyncState() {
   const stored = await chrome.storage.local.get(STORAGE_KEY_SYNC);
-  const state = stored[STORAGE_KEY_SYNC];
-  if (!state || typeof state.ok !== "boolean") return DEFAULT_SYNC_STATE;
-  return state;
+  return readSyncRecord(stored[STORAGE_KEY_SYNC]);
 }
 
 // ------------------------------------------------------------- grants
@@ -378,20 +385,45 @@ async function updateStatusLine(profiles, grants) {
     (d) => state.get(d)?.granted
   ).length;
   const n = profiles.length;
+  // COMPUTED ONCE. The status text and its tooltip must classify the same
+  // record against the same revision, or they can disagree on screen.
+  const revision = configRevision(profiles, enabled);
   const parts = [
     `${n} profile${n === 1 ? "" : "s"}`,
     `${grantedCount}/${allDomains.length} domain${allDomains.length === 1 ? "" : "s"} granted`,
-    describeSync({ enabled, syncOk: sync.ok }),
+    // THE REVISION IS WHAT STOPS A STALE SUCCESS READING AS CURRENT. The popup
+    // can render from a storage change before the worker has reconciled, so
+    // without it new profiles get paired with the old successful record and
+    // the line claims they are applying. Computed from the same decoded
+    // profiles the worker uses, through the same module.
+    describeSync({ enabled, desiredRevision: revision, record: sync }),
   ];
   const line = $("status-line");
   line.textContent = parts.join(" \u00b7 ");
   // The exact reason belongs somewhere reachable but not shouted: the third
   // segment already states that rules are not active, and this explains why
   // without the popup growing an error panel it does not otherwise need.
-  line.title = sync.ok
-    ? ""
-    : `Chrome rejected the last rule registration: ${sync.error || "unknown error"}`;
-  line.classList.toggle("sync-failed", !sync.ok);
+  // `sync.ok` NO LONGER EXISTS. The v2 record carries a state, and reading a
+  // missing boolean would have made every failure look like a success — the
+  // exact class of silent misreport this change is closing.
+  //
+  // The tooltip now explains whichever thing is not simply working: a rejected
+  // registration, or profiles that did not make it onto the wire. Skipped
+  // profiles used to be computed and discarded, so this reason had nowhere to
+  // appear at all.
+  const syncState = classify({ enabled, desiredRevision: revision, record: sync });
+  const notApplied = [
+    ...sync.skipped.map((s) => `profile ${s.profileId}`),
+    ...sync.dropped,
+  ];
+  line.title =
+    syncState === "failed"
+      ? `Chrome rejected the last rule registration: ${sync.error || "unknown error"}`
+      : notApplied.length > 0
+        ? `Not applied: ${notApplied.join("; ")}`
+        : "";
+  line.classList.toggle("sync-failed", syncState === "failed");
+  line.classList.toggle("sync-partial", syncState === "partial");
 }
 
 function renderProfileCard(profile, grants, collisions, nameById) {
