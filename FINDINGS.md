@@ -1031,18 +1031,45 @@ HTTP. The gate proves the instrument's parts are correct and never proves the
 instrument assembles, which is the same gap in a different costume as
 FINDING-032 — lesson 5, check the component doing the checking.
 
-**Proposed fix (NOT YET APPLIED — no code was changed during the sitting).** Add
-the missing route to each server, mirroring the existing `/diff.mjs` handler, and
-then close the gate gap: have each selfcheck start its own server, `fetch` every
-asset the page references, and assert 200 plus a JavaScript content type. The
-route fix alone would leave the next added asset in exactly this position.
+**Fix — APPLIED in `307caf8` and `2030a2e` (2026-09-19).** Two parts, because the
+route alone would have left the next added asset in exactly this position:
 
-**Evidence.** `test/RUNBOOK-2026-09-13-v020.md`, rows A2, B1, B2, B3, C7, C8, C9,
-C10, C11 and the optional row — all NOT RUN, instrument defective. The
-consequence worth naming: `test/initiator/` is the only instrument that can
-observe HW-V6-01, and **it has never worked in a browser.** The defect is
+- **The route.** `/index.mjs` added to `test/oracle/server.mjs` and
+  `test/initiator/server.mjs`, mirroring the existing `/diff.mjs` handler.
+- **The gate.** Both selfchecks now fetch `/` over HTTP, extract every `./…`
+  reference from the **served** HTML, fetch each one, and assert 200 plus a
+  JavaScript content type. Expressed as **one row per assertion, not per asset**,
+  so the tripwire count does not move when an asset is added;
+  `EXPECTED_ROWS` in `test/oracle/selfcheck.mjs` goes 7 → 10. An empty reference
+  list would satisfy both rows vacuously, so `refs.length > 0` is asserted with
+  them.
+
+**Residual, flagged and NOT fixed.** The `tree:` line reads its check count from
+`EXPECTED_CHECKS` in `test/selftest.mjs` alone, so neither selfcheck's rows have
+ever been counted in it — including the three new ones. The line understates the
+suite, and on 2026-09-16 it understated it in the direction that made "seven
+gates, 440 checks" sound broader than it was. Changing what `verify.mjs` tallies
+is a separate decision from this fix.
+
+**Evidence — the cost.** `test/RUNBOOK-2026-09-13-v020.md`, rows A2, B1, B2, B3,
+C7, C8, C9, C10, C11 and the optional row — all NOT RUN, instrument defective.
+The consequence worth naming: `test/initiator/` is the only instrument that can
+observe HW-V6-01, and **it had never worked in a browser.** The defect was
 therefore invisible to this project's entire automated surface, and HW-V6-01
-remains ruled but unobserved.
+remains ruled but unobserved until those rows are re-run.
+
+**Evidence — the fix fails on the defect it was written for.** Each mutant
+planted on the fixed tree and `node test/verify.mjs` re-run:
+
+- **Oracle `/index.mjs` route deleted** → `oracle-selfcheck FAIL`, on
+  `every asset the page references is served` and
+  `every module is served as JavaScript`.
+- **Initiator `/index.mjs` route deleted** → `initiator-selfcheck FAIL`, naming
+  `[{"ref":"index.mjs","status":404,"type":"text/plain"}]`.
+
+Clean tree: all seven gates PASS. A gate that cannot fail on its own defect is
+what let this through in the first place, so the mutation pass is the evidence,
+not the green run.
 
 ## FINDING-034 — `__TARGET_ORIGIN__` is substituted once, not twice
 
@@ -1063,13 +1090,25 @@ string pattern replaces only the first occurrence. Line 33 was substituted; line
 same way and are single-occurrence today, so they are correct by luck rather than
 by construction.
 
-**Proposed fix (NOT YET APPLIED).** `replaceAll` for all three, plus an assertion
-after injection that no `__[A-Z_]+__` token survives in the served HTML — that
-catches both the repeat-occurrence case and a future placeholder nobody wired up.
+**Fix — APPLIED in `307caf8` and `2030a2e` (2026-09-19).** `replaceAll` for all
+three tokens, and after injection the server matches `__[A-Z][A-Z_]*__` against
+the result: if anything survives, it responds **500 naming the token** instead of
+serving the page. A placeholder nobody wired up is a bug in the page's
+instructions, and the reader is the last one who should find it. That covers both
+the repeat-occurrence case and a future placeholder added to the HTML without
+being added to the injection list. `test/initiator/selfcheck.mjs` asserts it as a
+fourth row, `no unsubstituted placeholder reaches the reader`.
 
 **Evidence.** Observed on screen during the 2026-09-16 sitting, in the same page
 load that exposed FINDING-033. Found by reading the rendered page, not by any
-gate; no check looks at served output.
+gate — at the time, no check looked at served output.
+
+**Mutation evidence.** `replaceAll` reverted to `replace` on the fixed tree →
+`initiator-selfcheck FAIL` on three rows: `the page itself is served — status
+500`, `every asset the page references is served — no assets found in the served
+HTML`, and `no unsubstituted placeholder reaches the reader — __TARGET_ORIGIN__`.
+The 500 is the server refusing to serve the defective page, so the regression
+surfaces twice over: the guard fires, and the page it guards stops loading.
 
 
 ---
