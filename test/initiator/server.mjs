@@ -113,15 +113,41 @@ const server = createServer(async (req, res) => {
     return res.end(body);
   }
 
+  // FINDING-033: see test/oracle/server.mjs. This instrument is the only one
+  // that can observe HW-V6-01, and it could not serve its own JavaScript.
+  if (url.pathname === "/index.mjs") {
+    const js = await readFile(join(HERE, "index.mjs"), "utf8");
+    res.writeHead(200, {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+    return res.end(js);
+  }
+
   if (url.pathname === "/" || url.pathname === "/index.html") {
     const html = await readFile(join(HERE, "index.html"), "utf8");
     // The page needs to know which role its own origin is playing, and where
     // to aim the cross-origin fetch. Injected rather than hardcoded so the
     // port can move without editing HTML.
+    // FINDING-034: replace() with a string pattern substitutes the FIRST
+    // occurrence only. __TARGET_ORIGIN__ appears twice in index.html, so the
+    // second one shipped to the reader as a literal token telling them to
+    // open the page on "__TARGET_ORIGIN__".
     const injected = html
-      .replace("__TARGET_ORIGIN__", `http://${TARGET_HOST}:${PORT}`)
-      .replace("__INITIATOR_ORIGIN__", `http://${INITIATOR_HOST}:${PORT}`)
-      .replace("__THIS_HOST__", host);
+      .replaceAll("__TARGET_ORIGIN__", `http://${TARGET_HOST}:${PORT}`)
+      .replaceAll("__INITIATOR_ORIGIN__", `http://${INITIATOR_HOST}:${PORT}`)
+      .replaceAll("__THIS_HOST__", host);
+
+    // A placeholder nobody wired up is a bug in the page's instructions, and
+    // the reader is the last one who should find it. Fail loudly instead.
+    const leftover = injected.match(/__[A-Z][A-Z_]*__/);
+    if (leftover) {
+      res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+      return res.end(
+        `unsubstituted placeholder ${leftover[0]} in index.html — ` +
+          `add it to the injection list in server.mjs`
+      );
+    }
     res.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",

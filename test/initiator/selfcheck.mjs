@@ -70,6 +70,37 @@ try {
     Array.isArray(withProbe.allReceivedNames) &&
     withProbe.allReceivedNames.includes("x-hw-probe"));
 
+
+  // --- FINDING-033 / FINDING-034: the page must LOAD, and must not ship a
+  // placeholder to the reader. Both defects were found in a browser, by eye,
+  // on a tree where every gate was green. ---
+  const pageRes = await fetch(`${BASE}/`, { headers: { Host: "hw.test" } });
+  const pageHtml = await pageRes.text();
+  row("the page itself is served", pageRes.ok && pageHtml.length > 0,
+    `status ${pageRes.status}`);
+
+  const refs = [...pageHtml.matchAll(/(?:src|href)="\.\/([^"]+)"/g)].map((m) => m[1]);
+  const fetched = [];
+  for (const ref of refs) {
+    const r = await fetch(`${BASE}/${ref}`, { headers: { Host: "hw.test" } });
+    fetched.push({ ref, status: r.status, type: r.headers.get("content-type") || "" });
+  }
+
+  const bad = fetched.filter((f) => f.status !== 200);
+  row("every asset the page references is served",
+    refs.length > 0 && bad.length === 0,
+    refs.length === 0 ? "no assets found in the served HTML" : JSON.stringify(bad));
+
+  const wrongType = fetched.filter(
+    (f) => f.ref.endsWith(".mjs") && !f.type.includes("javascript")
+  );
+  row("every module is served as JavaScript", wrongType.length === 0,
+    JSON.stringify(wrongType));
+
+  row("no unsubstituted placeholder reaches the reader",
+    !/__[A-Z][A-Z_]*__/.test(pageHtml),
+    (pageHtml.match(/__[A-Z][A-Z_]*__/) || [""])[0]);
+
   // CORS must come from the SERVER. If it came from a HeaderWright rule the
   // page could not read the body whenever the extension was off — which is
   // exactly when the instrument is needed.
