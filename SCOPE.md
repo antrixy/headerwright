@@ -46,25 +46,34 @@ initiator site. The fix is a second, separately granted list.
 
 ## v0.2 — response headers
 
-One feature, per the versioning rule.
+One feature, per the versioning rule, taken in two increments.
 
-`declarativeNetRequest` supports response header modification with the same
-`set` / `append` / `remove` operations already used for request headers. The
-profile schema extends rather than changes: a second header list per profile,
-same domain scoping, same permission model, same canonical export.
+- **v0.2.0 — response `set` and `remove`.**
+- **v0.2.1 — response `append`.**
 
-What has to be settled during v0.2, not assumed:
+`declarativeNetRequest` supports response header modification. The profile
+schema extends rather than changes: a second header list per profile, same
+domain scoping, same permission model, same canonical export.
 
-- Chrome's appendable-header allowlist for responses differs from the request
-  allowlist. It needs establishing from the reference and encoding as its own
-  constant, not reused.
+**Append moved from v0.2.0 to v0.2.1 on 2026-09-13**, under the change rule
+below. Chrome is not the constraint; this project is. The
+`APPENDABLE_REQUEST_HEADERS` constant in `extension/lib/rules.js` was verified
+against the DNR reference on 2026-07-30 for REQUEST headers — the constant's
+name says so. Reusing that list for responses would ship an allowlist nobody
+checked, which is FINDING-020's shape. `validateHeaderEntry()` refuses
+response-side `append` outright until its own list exists; that is the
+fail-closed side. Establishing the list from the reference is v0.2.1's
+precondition, and it is a precondition rather than a date.
+
+What has to be settled during v0.2.0, not assumed:
+
 - Export format changes shape. Import of a v0.1 config must keep working, and
   the canonical output must stay byte-stable. This is the part most likely to
   break something.
 - The popup already carries a full-width header list. A second one needs a
   layout answer that does not turn the popup into a form.
 
-Not in v0.2: anything else.
+Not in v0.2.0: append, and anything else.
 
 ## Permanently out of scope — cannot be built
 
