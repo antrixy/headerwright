@@ -1238,3 +1238,177 @@ The direction is untested: nothing establishes whether an apex-only grant
 covers subdomains, and FINDING-018 implies it does not. Verify before
 simplifying — the redundancy runs one way, and treating the two patterns as
 interchangeable would re-introduce FINDING-018.
+
+**FINDING-035 — response-side `remove` is accepted, stored, held by Chrome, and
+never applied.** Raised against the v0.2.0 candidate (`58889bb`) in browser
+sitting 2, 2026-09-19. **This blocks the v0.2.0 tag**: `07d9763` rewrote
+`SCOPE.md` to sequence v0.2.0 as response `set` + `remove`, with `append`
+deferred to v0.2.1, so one of the two shipped operations does not work.
+
+Two independent sightings. C8 — the fixture emits `X-HW-Removable: present` and
+the profile carries `X-HW-Removable` / `res` / `remove`; the plain case receives
+`present`, shown unchanged, counter `1 changed, 0 removed, 0 added`. C9 sequence
+4 — the profile carries `X-HW-Oracle` / `res` / `set` / `rewritten` followed by
+`X-HW-Oracle` / `res` / `remove`; the CORS case receives `rewritten`, predicted
+absent. So `remove` fails both on a header no other entry touches and on one the
+same rule has just `set`, while `set` applied in both runs.
+
+The popup and rule construction are ruled OUT, not suspected.
+`getDynamicRules()` on HeaderWright 0.2.0 / `khjeofpciphjaclledledepfppaiicnf`
+returns for C8 a `responseHeaders` array holding `{header: "X-HW-Oracle",
+operation: "set", value: "rewritten"}` at index 0 and `{header:
+"X-HW-Removable", operation: "remove"}` at index 1 — full name, no truncation,
+correct operation string, no stray `value` key — with `requestDomains:
+["hw.test"]` and all fifteen resource types. Chrome accepted the rule and holds
+it.
+
+**The cause is not established and was deliberately not investigated**, per the
+runbook's record-and-stop rule for a disagreement. What the evidence eliminates
+is most of the search space: the failing entry and a working entry sit in the
+SAME array of the SAME rule, matched against the SAME request, so matching,
+domain scoping, resource type, priority, host permission, rule construction,
+storage and the popup are all shared between them and none can be the
+difference. What remains is the operation itself — either how `buildRules()`
+emits `remove`, or how Chrome applies it. Nothing in the sitting separates
+those. First thing to check when this is picked up: whether `remove` entries
+leave `buildRules()` in a form DNR accepts but ignores — a `value` key present,
+a case difference in `operation`, or a header name in a case DNR does not fold.
+The stored JSON excludes the first of those on the storage side but not on the
+emit side.
+
+Evidence: `test/RUNBOOK-2026-09-13-v020.md`, rows C8 and C9 sequence 4, sitting
+2 Observed blocks. Live profile state at
+`test/fixtures/sitting-2-post-c11-probe-state.json`, sha256
+`ff7a6a45a8d0c58d1626be9f586103d02b59569c7e77bf9eb6db347218a6a95e`. No fix, no
+selftest name, no SMOKE part — believed, not closed.
+
+**FINDING-036 — a `set` following an `append` on the same header does not
+apply.** Raised against `58889bb`, 2026-09-19, as C9 sequence 2, on
+`x-forwarded-for` read via `/echo`. Three request-side sequences were measured.
+`set alpha` then `append bravo` produced `alpha, bravo`, as predicted. `append
+alpha` then `append bravo` produced `alpha, bravo`, as predicted. **`append
+bravo` then `set alpha` produced `bravo`** where `alpha` was predicted — the
+later `set` neither overwrote nor combined, it was discarded.
+
+The setup was verified before the read, which is what makes the result
+trustworthy: `getDynamicRules()` confirmed `requestHeaders[1] =
+{X-Forwarded-For, append, bravo}` and `requestHeaders[2] = {X-Forwarded-For,
+set, alpha}` — the specified order, in storage, before the navigation. The name
+appears ONCE in `req.rawHeaders`, so Chrome combined rather than repeating.
+
+**The mechanism may be documented Chrome behaviour, and that does not rescue
+the claim.** `handoffs/headerwright/ROADMAP-v0.2plus.md` §v0.2.1 already records
+the precedence interaction — once a rule has appended to a header, `set` and
+`remove` behave differently than on an untouched one. If that also governs two
+entries inside one rule's array, Chrome is working as specified. What fails
+either way is the PROJECT's claim, stated in the C9 row: that repeated entries
+on one header have their array order preserved on the wire. Two of three
+sequences satisfy it; the one where a `set` follows an `append` does not. The
+claim as written is too strong regardless of which side the mechanism sits on.
+
+Not to be conflated with FINDING-035, whose second sighting is a `remove`
+following a `set` on the response side. Whether they share a mechanism is
+unknown and should not be assumed from their adjacency.
+
+Also observed in passing: **the popup offers no way to reorder header entries.**
+Changing the order required editing operation and value on both rows in place.
+For a feature whose correctness claim is about array order, the absence of a
+reorder control is worth a decision entry of its own.
+
+Evidence: `test/RUNBOOK-2026-09-13-v020.md`, C9 table and sitting 2 Observed
+block; `/echo` reads at ids `1789854983120`, `1789855270022`, `1789855452306`.
+No fix, no selftest name, no SMOKE part.
+
+**FINDING-037 — every gate can be green while the instrument serving the
+browser is a different build.** Raised 2026-09-19 at the start of browser
+sitting 2. Test instruments only, and high severity for any sitting: it is the
+third time this project has lost time to a gap between what a gate checks and
+what the browser talks to.
+
+`http://hw.test:8787/` rendered, `GET http://hw.test:8787/index.mjs` returned
+**404**, and both Measure buttons were inert — FINDING-033's exact signature,
+after FINDING-033 was fixed, while `node test/verify.mjs` on the same clone
+printed `tree: 440 checks, 104 mutation scenarios, 7 gates`, all seven PASS,
+`oracle-selfcheck` included. Re-derived rather than inferred: `lsof` gave node
+PID 13411 listening on 127.0.0.1:8787; `git rev-parse HEAD` gave
+`58889bbf8ef259c1939ad483cd5b77a6b4665e9c`; `grep` found the `/index.mjs` route
+present at lines 119-120 of `test/oracle/server.mjs`; `curl` returned 404 on
+both `hw.test` and `127.0.0.1`. The route was in the file and absent from the
+running process.
+
+**Cause.** `server.mjs` is evaluated once at startup. PID 13411 was serving a
+tree predating the route, and a later `git pull` cannot reach a process already
+running. Killing it and restarting from `~/headerwright` cleared the 404, and
+C7 measured on the next attempt.
+
+**Why the gate could not have caught it, which is the part worth keeping.**
+`test/verify.mjs` line 158 runs `oracle-selfcheck` by SPAWNING ITS OWN server
+from the current tree on port **8788**, and `initiator-selfcheck` does the same
+on **8789**. The browser talks to **8787** and **8790**. The selfchecks prove
+the tree's server code serves what the page references, and prove nothing about
+the process answering the browser. FINDING-033 was a gate verifying the FILE
+rather than the SERVED ROUTE; its fix verifies the served route OF A SERVER IT
+STARTS ITSELF. The gap moved from file-versus-route to route-versus-process and
+was not closed — the same gap in a third costume, after FINDING-032 (lesson 5,
+check the component doing the checking) and FINDING-033.
+
+**No fix. Direction only, none ruled.** A sitting precondition that curls every
+referenced asset against the LIVE ports before Chrome opens, rather than against
+a spawned server — cheap, and it would have caught this in seconds. Or a build
+identifier the running server reports, a `/whoami` route returning the sha or
+mtime of its own source, so the process can be compared to `git rev-parse HEAD`
+rather than assumed equal to it. Or making the selfchecks refuse to spawn when
+the target port is already bound, so a stale process produces a gate failure
+instead of a silent second server.
+
+Carried forward from FINDING-033 and still not fixed: the `tree:` line reads its
+count from `EXPECTED_CHECKS` in `test/selftest.mjs` alone, so no selfcheck row
+has ever been counted in it.
+
+**Provenance NOT captured.** PID 13411 was killed before `ps -o lstart` and
+`lsof -d cwd` were run, so whether it predated the pull or came from a different
+checkout cannot now be established. Recorded as missing rather than
+reconstructed; the 404 alongside a green `oracle-selfcheck` is the load-bearing
+evidence and does not depend on it.
+
+**FINDING-038 — editing one profile's domain list changes an untouched
+profile's behaviour on the wire.** Raised against `58889bb`, 2026-09-19, across
+rows B1, B2 and B3. **Not a DNR defect**; a candidate for reclassification as a
+UI decision rather than a finding.
+
+Two profiles, `legacy` and `probe`, both targeting `hw.test` only. Editing ONLY
+`probe`'s domain list switched `legacy`'s rule on and off cross-origin, read
+from `allReceivedNames` on the initiator page at `http://nothw.test:8790/`. With
+only `hw.test` granted, both `x-hw-probe` and `x-hw-legacy` were absent. With
+`nothw.test` added to `probe`, both were present. With it removed again, both
+were absent. `legacy` was never opened, never edited, and never had
+`nothw.test` in its domain list.
+
+**The cause is correct behaviour.** A profile's domain list governs what its
+rule MATCHES — `condition.requestDomains`, the target. The host grant governs
+whether Chrome PERMITS the rule to apply, and Chrome requires permission for
+the request URL AND the initiator for everything except navigations. The grant
+is held by the EXTENSION, not by a profile, so adding `nothw.test` to `probe`
+satisfied the initiator half for every rule in the extension. `testMatchOutcome`
+confirms it without touching the wire: with initiator `http://nothw.test:8790`
+and url `http://hw.test:8787/echo`, rules 1 and 2 both report matched, identical
+to the same-origin call. Matching was never the variable in B1-B3. Permission
+was.
+
+**Why it still warrants an entry.** The domain list sits inside a per-profile
+editor, with per-profile chips, under the label `Domains` and the help text
+*Comma-separated. Subdomains of each domain match too.* Nothing on that surface
+indicates that adding a domain there widens what OTHER profiles can do. For an
+extension whose thesis is permission minimalism, a control that silently widens
+the blast radius beyond the object being edited is a reporting gap even though
+the model underneath behaves exactly as FINDING-018 established.
+
+Direction, none ruled: the editor says what a domain addition grants
+extension-wide, or the profile list shows which profiles a pending grant change
+affects before it is saved, or the chips distinguish matched-and-permitted from
+matched-only. All three are decision entries, not patches.
+
+Evidence: `test/RUNBOOK-2026-09-13-v020.md`, rows B1, B2, B3 sitting 2 Observed
+blocks, and the optional `testMatchOutcome` row. The on/off/on/off pair is what
+makes it a finding rather than one anomalous reading. No fix, no selftest name,
+no SMOKE part.
