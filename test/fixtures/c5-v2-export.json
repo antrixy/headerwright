@@ -1,0 +1,40 @@
+{
+  "format": "headerwright-profiles",
+  "profiles": [
+    {
+      "domains": [
+        "hw.test"
+      ],
+      "headers": [
+        {
+          "name": "X-HW-Legacy",
+          "operation": "set",
+          "value": "1"
+        }
+      ],
+      "id": 1,
+      "name": "legacy"
+    },
+    {
+      "domains": [
+        "hw.test"
+      ],
+      "headers": [
+        {
+          "name": "X-HW-Probe",
+          "operation": "set",
+          "value": "present"
+        },
+        {
+          "name": "X-HW-Oracle",
+          "operation": "set",
+          "side": "response",
+          "value": "rewritten"
+        }
+      ],
+      "id": 2,
+      "name": "probe"
+    }
+  ],
+  "version": 2
+}

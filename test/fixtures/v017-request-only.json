@@ -1,0 +1,20 @@
+{
+  "format": "headerwright-profiles",
+  "profiles": [
+    {
+      "domains": [
+        "hw.test"
+      ],
+      "headers": [
+        {
+          "name": "X-HW-Legacy",
+          "operation": "set",
+          "value": "1"
+        }
+      ],
+      "id": 1,
+      "name": "legacy"
+    }
+  ],
+  "version": 1
+}
