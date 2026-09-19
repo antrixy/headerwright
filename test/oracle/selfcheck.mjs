@@ -24,7 +24,7 @@ import { diffHeaders, unobservableAmong, UNOBSERVABLE } from "./diff.mjs";
 
 const PORT = Number(process.env.ORACLE_PORT || 8787);
 const BASE = `http://127.0.0.1:${PORT}`;
-const EXPECTED_ROWS = 7;
+const EXPECTED_ROWS = 10;
 
 let ran = 0;
 let failed = 0;
@@ -99,6 +99,40 @@ async function main() {
     !p.diff.identical &&
       p.diff.added.some((c) => c.name === "x-hw-injected"),
     JSON.stringify(p.diff));
+
+
+  // --- FINDING-033: the page must be able to LOAD, not merely parse. ---
+  //
+  // Every row above talks to an endpoint. None of them asks the server for the
+  // files the page itself pulls in, which is how a missing /index.mjs route
+  // survived a green tree: the module was valid, exported what it should, and
+  // 404ed in the browser. These three rows are one per assertion rather than
+  // one per asset, so the tripwire count does not move when an asset is added.
+  const pageRes = await fetch(`${BASE}/`, { headers: { Host: "hw.test" } });
+  const pageHtml = await pageRes.text();
+  check("the page itself is served", pageRes.ok && pageHtml.length > 0,
+    `status ${pageRes.status}`);
+
+  const refs = [...pageHtml.matchAll(/(?:src|href)="\.\/([^"]+)"/g)]
+    .map((m) => m[1]);
+  const fetched = [];
+  for (const ref of refs) {
+    const r = await fetch(`${BASE}/${ref}`, { headers: { Host: "hw.test" } });
+    fetched.push({ ref, status: r.status, type: r.headers.get("content-type") || "" });
+  }
+
+  // An empty ref list would pass both rows below vacuously, so the floor is
+  // asserted with them: this page references at least one asset.
+  const bad = fetched.filter((f) => f.status !== 200);
+  check("every asset the page references is served",
+    refs.length > 0 && bad.length === 0,
+    refs.length === 0 ? "no assets found in the served HTML" : JSON.stringify(bad));
+
+  const wrongType = fetched.filter(
+    (f) => f.ref.endsWith(".mjs") && !f.type.includes("javascript")
+  );
+  check("every module is served as JavaScript", wrongType.length === 0,
+    JSON.stringify(wrongType));
 
   // --- The blind spot is declared, not discovered later. ---
   check("Set-Cookie is declared unobservable",

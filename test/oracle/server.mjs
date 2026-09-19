@@ -112,6 +112,16 @@ const server = createServer(async (req, res) => {
     return res.end(html);
   }
 
+  // FINDING-033: index.html loads this module, and for one release nothing
+  // served it — the page rendered, the 404 was silent, and both Measure
+  // buttons were inert. Every asset index.html references needs a route here,
+  // and test/oracle/selfcheck.mjs asserts that over HTTP.
+  if (url.pathname === "/index.mjs") {
+    const js = await readFile(join(HERE, "index.mjs"));
+    res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" });
+    return res.end(js);
+  }
+
   if (url.pathname === "/diff.mjs") {
     const js = await readFile(join(HERE, "diff.mjs"));
     res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" });
