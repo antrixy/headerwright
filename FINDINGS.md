@@ -990,6 +990,88 @@ not a parser: a regex literal containing `//` or `/*` would be mangled.
 `popup.js` contains no regex literals today (verified 2026-09-06); if one is
 ever added, the floor checks above fail loudly rather than silently.
 
+## FINDING-033 — neither test server serves the `index.mjs` its page loads
+
+**Version:** raised against v0.2.0 candidate (`08639fc`). Test instruments only —
+no `extension/` code involved, so this is not by itself a release.
+**Severity:** high for the v0.2.0 sitting — it cost eleven of the eighteen
+pre-registered rows. Nothing user-facing.
+
+**Symptom.** Both oracle pages render their prose and their buttons, and neither
+can measure anything. Observed in a browser on 2026-09-16, the first sitting in
+which either page was opened:
+
+- `http://hw.test:8790/` → `GET http://hw.test:8790/index.mjs` **404 (Not
+  Found)**, `net::ERR_ABORTED`. The Measure button does nothing when clicked.
+- `http://hw.test:8787/` → `GET http://hw.test:8787/index.mjs` **404 (Not
+  Found)**. Both *Measure — CORS case* and *Measure — plain case* do nothing.
+
+The module never loads, so no handler is ever bound. A user clicking Measure
+gets silence, not an error.
+
+**Cause.** `test/initiator/index.html` and `test/oracle/index.html` both end with
+`<script type="module" src="./index.mjs"></script>`, and neither server has a
+route for that path:
+
+- `test/initiator/server.mjs` routes `/echo`, `/` and `/index.html`, then falls
+  through to a 404.
+- `test/oracle/server.mjs` routes `/`, `/index.html`, `/diff.mjs`, `/echo` and
+  `/sent`, then falls through to a 404.
+
+`diff.mjs` has a route because it predates the split. The 09-15 commits that
+extracted page logic into a new `index.mjs` in **both** instruments added a route
+for **neither**. One refactor, two instruments, the same omission.
+
+**Why every gate missed it, which is the part worth keeping.** `oracle-selfcheck`
+and `initiator-selfcheck` both PASS on the tree that cannot serve these files —
+440 checks, 104 mutation scenarios, 7 gates, all green at `08639fc` before and
+after the sitting. The selfchecks verify the **file**: it parses, it exports what
+it should, its pure functions behave. Nothing asks the **server** for it over
+HTTP. The gate proves the instrument's parts are correct and never proves the
+instrument assembles, which is the same gap in a different costume as
+FINDING-032 — lesson 5, check the component doing the checking.
+
+**Proposed fix (NOT YET APPLIED — no code was changed during the sitting).** Add
+the missing route to each server, mirroring the existing `/diff.mjs` handler, and
+then close the gate gap: have each selfcheck start its own server, `fetch` every
+asset the page references, and assert 200 plus a JavaScript content type. The
+route fix alone would leave the next added asset in exactly this position.
+
+**Evidence.** `test/RUNBOOK-2026-09-13-v020.md`, rows A2, B1, B2, B3, C7, C8, C9,
+C10, C11 and the optional row — all NOT RUN, instrument defective. The
+consequence worth naming: `test/initiator/` is the only instrument that can
+observe HW-V6-01, and **it has never worked in a browser.** The defect is
+therefore invisible to this project's entire automated surface, and HW-V6-01
+remains ruled but unobserved.
+
+## FINDING-034 — `__TARGET_ORIGIN__` is substituted once, not twice
+
+**Version:** raised against v0.2.0 candidate (`08639fc`). Test instruments only.
+**Severity:** low — cosmetic, and confined to the initiator page's explanatory
+text. It does not affect what gets measured.
+
+**Symptom.** On `http://hw.test:8790/`, the "Same-origin control" bullet renders
+the literal placeholder `__TARGET_ORIGIN__` instead of an origin. The
+cross-origin bullet above it interpolates correctly. The page therefore instructs
+the reader to "open this page on `__TARGET_ORIGIN__`".
+
+**Cause.** `test/initiator/index.html` contains `__TARGET_ORIGIN__` twice, at
+lines 33 and 52. `test/initiator/server.mjs` injects with
+`html.replace("__TARGET_ORIGIN__", ...)` — `String.prototype.replace` with a
+string pattern replaces only the first occurrence. Line 33 was substituted; line
+52 kept the literal. `__INITIATOR_ORIGIN__` and `__THIS_HOST__` are injected the
+same way and are single-occurrence today, so they are correct by luck rather than
+by construction.
+
+**Proposed fix (NOT YET APPLIED).** `replaceAll` for all three, plus an assertion
+after injection that no `__[A-Z_]+__` token survives in the served HTML — that
+catches both the repeat-occurrence case and a future placeholder nobody wired up.
+
+**Evidence.** Observed on screen during the 2026-09-16 sitting, in the same page
+load that exposed FINDING-033. Found by reading the rendered page, not by any
+gate; no check looks at served output.
+
+
 ---
 
 ## Open
