@@ -1614,11 +1614,13 @@ permission list, added for R6.
 response headers by profile; append on request only. No webRequest — it cannot
 read your traffic.` — 129 characters against Chrome's documented 132 limit.
 
-**`name` is NOT fixed, and that is deliberate.** It still reads
-`HeaderWright — Modify HTTP Request Headers`. Renaming a published extension
-affects store search and any existing link, so it is a RULING for
-`decisions.md`, not a patch to be slipped into a defect fix. **The v0.2.0 tag
-is blocked on that ruling** independently of FINDING-035.
+**`name` was held as a RULING rather than patched, then ruled.** Renaming a
+published extension affects store search and any existing link, so it was not
+slipped into a defect fix. Ruled 2026-09-20 to `HeaderWright — Modify HTTP
+Headers` — one word dropped, brand token kept, 34 characters against Chrome's
+documented 75 limit. Alternatives and the reasoning:
+`antrixy/project-planning/handoffs/headerwright/decisions-entry-manifest-name.md`.
+**This tag blocker is now clear.**
 
 **Evidence — four checks, all derived rather than pinned to prose.** A test
 asserting the exact string would pass on any reword including a wrong one, and
@@ -1627,10 +1629,19 @@ agrees with the CODE: two premise checks establish that `profileToRule()` emits
 `responseHeaders` and that `validateHeaderEntry()` refuses response-side
 `append`, and the copy checks are conditioned on them, so if the product ever
 stops doing either the checks relax with it rather than going stale.
-`selftest.mjs`, `F039:` prefix. `EXPECTED_CHECKS` 440 → 445 in the same edit.
-The pinned string-scan count in `mutate-scans.py` does NOT move — the new
-checks read `manifest.json` separately and are untouched by the comment
-stripper.
+`selftest.mjs`, `F039:` prefix. Six checks once the name ruling landed:
+`EXPECTED_CHECKS` 440 → 445 for the description pair plus premises, then
+445 → 447 for the name pair, each bump in the edit that added its checks. The
+pinned string-scan count in `mutate-scans.py` does NOT move — the new checks
+read `manifest.json` separately and are untouched by the comment stripper.
+
+The name checks take the same derived form: the name may not describe the
+extension as request-side while `profileToRule()` emits `responseHeaders`, and
+a name saying BOTH passes. That is deliberate — the check rejects the
+request-only CLAIM, not the word "request", so the rejected alternative
+`HeaderWright — Modify HTTP Request & Response Headers` would pass if a later
+ruling reverses this one. Confirmed by mutation: the old name fails, the
+both-sides alternative passes, an over-length name fails the limit check.
 
 **The append-scoping check was too weak in its first draft, and mutation is
 what said so.** It asked only that `request` appear after `append`, which the
