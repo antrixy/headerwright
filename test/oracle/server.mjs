@@ -76,23 +76,36 @@ function record(id, rec) {
  * Never used in a real measurement: a real measurement passes no tamper, and
  * the browser is what creates the difference.
  *
+ * THE TARGET IS A PARAMETER, added 2026-09-20. Every tamper here used to act
+ * on `x-hw-oracle` in whichever case the caller passed, and the selfcheck only
+ * ever ran them against the CORS case. So the instrument's proof that it can
+ * see a removal was a proof about ONE header in ONE case — while the reads
+ * that matter (C8, and the E1/E3 rows that separate FINDING-035's candidate
+ * mechanisms) remove `x-hw-removable` from the PLAIN case. That is the
+ * FINDING-032/033/037 shape a fourth time: what the gate exercises is not what
+ * the browser exercises. Defaulting to `x-hw-oracle` keeps every existing row
+ * meaning exactly what it meant.
+ *
  * Returns { emitted, observed } — observed is the set of header names in
  * scope for the diff, so Node's own Date/Connection/Content-Length are not
  * mistaken for a modification.
  */
-function applyTamper(pairs, tamper) {
+const DEFAULT_TAMPER_TARGET = "x-hw-oracle";
+
+function applyTamper(pairs, tamper, target = DEFAULT_TAMPER_TARGET) {
   const observed = pairs.map(([n]) => n);
   if (!tamper) return { emitted: pairs, observed };
 
+  const want = String(target).toLowerCase();
   const out = pairs.map(([n, v]) => [n, v]);
   if (tamper === "set") {
-    const i = out.findIndex(([n]) => n.toLowerCase() === "x-hw-oracle");
+    const i = out.findIndex(([n]) => n.toLowerCase() === want);
     if (i >= 0) out[i] = [out[i][0], "TAMPERED"];
     return { emitted: out, observed };
   }
   if (tamper === "remove") {
     return {
-      emitted: out.filter(([n]) => n.toLowerCase() !== "x-hw-oracle"),
+      emitted: out.filter(([n]) => n.toLowerCase() !== want),
       observed,
     };
   }
@@ -137,7 +150,35 @@ const server = createServer(async (req, res) => {
       res.writeHead(400, { "Content-Type": "application/json" });
       return res.end(JSON.stringify({ error: `unknown case "${name}"` }));
     }
-    const { emitted, observed } = applyTamper(base, url.searchParams.get("tamper"));
+    const tamper = url.searchParams.get("tamper");
+    const tamperHeader = url.searchParams.get("tamperHeader");
+
+    // A NAMED TARGET THE CASE DOES NOT EMIT IS REFUSED, NOT IGNORED. Without
+    // this, `tamper=remove&tamperHeader=x-hw-removeable` (one letter wrong)
+    // filters nothing, sent and received agree, and the row reads as "the
+    // instrument cannot detect a removal" — the exact false reading this gate
+    // exists to prevent. A typo must fail loudly at the server, not quietly at
+    // the verdict.
+    if (tamper && tamperHeader) {
+      const known = base.some(
+        ([n]) => n.toLowerCase() === tamperHeader.toLowerCase()
+      );
+      if (!known) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        return res.end(
+          JSON.stringify({
+            error: `case "${name}" does not emit header "${tamperHeader}"`,
+            emits: base.map(([n]) => n),
+          })
+        );
+      }
+    }
+
+    const { emitted, observed } = applyTamper(
+      base,
+      tamper,
+      tamperHeader || DEFAULT_TAMPER_TARGET
+    );
     // RECORD THE BASE, EMIT THE TAMPERED. See applyTamper.
     record(id, { headers: base, observed });
 

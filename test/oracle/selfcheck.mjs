@@ -24,7 +24,11 @@ import { diffHeaders, unobservableAmong, UNOBSERVABLE } from "./diff.mjs";
 
 const PORT = Number(process.env.ORACLE_PORT || 8787);
 const BASE = `http://127.0.0.1:${PORT}`;
-const EXPECTED_ROWS = 10;
+// Moves 10 -> 13 on 2026-09-20: the plain-case x-hw-removable floor row, the
+// plain-case removal-detection row, and the refusal guard behind it. Bumped in
+// the same edit that adds them — an unbumped tripwire fails the run, which is
+// the design.
+const EXPECTED_ROWS = 13;
 
 let ran = 0;
 let failed = 0;
@@ -39,11 +43,13 @@ function check(label, cond, detail = "") {
   }
 }
 
-async function observe({ id, caseName = "cors", tamper = null }) {
+async function observe({ id, caseName = "cors", tamper = null, tamperHeader = null }) {
   const q = new URLSearchParams({ id, case: caseName });
   if (tamper) q.set("tamper", tamper);
+  if (tamperHeader) q.set("tamperHeader", tamperHeader);
 
   const echo = await fetch(`${BASE}/echo?${q}`);
+  if (!echo.ok) throw new Error(`/echo returned ${echo.status} for id=${id}`);
   const received = [...echo.headers.entries()];
 
   const sentRes = await fetch(`${BASE}/sent?id=${encodeURIComponent(id)}`);
@@ -81,6 +87,17 @@ async function main() {
   check("clean plain response diffs identical", b.diff.identical,
     JSON.stringify(b.diff));
 
+  // FLOOR ROW for the removal reads. C8 and the E1/E3 rows that separate
+  // FINDING-035's candidate mechanisms all turn on `x-hw-removable` being in
+  // the plain case to begin with. If the fixture ever stops emitting it, BOTH
+  // sides of the diff lose it at once, the verdict reads UNMODIFIED, and a
+  // browser sitting records "remove did not apply" about a header that was
+  // never there. Same shape as the CORS-family floor row above.
+  check("the plain case emits x-hw-removable",
+    b.sent.some(([n]) => n.toLowerCase() === "x-hw-removable") &&
+      b.received.some(([n]) => n.toLowerCase() === "x-hw-removable"),
+    "the removal rows measure this header; without it they are vacuous");
+
   // --- Mutant rows: a difference exists, the oracle MUST report it. ---
   const s = await observe({ id: "t-set", tamper: "set" });
   check("SET is detected as changed",
@@ -93,6 +110,33 @@ async function main() {
     !r.diff.identical &&
       r.diff.removed.some((c) => c.name === "x-hw-oracle"),
     JSON.stringify(r.diff));
+
+  // THE ROW ABOVE IS NOT THE ROW C8 NEEDED. It removes x-hw-oracle from the
+  // CORS case; C8 read x-hw-removable in the PLAIN case, and no gate had ever
+  // exercised that pair. Until this row existed, a C8-shaped read of "present,
+  // not removed" could not be separated from an instrument blind to that
+  // removal — and the instrument has been the answer three times already
+  // (FINDING-032, 033, 037).
+  const rp = await observe({
+    id: "t-remove-plain",
+    caseName: "plain",
+    tamper: "remove",
+    tamperHeader: "x-hw-removable",
+  });
+  check("REMOVE of x-hw-removable is detected in the plain case",
+    !rp.diff.identical &&
+      rp.diff.removed.some((c) => c.name === "x-hw-removable"),
+    JSON.stringify(rp.diff));
+
+  // GUARD ON THE GUARD. The row above is only worth anything if a target the
+  // case does not emit fails loudly rather than filtering nothing and reading
+  // as "not detected".
+  const typo = await fetch(
+    `${BASE}/echo?id=t-typo&case=plain&tamper=remove&tamperHeader=x-hw-removeable`
+  );
+  check("a tamper target the case does not emit is refused",
+    typo.status === 400,
+    `status ${typo.status}`);
 
   const p = await observe({ id: "t-add", tamper: "add" });
   check("ADD is detected",
