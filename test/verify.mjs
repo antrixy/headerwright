@@ -136,6 +136,15 @@ for (const [label, cmd, args] of GATES) run(label, cmd, args);
 // Ports are deliberately NOT the defaults, so a stray server left running from
 // a browser sitting cannot answer for these and turn a broken instrument into
 // a pass.
+//
+// AND THAT IS EXACTLY WHY THESE GATES CANNOT CLOSE FINDING-037. The isolation
+// that keeps a stray process from faking a pass here is the same isolation
+// that stops a pass here from saying anything about the process the browser
+// uses. A gate cannot test a process it does not own. `node test/preflight.mjs`
+// tests the ones nobody owns — 8787 and 8790 — and is named in the
+// before-Chrome checklist of every runbook. Do not fold it into this file: it
+// needs running servers and a hosts file, neither of which exists in CI, and a
+// gate that skips is a gate that lies.
 function instrumentGate(label, serverPath, checkPath, port) {
   const started = spawnSync("node", ["-e", `
     const { spawn } = require("node:child_process");
@@ -169,6 +178,9 @@ instrumentGate("initiator-selfcheck",
 // selfcheck proves the INSTRUMENT can detect a difference; it does not prove
 // HeaderWright makes one. A green run here means the tree is internally
 // consistent, which is a precondition for a release and not evidence of one.
+// IT ALSO SAYS NOTHING ABOUT THE RUNNING INSTRUMENTS — see FINDING-037 and
+// `node test/preflight.mjs`, which is the other precondition and is not a gate
+// here.
 // The browser rows in antrixy/project-planning/handoffs/headerwright/NEXT.md
 // are the other half.
 // COUNTS ARE PRINTED, NOT MAINTAINED BY HAND. Twice now a hand-written total
@@ -194,7 +206,9 @@ if (tally.length) console.log(`\ntree: ${tally.join(", ")}`);
 
 console.log(
   failed === 0
-    ? "\nALL AUTOMATED GATES PASS — no browser evidence is included"
+    ? "\nALL AUTOMATED GATES PASS — no browser evidence is included\n" +
+      "The RUNNING instruments on 8787/8790 are not covered here (FINDING-037).\n" +
+      "Before Chrome:  node test/preflight.mjs"
     : `\n${failed} GATE${failed === 1 ? "" : "S"} FAILED — the tree is not green`
 );
 process.exit(failed === 0 ? 0 : 1);
