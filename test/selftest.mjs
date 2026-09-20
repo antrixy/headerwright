@@ -78,7 +78,7 @@ import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 445;
+const EXPECTED_CHECKS = 447;
 
 let passed = 0;
 let failed = 0;
@@ -541,12 +541,26 @@ check("F039: the description scopes append to requests only",
 check("F039: the description is within Chrome's 132-character limit",
   desc.length > 0 && desc.length <= 132);
 
-// THE NAME IS DELIBERATELY NOT CHECKED HERE. `manifest.name` still reads
-// "Modify HTTP Request Headers" and is wrong for the same reason, but changing
-// a published extension's name affects store search and existing links, so it
-// is a RULING and not a patch. When decisions.md carries that ruling, the
-// name check lands in the same commit as the rename and EXPECTED_CHECKS moves
-// again. Recorded here so the gap is visible rather than forgotten.
+// THE NAME IS NOW CHECKED TOO. It read "HeaderWright — Modify HTTP Request
+// Headers" through the whole v0.2.0 cycle. Renaming a published extension
+// affects store search and existing links, so it was held as a RULING rather
+// than slipped into a defect fix; ruled 2026-09-20 to "HeaderWright — Modify
+// HTTP Headers", dropping one word. See
+// `antrixy/project-planning/handoffs/headerwright/decisions-entry-manifest-name.md`.
+//
+// Same derived form as the description checks: the name may not describe the
+// extension as request-side when the tree emits responseHeaders. A name that
+// says BOTH is fine — this rejects the request-only claim, not the word.
+const name = String(manifest.name || "");
+check("F039: the name does not claim request-only while responses are emitted",
+  !emitsResponseHeaders || !/request/i.test(name) || /response/i.test(name));
+
+// Chrome's manifest reference: name is "maximum of 75 characters"
+// (developer.chrome.com, manifest/name, checked 2026-09-20). Docs are the
+// source; not verified empirically here, and that is stated rather than
+// implied — the same footing as the 132-character description limit above.
+check("F039: the name is within Chrome's 75-character limit",
+  name.length > 0 && name.length <= 75);
 check("null grantedDomains yields null", profileToRule(baseProfile, null) === null);
 check("no valid headers yields null",
   profileToRule(
