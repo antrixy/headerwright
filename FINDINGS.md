@@ -1800,3 +1800,33 @@ statements they mean.
 is weakened by any new occurrence anywhere in the file, and the weakening is
 SILENT — the check keeps passing, which is what it looks like when it is
 working. Only a mutation harness distinguishes the two.
+
+**SMOKE part — verified in the browser 2026-09-20, seven steps, all passed.**
+Chrome 153.0.8010.48 (arm64), macOS 26.5.2, `Profile 15`, extension
+`khjeofpciphjaclledledepfppaiicnf` reloaded from `6b5a040`. The reload
+confirmed itself: the card changed to `HeaderWright — Modify HTTP Headers`,
+which is FINDING-039's manifest fix becoming visible for the first time and
+FINDING-041's accidental staleness marker doing the job it created.
+`module-syntax` moved 21 → 22 files, so `draft.js` was loaded rather than
+merely present.
+
+1. Popup opens with NO marker on `probe` when no draft exists.
+2. Row added to `probe`, left unsaved.
+3. Service worker console opened — **the exact action that produced this
+   finding**.
+4. Popup reopened: `probe` carries `Unsaved changes — open Edit to resume`.
+5. Edit shows the row restored, with `Showing unsaved changes — Revert to
+   saved` above the header rows.
+6. `Revert to saved` clears the row, the notice and the card marker.
+7. The same sequence with `Cancel` discards the draft and clears the marker.
+
+Step 7 covers the Cancel sub-ruling, which was made without escalating: 042 is
+about work vanishing without the user CHOOSING it, and Cancel is choosing it.
+Step 1 and step 6 cover the marker staying silent when a draft matches storage
+— a marker that nags is one people learn to ignore, which is the one thing it
+cannot afford.
+
+**Not covered by any gate, and verified by hand only:** that the domains field
+restores character-for-character rather than normalized. The four raw
+round-trip checks in `selftest.mjs` pin the module's behaviour, but nothing
+automated connects the module to the actual `f-domains` input.
