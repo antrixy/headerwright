@@ -78,7 +78,7 @@ import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 440;
+const EXPECTED_CHECKS = 445;
 
 let passed = 0;
 let failed = 0;
@@ -484,6 +484,69 @@ check("manifest minimum_chrome_version is 101 (requestDomains)",
   manifest.minimum_chrome_version === "101");
 check("manifest still requests declarativeNetRequestWithHostAccess",
   (manifest.permissions || []).includes("declarativeNetRequestWithHostAccess"));
+
+// ---------------------------------------- manifest user-facing copy (F039)
+//
+// FINDING-039. The 0.2.0 candidate shipped with a description reading "Set,
+// append, and remove HTTP request headers by profile" on a release whose
+// entire subject is RESPONSE headers. It drifted for a whole cycle and was
+// caught only because it happened to be on screen in a browser sitting —
+// nothing in this suite read the field. `SCOPE.md` had the same defect and was
+// fixed in `07d9763`; the manifest was the copy nobody checked.
+//
+// THE CHECKS ARE DERIVED, NOT PINNED TO PROSE. A test that asserts the exact
+// string would pass on any reword, including a wrong one, and would have to be
+// edited every time the copy is improved. These ask instead whether the copy
+// AGREES WITH THE CODE: if profileToRule() emits responseHeaders, the
+// user-facing text may not describe the extension as request-only.
+const emitsResponseHeaders = Boolean(
+  profileToRule(
+    { id: 1, name: "P", domains: ["a.com"],
+      headers: [{ name: "X-R", side: "response", operation: "set", value: "v" }] },
+    ["a.com"]
+  )?.action?.responseHeaders?.length
+);
+check("F039: the tree emits responseHeaders (premise of the copy checks)",
+  emitsResponseHeaders);
+
+// The description must not promise what the validator refuses. Response-side
+// append is refused in this release (see validateHeaderEntry); a description
+// naming `append` without scoping it to requests is a promise the product
+// does not keep.
+const appendRefusedOnResponse = validateHeaderEntry(
+  { name: "Accept", side: "response", operation: "append", value: "v" }
+).valid === false;
+check("F039: response-side append is refused (premise of the copy checks)",
+  appendRefusedOnResponse);
+
+const desc = String(manifest.description || "");
+check("F039: the description mentions response headers",
+  !emitsResponseHeaders || /response/i.test(desc));
+// DELIBERATELY BRITTLE, and the first draft of it was too loose: it asked only
+// that "request" appear after "append", which the stale copy "append, and
+// remove HTTP request and response headers" satisfies while making exactly the
+// false promise. Caught by mutating the description back. The check now
+// demands an explicit request-only qualifier, so rewording the scope forces a
+// deliberate edit here — the same trade the oracle's phase-inversion check
+// makes.
+check("F039: the description scopes append to requests only",
+  !appendRefusedOnResponse || !/append/i.test(desc) ||
+  /append[^.;]*request[- ]only|request[- ]only[^.;]*append/i.test(desc));
+
+// Chrome's manifest reference: description is "no more than 132 characters"
+// (developer.chrome.com, manifest/description, re-checked 2026-09-20). An
+// over-length description is a STORE SUBMISSION failure, which is the worst
+// place to discover it. Not verified empirically here — the docs are the
+// source, and that is stated rather than implied.
+check("F039: the description is within Chrome's 132-character limit",
+  desc.length > 0 && desc.length <= 132);
+
+// THE NAME IS DELIBERATELY NOT CHECKED HERE. `manifest.name` still reads
+// "Modify HTTP Request Headers" and is wrong for the same reason, but changing
+// a published extension's name affects store search and existing links, so it
+// is a RULING and not a patch. When decisions.md carries that ruling, the
+// name check lands in the same commit as the rename and EXPECTED_CHECKS moves
+// again. Recorded here so the gap is visible rather than forgotten.
 check("null grantedDomains yields null", profileToRule(baseProfile, null) === null);
 check("no valid headers yields null",
   profileToRule(
