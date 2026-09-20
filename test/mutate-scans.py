@@ -67,13 +67,21 @@ MUTATIONS = [
     # when the FINDING-002 chip check started reading popup.js as text.
     # 7 -> 12 on 2026-09-13: the v0.2.0 side-control checks and the three
     # oracle-page checks all read source as text.
+    # 12 -> 15 on 2026-09-20: the two FINDING-042 checks that read popup.js and
+    # popup.html as text for the draft store and the revert control, plus the
+    # readFormRaw side-control scan added when FINDING-042's fix silently
+    # weakened the readForm one by introducing a second occurrence of its
+    # substring. The
+    # FINDING-039 manifest checks did NOT move it — they read manifest.json
+    # separately and the stripper never touches them.
     # HOW THE DRIFT WAS FOUND IS THE PART WORTH KEEPING. It was not found here.
     # Two sessions added checks, ran mutate-collisions.py because FIRST ACTIONS
     # named that one, reported the tree green, and never ran this file — which
     # had been sitting red the whole time. An external review found it. There
     # are THREE harnesses and no single command runs them all; until there is,
     # "the tree is green" means "the harness someone remembered is green".
-    ("the comment stripper also eats string literals", TEST, 12,
+    # (`node test/verify.mjs` is now that command, added 2026-09-13.)
+    ("the comment stripper also eats string literals", TEST, 15,
      "const popupJs = stripJsComments(popupJsRaw);",
      'const popupJs = stripJsComments(popupJsRaw).replace(/"[^"]*"/g, \'""\');'),
 

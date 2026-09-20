@@ -16,6 +16,14 @@
 // fails the run. Update it deliberately or not at all.
 
 import {
+  formToDraft,
+  draftToForm,
+  isValidDraft,
+  draftDiffersFromProfile,
+  profileToFormShape,
+  DRAFT_VERSION,
+} from "../extension/lib/draft.js";
+import {
   validateHeaderEntry,
   isValidDomain,
   profileToRule,
@@ -78,7 +86,7 @@ import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 447;
+const EXPECTED_CHECKS = 464;
 
 let passed = 0;
 let failed = 0;
@@ -484,6 +492,91 @@ check("manifest minimum_chrome_version is 101 (requestDomains)",
   manifest.minimum_chrome_version === "101");
 check("manifest still requests declarativeNetRequestWithHostAccess",
   (manifest.permissions || []).includes("declarativeNetRequestWithHostAccess"));
+
+// ------------------------------------------------------------- drafts (F042)
+//
+// FINDING-042: the popup discarded in-progress edits on focus loss. The fix is
+// snapshot-and-restore rather than a confirm-on-close SPECIFICALLY so it can
+// be held here — a prompt is only testable in a browser, and this project has
+// spent three sittings on defects only a browser could see.
+//
+// THE POINT OF EVERY CHECK BELOW IS THAT A DRAFT IS RAW, NOT NORMALIZED.
+// readForm() lowercases and sorts domains and drops blank rows because it
+// produces something fit to save. Restoring that would rewrite the user's
+// typing mid-edit, which is a quieter version of the defect being fixed.
+const rawForm = {
+  editingProfileId: 2,
+  name: "  probe  ",
+  domains: "EXAMPLE.com,   api.Example.com , ",
+  rows: [
+    { name: "X-A", side: "request", operation: "set", value: "1" },
+    { name: "", side: "request", operation: "set", value: "" },
+    { name: "X-B", side: "response", operation: "remove", value: "" },
+  ],
+};
+const roundTripped = draftToForm(formToDraft(rawForm));
+
+check("F042: a draft round-trips the raw name, untrimmed",
+  roundTripped.name === "  probe  ");
+check("F042: a draft round-trips the raw domains string, unnormalized",
+  roundTripped.domains === "EXAMPLE.com,   api.Example.com , ");
+check("F042: a draft keeps blank rows",
+  roundTripped.rows.length === 3 && roundTripped.rows[1].name === "");
+check("F042: a draft keeps the side and operation of each row",
+  roundTripped.rows[2].side === "response" &&
+    roundTripped.rows[2].operation === "remove");
+check("F042: a draft carries which profile was being edited",
+  roundTripped.editingProfileId === 2);
+check("F042: a new-profile draft carries a null id",
+  formToDraft({ ...rawForm, editingProfileId: null }).editingProfileId === null);
+
+// REJECT RATHER THAN REPAIR. A half-restored malformed draft would put
+// unexplained text into a form the user is about to save.
+check("F042: a draft from a future version is refused",
+  !isValidDraft({ ...formToDraft(rawForm), version: DRAFT_VERSION + 1 }));
+check("F042: a draft with a non-array rows field is refused",
+  !isValidDraft({ ...formToDraft(rawForm), rows: "nope" }));
+check("F042: a draft with a malformed row is refused",
+  !isValidDraft({ ...formToDraft(rawForm), rows: [{ name: "X" }] }));
+check("F042: draftToForm returns null for anything unrestorable",
+  draftToForm({ version: 999 }) === null && draftToForm(null) === null);
+
+// THE MARKER MUST NOT NAG. Opening the editor and closing it again leaves a
+// draft identical to storage; marking that would teach the user to ignore the
+// marker, which is the one thing it cannot afford.
+const savedProfile = {
+  id: 2,
+  name: "probe",
+  domains: ["hw.test"],
+  headers: [
+    { name: "X-HW-Probe", operation: "set", value: "present" },
+    { name: "X-HW-Oracle", side: "response", operation: "set", value: "rewritten" },
+  ],
+};
+const untouched = formToDraft(profileToFormShape(savedProfile, sideOf));
+check("F042: a draft matching the saved profile is not marked unsaved",
+  !draftDiffersFromProfile(untouched, savedProfile, sideOf));
+
+const edited = formToDraft({
+  ...profileToFormShape(savedProfile, sideOf),
+  rows: [
+    { name: "X-HW-Probe", side: "request", operation: "set", value: "CHANGED" },
+    { name: "X-HW-Oracle", side: "response", operation: "set", value: "rewritten" },
+  ],
+});
+check("F042: a draft differing in a header value IS marked unsaved",
+  draftDiffersFromProfile(edited, savedProfile, sideOf));
+
+// THE SIDELESS-MEANS-REQUEST RULE MUST SURVIVE THE PROJECTION. The stored
+// shape omits `side` for request entries and the form always carries one, so
+// comparing stored shapes directly would report a difference for every profile
+// the moment the editor opened.
+check("F042: projecting a sideless stored entry yields side=request",
+  profileToFormShape(savedProfile, sideOf).rows[0].side === "request");
+check("F042: an empty profile projects to one blank row",
+  profileToFormShape(null, sideOf).rows.length === 1 &&
+    profileToFormShape(null, sideOf).rows[0].name === "");
+
 
 // ---------------------------------------- manifest user-facing copy (F039)
 //
@@ -1961,6 +2054,26 @@ const stripJsComments = (src) => {
 const popupJs = stripJsComments(popupJsRaw);
 const popupHtml = popupHtmlRaw.replace(/<!--[\s\S]*?-->/g, "");
 
+// FINDING-042. Source scans, so they live with the other popup text checks
+// rather than beside the pure draft checks above — popupJs is not read until
+// here. Both controls are load-bearing: without the session store the draft
+// never survives the popup closing, and without the revert control a draft is
+// the only reachable state once one exists.
+// BOUND TO THE CALL SITES, NOT THE BARE NAME. The first version of this check
+// asked only whether `chrome.storage.session` appeared anywhere in popup.js,
+// and a mutant that switched the draft READ to storage.local survived it —
+// the other two call sites still carried the string. Session is the whole
+// point: a draft that outlives the browser is stale confusion rather than
+// rescued work. Caught by mutating this fix's own code, minutes after the
+// identical weakness was fixed in the readForm side scan above.
+check("F042: the draft store is session, and never local",
+  /chrome\.storage\.session\.get\(STORAGE_KEY_DRAFTS\)/.test(popupJs) &&
+  /chrome\.storage\.session\.set\(\{ \[STORAGE_KEY_DRAFTS\]/.test(popupJs) &&
+  !/storage\.local\.\w+\([^)]*STORAGE_KEY_DRAFTS/.test(popupJs) &&
+  /hw:drafts/.test(popupJs));
+check("F042: the popup exposes a revert-to-saved control",
+  /draft-revert/.test(popupJs) && /draft-revert/.test(popupHtml));
+
 const referencedIds = [...popupJs.matchAll(/\$\("([^"]+)"\)/g)].map((m) => m[1]);
 const declaredIds = new Set(
   [...popupHtml.matchAll(/id="([^"]+)"/g)].map((m) => m[1])
@@ -2195,8 +2308,21 @@ check("0.2.0: sideOf is IMPORTED, not reimplemented in the popup",
 // happens to be first in the loop.
 check("0.2.0: the selected side comes from sideOf(entry), not entry.side",
   /side === sideOf\(entry\)/.test(popupJs));
+// BOUND TO THE STATEMENT, NOT THE SUBSTRING — tightened 2026-09-20.
+// This read `/querySelector\("\.h-side"\)/` until FINDING-042's fix added
+// readFormRaw(), which contains the same substring. The mutant that blanks
+// readForm's side read then stopped failing anything: the string was still
+// present, in the other function. `mutate-collisions.py` caught it as a
+// ZERO-FAIL mutation on the first run after the change.
+//
+// THE LESSON IS GENERAL. A bare substring scan is weakened by any new
+// occurrence anywhere in the file, and the weakening is silent — the check
+// keeps passing, which is exactly what it looks like when it is working.
+// Scans that pin behaviour should match the statement they mean.
 check("0.2.0: readForm reads the side control",
-  /querySelector\("\.h-side"\)/.test(popupJs));
+  /const side = row\.querySelector\("\.h-side"\)\.value;/.test(popupJs));
+check("F042: readFormRaw reads the side control too",
+  /side: row\.querySelector\("\.h-side"\)\.value,/.test(popupJs));
 // THE REQUEST SIDE IS ABSENCE. This is the check that pins the format claim:
 // an unconditional `entry.side = side` would rewrite every existing profile on
 // its first save with no behaviour change to show for it.
