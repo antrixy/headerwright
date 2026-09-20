@@ -50,9 +50,17 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { stampBody, shortDigest } from "../instrument-stamp.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.argv[2] || 8790);
+
+// FINDING-037, same reasoning as the response oracle. Both instruments carry
+// the stamp or the gap is only half closed — and half-closing this exact gap
+// is what the 09-19 fix did, which is why 037 exists at all.
+const STAMP = Object.freeze(
+  stampBody(HERE, ["server.mjs", "index.html", "index.mjs"])
+);
 
 // The host that plays TARGET. A HeaderWright profile is scoped to this name,
 // and the question is whether its headers arrive here.
@@ -79,6 +87,15 @@ const server = createServer(async (req, res) => {
   // row and the same-origin control — the only difference between them is
   // which origin the page was loaded from, which is exactly the variable under
   // test and must be the ONLY one.
+  // FINDING-037. See the response oracle's copy and test/preflight.mjs.
+  if (url.pathname === "/whoami") {
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    });
+    return res.end(JSON.stringify(STAMP));
+  }
+
   if (url.pathname === "/echo") {
     const seen = {};
     for (const name of WATCHED) {
@@ -167,4 +184,5 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`  cross-origin row : http://${INITIATOR_HOST}:${PORT}/`);
   console.log(`  same-origin ctrl : http://${TARGET_HOST}:${PORT}/`);
   console.log(`  both names must resolve to 127.0.0.1 in /etc/hosts`);
+  console.log(`  build ${shortDigest(STAMP.digest)}  pid ${STAMP.pid}  — verify with: node test/preflight.mjs`);
 });
