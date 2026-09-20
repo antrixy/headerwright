@@ -1327,10 +1327,39 @@ per-header, rests entirely on C8 and is withdrawn with it.
 
 **This entry no longer blocks the v0.2.0 tag.** FINDING-040 does.
 
+**THE SITTING-2 EXPORT WAS RECOVERED, 2026-09-20 evening, after being called
+unrecoverable in this file.** `test/fixtures/sitting-2-post-c11-probe-state.json`,
+sha256 `ff7a6a45a8d0c58d1626be9f586103d02b59569c7e77bf9eb6db347218a6a95e`,
+matching the value recorded on 09-19. It had been sitting untracked on disk at
+exactly the cited path the whole time and surfaced in a routine
+`git status --porcelain`. Now committed.
+
+**What it shows, and what it does NOT settle.** `probe` holds exactly two
+header entries at the end of sitting 2: `X-HW-Probe` set/`present`, and
+`X-HW-Oracle` set/`side: response` carrying C11's payload. **There is no
+`X-HW-Removable` entry of any kind** — not a `remove`, not a mis-built `set`.
+So the row C8 was read against was absent from stored state by the end of that
+sitting.
+
+That is consistent with FINDING-042 (an edit that never landed) and equally
+consistent with C11 having simply overwritten the profile afterwards. **It does
+not separate 040 from 042**, and it cannot: the export records the END of the
+sitting, and C11 ran after C8. It does confirm one thing nobody had checked —
+that stored state did not drift between sittings, since this file matches what
+`getDynamicRules()` returned on 2026-09-20 morning before any edit.
+
+**The error worth keeping.** "Unrecoverable" was inferred from the fact that
+nobody had looked, not from any check. Storage was overwritten — true. The
+exported file was gone — never tested. One `ls` would have settled it, and the
+claim was written into this file twice before one was run. Same class as C8's
+claimed-but-unperformed verification, which is the defect this very entry is
+about.
+
 Evidence: `test/RUNBOOK-2026-09-20-2-e4-request-side.md`, rows E4 and E5 and
 the void block between them; `test/RUNBOOK-2026-09-20-f035.md`, rows E1, E2, E3
 and its falsification banner; `test/RUNBOOK-2026-09-13-v020.md`, rows C8 and C9
-sequence 4, now believed to be mis-built.
+sequence 4, now believed to be mis-built;
+`test/fixtures/sitting-2-post-c11-probe-state.json`.
 **FINDING-036 — a `set` following an `append` on the same header does not
 apply.** Raised against `58889bb`, 2026-09-19, as C9 sequence 2, on
 `x-forwarded-for` read via `/echo`. Three request-side sequences were measured.
