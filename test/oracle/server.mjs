@@ -28,9 +28,18 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { stampBody, shortDigest } from "../instrument-stamp.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.argv[2] || 8787);
+
+// FINDING-037. The files THIS PROCESS serves, hashed once at startup. See
+// test/instrument-stamp.mjs for why the timing matters and test/preflight.mjs
+// for the caller. Frozen here so no later code path can recompute it and
+// accidentally report what is on disk instead of what is loaded.
+const STAMP = Object.freeze(
+  stampBody(HERE, ["server.mjs", "index.html", "index.mjs", "diff.mjs"])
+);
 
 // The header set under observation. Deliberately includes the CORS family,
 // because that is the canonical v0.2.0 job, plus one ordinary custom header.
@@ -118,6 +127,16 @@ function applyTamper(pairs, tamper, target = DEFAULT_TAMPER_TARGET) {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+
+  // FINDING-037: which tree is this process serving? Answered by the process,
+  // not inferred from a green gate that spawned a different one.
+  if (url.pathname === "/whoami") {
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    });
+    return res.end(JSON.stringify(STAMP));
+  }
 
   if (url.pathname === "/" || url.pathname === "/index.html") {
     const html = await readFile(join(HERE, "index.html"));
@@ -214,6 +233,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`oracle on http://127.0.0.1:${PORT}/  cases: ${Object.keys(CASES).join(", ")}`);
+  console.log(`  build ${shortDigest(STAMP.digest)}  pid ${STAMP.pid}  — verify with: node test/preflight.mjs`);
 });
 
 export { CASES, PORT };
