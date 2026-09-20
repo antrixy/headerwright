@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "HeaderWright — Modify HTTP Request Headers",
+  "name": "HeaderWright — Modify HTTP Headers",
   "version": "0.2.0",
   "description": "Set and remove HTTP request and response headers by profile; append on request only. No webRequest — it cannot read your traffic.",
   "icons": {
