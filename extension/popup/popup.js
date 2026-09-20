@@ -38,12 +38,22 @@ import {
   configRevision,
   readSyncRecord,
 } from "../lib/status.js";
+import {
+  formToDraft,
+  draftToForm,
+  draftDiffersFromProfile,
+  profileToFormShape,
+} from "../lib/draft.js";
 import { createSerialQueue, createDebounced } from "../lib/queue.js";
 import { decodeStoredState } from "../lib/stored.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
 const STORAGE_KEY_SYNC = "hw:sync";
+// FINDING-042. chrome.storage.SESSION, not local: a draft that outlives the
+// browser is stale confusion rather than rescued work, and session clears
+// itself without us having to decide when a draft has gone off.
+const STORAGE_KEY_DRAFTS = "hw:drafts";
 
 const $ = (id) => document.getElementById(id);
 
@@ -91,6 +101,51 @@ async function getProfiles() {
 
 async function setProfiles(profiles) {
   await chrome.storage.local.set({ [STORAGE_KEY_PROFILES]: profiles });
+}
+
+// ------------------------------------------------------------ drafts (F042)
+//
+// KEYED BY PROFILE, NOT ONE AT A TIME. The first design here kept a single
+// draft and prompted when the user opened a different profile — which makes
+// the popup ask a question in order to throw work away, which is the defect
+// wearing a hat. A map has no destructive case at all, costs a few bytes of
+// session storage, and removes the prompt rather than writing one.
+//
+// The key is the profile id, or "new" for an unsaved profile. A "new" draft
+// gets no card marker because there is no card yet; it is restored when the
+// user next presses Add profile. Stated as a known limit rather than solved:
+// a marker for a profile that does not exist would have to live in the list
+// header, and that is a bigger change than this defect warrants.
+
+function draftKeyFor(profileId) {
+  return profileId === null || profileId === undefined ? "new" : String(profileId);
+}
+
+async function getDrafts() {
+  try {
+    const stored = await chrome.storage.session.get(STORAGE_KEY_DRAFTS);
+    const drafts = stored?.[STORAGE_KEY_DRAFTS];
+    return drafts && typeof drafts === "object" ? drafts : {};
+  } catch (err) {
+    // A draft store that cannot be read is not worth failing the popup over.
+    // The user sees their saved profiles, which is where they were before this
+    // feature existed.
+    console.error("HeaderWright: could not read drafts —", err);
+    return {};
+  }
+}
+
+async function putDraft(key, draft) {
+  const drafts = await getDrafts();
+  drafts[key] = draft;
+  await chrome.storage.session.set({ [STORAGE_KEY_DRAFTS]: drafts });
+}
+
+async function dropDraft(key) {
+  const drafts = await getDrafts();
+  if (!(key in drafts)) return;
+  delete drafts[key];
+  await chrome.storage.session.set({ [STORAGE_KEY_DRAFTS]: drafts });
 }
 
 async function getEnabled() {
@@ -338,9 +393,12 @@ async function renderListNow() {
     (entry) => validateHeaderEntry(entry).valid
   );
   const nameById = new Map(profiles.map((p) => [p.id, p.name]));
+  const drafts = await getDrafts();
 
   for (const profile of profiles) {
-    list.appendChild(renderProfileCard(profile, grants, collisions, nameById));
+    list.appendChild(
+      renderProfileCard(profile, grants, collisions, nameById, drafts)
+    );
   }
 
   // Retract a pending question whose subject no longer exists. Reachable now
@@ -426,7 +484,7 @@ async function updateStatusLine(profiles, grants) {
   line.classList.toggle("sync-partial", syncState === "partial");
 }
 
-function renderProfileCard(profile, grants, collisions, nameById) {
+function renderProfileCard(profile, grants, collisions, nameById, drafts) {
   const card = document.createElement("div");
   card.className = "profile";
 
@@ -465,6 +523,20 @@ function renderProfileCard(profile, grants, collisions, nameById) {
   }
 
   card.append(row1, meta, domains);
+
+  // FINDING-042's honesty surface, the same move as the collision marker
+  // above: the card otherwise reads as though what is stored is what the user
+  // last wrote. Only marked when the draft actually DIFFERS from the saved
+  // profile — opening the editor and closing it again leaves a draft that
+  // matches storage, and nagging about that would teach the user to ignore
+  // the marker, which is the one thing it cannot afford.
+  const draft = drafts ? drafts[draftKeyFor(profile.id)] : null;
+  if (draft && draftDiffersFromProfile(draft, profile, sideOf)) {
+    const unsaved = document.createElement("div");
+    unsaved.className = "unsaved";
+    unsaved.textContent = "Unsaved changes — open Edit to resume";
+    card.appendChild(unsaved);
+  }
 
   // FINDING-021's honesty surface. Without it the card shows green dots and
   // the status line reads "applying" while this profile's header silently
@@ -698,17 +770,54 @@ function addHeaderRow(entry = { name: "", operation: "set", value: "" }) {
   $("header-rows").appendChild(row);
 }
 
-function openEditor(profile = null) {
+async function openEditor(profile = null) {
   editingProfileId = profile ? profile.id : null;
   $("form-title").textContent = profile ? "Edit profile" : "New profile";
-  $("f-name").value = profile ? profile.name : "";
-  $("f-domains").value = profile ? (profile.domains || []).join(", ") : "";
+
+  // FINDING-042. A draft for THIS profile wins over the stored profile, and
+  // says so on screen. Restoring silently would mean the form disagrees with
+  // the saved configuration for reasons the user cannot see — a quieter
+  // version of the same defect.
+  const drafts = await getDrafts();
+  const restored = draftToForm(drafts[draftKeyFor(editingProfileId)]);
+  const shape = restored || profileToFormShape(profile, sideOf);
+
+  $("f-name").value = shape.name;
+  $("f-domains").value = shape.domains;
   $("header-rows").textContent = "";
-  const headers = profile && profile.headers?.length ? profile.headers : [null];
-  for (const entry of headers) addHeaderRow(entry || undefined);
+  for (const row of shape.rows) {
+    addHeaderRow({
+      name: row.name,
+      side: row.side,
+      operation: row.operation,
+      value: row.value,
+    });
+  }
   hideFormError();
+  setRestoredNotice(Boolean(restored));
   showView("edit");
   $("f-name").focus();
+}
+
+function setRestoredNotice(visible) {
+  $("draft-notice").classList.toggle("hidden", !visible);
+}
+
+// Throw the draft away and repaint from storage. The only path back to the
+// saved configuration once a draft exists, which is why it is a visible
+// button rather than an inferred behaviour.
+async function revertToSaved() {
+  const key = draftKeyFor(editingProfileId);
+  await dropDraft(key);
+  const profiles = await getProfiles();
+  const profile = profiles.find((p) => p.id === editingProfileId) || null;
+  const shape = profileToFormShape(profile, sideOf);
+  $("f-name").value = shape.name;
+  $("f-domains").value = shape.domains;
+  $("header-rows").textContent = "";
+  for (const row of shape.rows) addHeaderRow(row);
+  setRestoredNotice(false);
+  await renderList();
 }
 
 function showFormError(message) {
@@ -753,6 +862,46 @@ function readForm() {
     headers.push(entry);
   }
   return { name, domains, headers };
+}
+
+// FINDING-042. The RAW form, not readForm()'s output. readForm() normalizes
+// domains and drops blank rows because it produces something fit to SAVE.
+// A draft is a half-finished edit: "EXAMPLE.c" must come back as typed, and a
+// row the user just added must still be there even though it is empty.
+function readFormRaw() {
+  const rows = [];
+  for (const row of $("header-rows").querySelectorAll(".hrow")) {
+    rows.push({
+      name: row.querySelector(".h-name").value,
+      side: row.querySelector(".h-side").value,
+      operation: row.querySelector(".h-op").value,
+      value: row.querySelector(".h-value").value,
+    });
+  }
+  return {
+    editingProfileId: editingProfileId,
+    name: $("f-name").value,
+    domains: $("f-domains").value,
+    rows,
+  };
+}
+
+// WRITTEN ON EVERY INPUT, NOT ON A TIMER. The popup dies the instant focus
+// leaves it and a pending debounce dies with it, so a debounce here would
+// reintroduce the loss it is meant to prevent. storage.session is in-memory.
+//
+// KNOWN LIMIT, stated rather than implied: storage.session.set is async, so a
+// write dispatched at the exact moment the popup closes may not land, and the
+// last keystroke or two can still be lost. Writing per event makes that window
+// as small as it goes; closing it entirely needs a synchronous storage API,
+// which MV3 does not have.
+async function persistDraft() {
+  if ($("edit-view").classList.contains("hidden")) return;
+  try {
+    await putDraft(draftKeyFor(editingProfileId), formToDraft(readFormRaw()));
+  } catch (err) {
+    console.error("HeaderWright: could not persist the draft —", err);
+  }
 }
 
 function validateForm({ name, domains, headers }) {
@@ -885,6 +1034,11 @@ async function saveProfile() {
   }
 
   await setProfiles(nextProfiles);
+
+  // FINDING-042: the draft has become the saved state, so it is no longer
+  // unsaved work. Dropped AFTER setProfiles succeeds — clearing it first
+  // would throw the edit away on a save that then failed.
+  await dropDraft(draftKeyFor(editingProfileId));
 
   // Popup UI state, in case we survive the request (already granted, or
   // denied without a dialog). Set BEFORE the request for the same reason.
@@ -1055,8 +1209,31 @@ $("master-toggle").addEventListener("change", async (event) => {
 });
 
 $("add-profile").addEventListener("click", () => openEditor(null));
-$("add-header-row").addEventListener("click", () => addHeaderRow());
-$("f-cancel").addEventListener("click", () => showView("list"));
+$("add-header-row").addEventListener("click", () => {
+  addHeaderRow();
+  persistDraft();
+});
+
+// CANCEL DISCARDS, and that is deliberate. FINDING-042 is about work vanishing
+// without the user choosing it; pressing Cancel IS choosing it. Keeping the
+// draft here would mean the button no longer does what it says.
+$("f-cancel").addEventListener("click", async () => {
+  await dropDraft(draftKeyFor(editingProfileId));
+  setRestoredNotice(false);
+  showView("list");
+  await renderList();
+});
+
+$("draft-revert").addEventListener("click", revertToSaved);
+
+// Every keystroke and every dropdown change. See persistDraft.
+$("profile-form").addEventListener("input", persistDraft);
+$("profile-form").addEventListener("change", persistDraft);
+// Row deletion fires neither, and losing a deleted row on reopen would be the
+// defect pointing the other way.
+$("header-rows").addEventListener("click", (event) => {
+  if (event.target.closest(".remove-row")) persistDraft();
+});
 $("f-save").addEventListener("click", saveProfile);
 $("profile-form").addEventListener("submit", (e) => e.preventDefault());
 

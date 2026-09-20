@@ -172,6 +172,23 @@
     font-size: 12px; line-height: 1.35; margin-top: 7px;
     border-radius: 5px; padding: 6px 8px;
   }
+  /* FINDING-042, on the card. Deliberately NOT --danger: unsaved work is not
+     a fault and the profile IS still applying its saved configuration, so the
+     red the collision marker uses would overstate it. Muted, below the chips,
+     same position as the collision marker so the two never fight for the top
+     of the card. */
+  .profile .unsaved {
+    color: var(--ink-soft); background: var(--surface-2);
+    border: 1px solid var(--line);
+    font-size: 12px; line-height: 1.35; margin-top: 7px;
+    border-radius: 5px; padding: 6px 8px;
+  }
+  .draft-notice {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    color: var(--ink-soft); background: var(--surface-2);
+    border: 1px solid var(--line);
+    font-size: 12px; margin: 8px 0; border-radius: 5px; padding: 6px 8px;
+  }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--off); flex: none; }
   .dot.granted { background: var(--on); box-shadow: 0 0 0 3px var(--on-soft); }
   /* A domain carrying a pre-0.1.4 grant. Deliberately NOT a third dot colour:
@@ -367,6 +384,15 @@
         <input type="text" id="f-domains" class="mono" autocomplete="off"
                placeholder="api.example.com, example.com">
         <div class="hint">Comma-separated. Subdomains of each domain match too.</div>
+
+        <!-- FINDING-042. Shown only when the form was painted from a draft
+             rather than from storage. Restoring silently would leave the form
+             disagreeing with the saved configuration for reasons the user
+             cannot see, which is a quieter version of the defect. -->
+        <div id="draft-notice" class="draft-notice hidden">
+          <span>Showing unsaved changes.</span>
+          <button type="button" id="draft-revert" class="quiet">Revert to saved</button>
+        </div>
 
         <label>Headers</label>
         <div id="header-rows"></div>
