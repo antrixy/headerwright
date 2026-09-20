@@ -124,6 +124,7 @@ Each check precedes the thing it qualifies.
       `test/fixtures/2026-09-20-pre-e4-state.json`, with its sha256 recorded in
       the results. The sitting-2 export was declined and is now unrecoverable;
       do not make that two.
+      **THAT PREMISE WAS FALSE — see the correction below.**
       **STRUCK, deliberately, after checking.** This item was written by
       inheritance and does not survive inspection.
       `test/fixtures/c5-v2-export.json` is already a browser-produced v2 export
@@ -133,6 +134,12 @@ Each check precedes the thing it qualifies.
       was E3's array, already recorded verbatim from `getDynamicRules()` in the
       morning runbook, which is a better record than an export because it is
       what Chrome held rather than what the popup wrote.
+      **CORRECTION, 2026-09-20 evening: the sitting-2 export was never lost.**
+      It had been on disk since 09-19, untracked, at the exact path
+      FINDINGS.md cited, with the exact sha256 recorded there. It surfaced in
+      a `git status --porcelain` run for an unrelated reason and is now
+      committed. The struck item above stands on its own reasoning; the
+      "unrecoverable" premise attached to it does not.
       **Noted while checking: nothing in the tree reads either committed
       fixture.** No selftest, no mutation harness, no gate — they are cited
       only in prose in the 09-13 runbook. Wiring them into a round-trip check
