@@ -1239,11 +1239,16 @@ covers subdomains, and FINDING-018 implies it does not. Verify before
 simplifying — the redundancy runs one way, and treating the two patterns as
 interchangeable would re-introduce FINDING-018.
 
-**FINDING-035 — response-side `remove` is accepted, stored, held by Chrome, and
-never applied.** Raised against the v0.2.0 candidate (`58889bb`) in browser
-sitting 2, 2026-09-19. **This blocks the v0.2.0 tag**: `07d9763` rewrote
-`SCOPE.md` to sequence v0.2.0 as response `set` + `remove`, with `append`
-deferred to v0.2.1, so one of the two shipped operations does not work.
+**FINDING-035 — a response-side `set` suppresses every later `remove` in the
+same rule, including on a different header.** Raised against the v0.2.0
+candidate (`58889bb`) in browser sitting 2, 2026-09-19, under the title
+"response-side `remove` is accepted, stored, held by Chrome, and never
+applied". **That title was falsified on 2026-09-20** and is kept here because
+what it claimed is the point: `remove` applies fine on its own and applies fine
+ahead of a `set`. Only `set`-then-`remove` fails. **This still blocks the
+v0.2.0 tag**: `07d9763` rewrote `SCOPE.md` to sequence v0.2.0 as response
+`set` + `remove`, with `append` deferred to v0.2.1, and the two shipped
+operations do not compose in one order out of two.
 
 Two independent sightings. C8 — the fixture emits `X-HW-Removable: present` and
 the profile carries `X-HW-Removable` / `res` / `remove`; the plain case receives
@@ -1310,6 +1315,60 @@ Separation rows are registered in `test/RUNBOOK-2026-09-20-f035.md` with
 per-mechanism predictions. E2 — two `set`s on different headers, no `remove`
 anywhere — is the decisive one and is run first.
 
+**CAUSE ESTABLISHED 2026-09-20**, by the three separation rows in
+`test/RUNBOOK-2026-09-20-f035.md`, run on Chrome 153.0.8010.48 (arm64), macOS
+26.5.2, extension `khjeofpciphjaclledledepfppaiicnf` at `67035ae` — the SAME
+browser build and profile as sitting 2, so no version difference is available
+to explain a divergence away. Every row verified its stored array with
+`getDynamicRules()` before the press.
+
+| rule shape (one rule, one `responseHeaders` array) | outcome |
+| --- | --- |
+| `set` A, `set` B — E2 | both applied |
+| `remove` A alone — E1 | applied |
+| `remove` A, then `set` B — E3 | both applied |
+| `set` B, then `remove` A — C8 | `remove` ignored |
+| `set` A, then `remove` A — C9 seq 4 | `remove` ignored |
+
+**M1 (`remove` never applies) is dead** — E1 and E3 both removed the header
+from the wire. **M2 (only index 0 applies) is dead** — E2 and E3 both applied an
+entry at index 1. **M3 (a `set` blocks all later response modification) is
+dead** — E3 applied a `set` at index 1 after a `remove` at index 0. What
+survives is narrower and order-dependent: an earlier `set` suppresses a later
+`remove`, and nothing else in the matrix fails.
+
+**Two properties make this a Chromium defect rather than documented
+precedence.** It is NOT per-header: C8's two entries touch different headers and
+the `remove` was still suppressed, while Chrome's reference and MDN both state
+that modifyHeaders actions apply independently when they touch different
+headers. And it is ASYMMETRIC: inside one array, `remove`-then-`set` yields both
+and `set`-then-`remove` yields one — same two operations, same two headers,
+different outcome by array order alone. Chrome's documented precedence governs
+ordering BETWEEN rules, where a consistent first-wins would at least be
+coherent. Reportable upstream with the build string above.
+
+**THE WINNING HYPOTHESIS WAS NOT PREREGISTERED.** It was formulated mid-sitting,
+between the E2 and E1 reads, after M2 and M3 had fallen; two of the three rows
+matched none of the three registered predictions. It fits five observations
+across two sittings and two storage states, which is not nothing — but by the
+rule at the top of this file, a hypothesis written after the data is believed,
+not established. **E4 is registered in the runbook with its prediction
+committed in advance** — C8's exact shape, predicted to reproduce C8's result —
+and has NOT been run. Until it is, treat the mechanism as strongly evidenced
+rather than closed.
+
+**The disposition this changes.** Deferring `remove` to v0.2.1 with the
+validator refusing it is now the WRONG call, because `remove` works. The
+candidate fix is that `buildRules()` emits response `remove` entries ahead of
+`set` entries within `responseHeaders` — pure, cheap, testable in `rules.js`,
+no UI change. But it is a RULING, not a patch: reordering behind the user's back
+makes `remove` work and makes the project's own claim that array order is
+preserved on the wire false by construction, and the popup has no reorder
+control with which a user could say otherwise. Alternatives that keep the order
+claim: refuse a `set`-before-`remove` array in the validator, or split response
+entries across rules with distinct priorities. **No fix until the ruling is in
+`decisions.md`.**
+
 **Instrument gap closed first, 2026-09-20.** `test/oracle/selfcheck.mjs` proved
 the instrument could detect a removal only for `x-hw-oracle` in the CORS case,
 while C8 and the separation rows all read `x-hw-removable` in the PLAIN case —
@@ -1324,10 +1383,13 @@ Evidence: `test/RUNBOOK-2026-09-13-v020.md`, rows C8 and C9 sequence 4, sitting
 `test/fixtures/sitting-2-post-c11-probe-state.json` IS NOT IN THE REPOSITORY.**
 `git log --all -- test/fixtures/` shows one commit, `7b1cee3`, adding two other
 files; the path appears nowhere in the tree. The sha256 was recorded, the file
-was not committed. The citation is left here as a pointer to something that may
-still exist on the sitting-2 machine, marked as missing rather than deleted —
-same as line 163's phantom decisions entry, and the reason the separation rows
-build their fixtures from scratch. No fix, no selftest name, no SMOKE part —
+was not committed. **It is now UNRECOVERABLE.** On 2026-09-20 the live storage
+still held the post-C11 state — `getDynamicRules()` showed the C11 payload
+byte-intact on the response entry of rule 2 — and exporting it before the first
+edit was offered and declined on time grounds, with the cost stated at the time.
+E2's build overwrote that value. The citation is kept, marked lost rather than
+deleted, for the same reason line 163's phantom decisions entry is kept: what it
+claimed is the record. No fix, no selftest name, no SMOKE part —
 believed, not closed.
 
 **FINDING-036 — a `set` following an `append` on the same header does not
@@ -1357,6 +1419,18 @@ claim as written is too strong regardless of which side the mechanism sits on.
 Not to be conflated with FINDING-035, whose second sighting is a `remove`
 following a `set` on the response side. Whether they share a mechanism is
 unknown and should not be assumed from their adjacency.
+
+**UPDATE 2026-09-20.** FINDING-035's cause is now established as an earlier
+`set` suppressing a later `remove` inside one rule's `responseHeaders` array.
+This entry's sighting is the same SHAPE on the request side — an earlier
+`append` suppressing a later `set` inside one `requestHeaders` array — which
+raises the odds that the two are one mechanism rather than two. **Do not merge
+them on that suspicion.** The response side now has four reads separating
+position, operation and per-request state (`test/RUNBOOK-2026-09-20-f035.md`);
+the request side has this single sighting and no equivalent. A request-side
+pair mirroring E1 and E3 — `set` alone, then `set`-before-`append` — would
+settle it, and until it exists the shared-mechanism claim is a guess with a
+family resemblance behind it.
 
 Also observed in passing: **the popup offers no way to reorder header entries.**
 Changing the order required editing operation and value on both rows in place.
