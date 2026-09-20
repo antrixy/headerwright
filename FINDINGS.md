@@ -1262,25 +1262,73 @@ correct operation string, no stray `value` key — with `requestDomains:
 ["hw.test"]` and all fifteen resource types. Chrome accepted the rule and holds
 it.
 
-**The cause is not established and was deliberately not investigated**, per the
-runbook's record-and-stop rule for a disagreement. What the evidence eliminates
-is most of the search space: the failing entry and a working entry sit in the
-SAME array of the SAME rule, matched against the SAME request, so matching,
-domain scoping, resource type, priority, host permission, rule construction,
-storage and the popup are all shared between them and none can be the
-difference. What remains is the operation itself — either how `buildRules()`
-emits `remove`, or how Chrome applies it. Nothing in the sitting separates
-those. First thing to check when this is picked up: whether `remove` entries
-leave `buildRules()` in a form DNR accepts but ignores — a `value` key present,
-a case difference in `operation`, or a header name in a case DNR does not fold.
-The stored JSON excludes the first of those on the storage side but not on the
-emit side.
+**THE EMIT SIDE IS DISCHARGED, 2026-09-20.** The three suspicions this entry
+originally raised were checked against `extension/lib/rules.js` at `46b9fc2` by
+building the C8 and C9-sequence-4 rules and printing the emitted action. None
+survives. A stray `value` cannot occur: `headerEntryToModifyHeaderInfo()`
+constructs a fresh object and adds `value` only when `operation !== "remove"`,
+so a stored entry carrying `value: "leftover"` still emits two keys. A case
+difference in `operation` cannot occur: `VALID_OPERATIONS` is a literal
+lowercase Set and `validateHeaderEntry({operation: "REMOVE"})` returns invalid
+before `profileToRule()` sees it. Header-name case is the one thing nothing
+normalises — but it is eliminated by the measurement itself, because
+`X-HW-Oracle` carries the same mixed-case convention in the same array and its
+`set` applied on both runs. What remains is how Chrome applies the array.
+
+**THE TITLE OF THIS FINDING OVERSTATES WHAT WAS MEASURED, and the two sightings
+share a confound rather than being independent.** Both have the identical
+positional structure: `set` at `responseHeaders[0]`, `remove` at
+`responseHeaders[1]`, index 0 applied, index 1 did not. **No response-side
+`remove` has ever been observed at index 0, and no response entry other than
+index 0 has ever been observed applying** — C7 registered a single-entry array
+and it applied, which is the whole response-side corpus. Three mechanisms fit
+the evidence equally:
+
+- **M1** — response `remove` is not applied. The original reading.
+- **M2** — only the first entry of a rule's `responseHeaders` array is applied.
+  Not contradicted by the request side, where `requestHeaders[1]` demonstrably
+  applied in C9 sequence 2, so any positional limit is response-specific.
+- **M3** — within-rule precedence state is tracked per REQUEST rather than per
+  HEADER, so a `set` blocks every later response modification in that rule.
+
+**Chrome's documented precedence explains C9 sequence 4 and does not explain
+C8.** Sequence 4 is `set` then `remove` on the same header, which is the
+documented disallowed combination. C8 is two different headers, which MDN
+states apply independently. So either the two sightings have different causes
+and should not be one finding, or Chromium diverges from its documentation on
+the per-header scoping. Adjacency was read as shared mechanism here in exactly
+the way this file's FINDING-036 entry warns against.
+
+**This matters for the disposition, not only for the write-up.** Under M1,
+deferring to v0.2.1 with the validator refusing response `remove` is a clean
+ship. Under M2 or M3 it is not: response `set` at index 1 also fails, so the
+operation being KEPT is broken in any profile with two response entries, and
+nothing in the suite has ever tested that. The tag stays blocked until the
+mechanism is named.
+
+Separation rows are registered in `test/RUNBOOK-2026-09-20-f035.md` with
+per-mechanism predictions. E2 — two `set`s on different headers, no `remove`
+anywhere — is the decisive one and is run first.
+
+**Instrument gap closed first, 2026-09-20.** `test/oracle/selfcheck.mjs` proved
+the instrument could detect a removal only for `x-hw-oracle` in the CORS case,
+while C8 and the separation rows all read `x-hw-removable` in the PLAIN case —
+the FINDING-032/033/037 shape a fourth time. `applyTamper()` now takes a target
+header, the selfcheck exercises the plain-case removal, a floor row asserts the
+fixture emits `x-hw-removable` at all, and a target the case does not emit is
+refused with 400 rather than filtering nothing and reading as "not detected".
+Row tripwire moved 10 → 13. Both new rows were confirmed to die under mutation.
 
 Evidence: `test/RUNBOOK-2026-09-13-v020.md`, rows C8 and C9 sequence 4, sitting
-2 Observed blocks. Live profile state at
-`test/fixtures/sitting-2-post-c11-probe-state.json`, sha256
-`ff7a6a45a8d0c58d1626be9f586103d02b59569c7e77bf9eb6db347218a6a95e`. No fix, no
-selftest name, no SMOKE part — believed, not closed.
+2 Observed blocks. **The live profile state this entry previously cited at
+`test/fixtures/sitting-2-post-c11-probe-state.json` IS NOT IN THE REPOSITORY.**
+`git log --all -- test/fixtures/` shows one commit, `7b1cee3`, adding two other
+files; the path appears nowhere in the tree. The sha256 was recorded, the file
+was not committed. The citation is left here as a pointer to something that may
+still exist on the sitting-2 machine, marked as missing rather than deleted —
+same as line 163's phantom decisions entry, and the reason the separation rows
+build their fixtures from scratch. No fix, no selftest name, no SMOKE part —
+believed, not closed.
 
 **FINDING-036 — a `set` following an `append` on the same header does not
 apply.** Raised against `58889bb`, 2026-09-19, as C9 sequence 2, on
