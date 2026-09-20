@@ -1585,3 +1585,62 @@ Evidence: `test/RUNBOOK-2026-09-13-v020.md`, rows B1, B2, B3 sitting 2 Observed
 blocks, and the optional `testMatchOutcome` row. The on/off/on/off pair is what
 makes it a finding rather than one anomalous reading. No fix, no selftest name,
 no SMOKE part.
+
+**FINDING-039 — the shipped user-facing copy described a request-only
+extension, on the release whose subject is response headers.** Raised
+2026-09-20 against `67035ae`. Not found by any gate: it was on screen in a
+`chrome://extensions` screenshot taken for an unrelated precondition check, and
+noticed there.
+
+**Symptom.** HeaderWright 0.2.0, installed and enabled, displayed
+`HeaderWright — Modify HTTP Request Headers` and `Set, append, and remove HTTP
+request headers by profile. No webRequest — this extension cannot read your
+traffic.` Both strings are user-visible in `chrome://extensions` and in a Chrome
+Web Store listing. Wrong twice over: the release adds RESPONSE headers, and
+`append` is refused on the response side by `validateHeaderEntry()` in this
+release, so an unqualified "set, append, and remove" promises an operation the
+product declines.
+
+**Cause.** The same shape as `07d9763`, one file later. When v0.2.0 scope was
+ruled, `SCOPE.md` was found stale and corrected; the manifest carries the same
+claim and nobody looked. `58889bb` edited this exact file to bump `version` to
+`0.2.0` and touched one line — the diff was read and verified, and the two
+stale strings four lines away were not in it. **A one-line diff is evidence
+about that line, not about the file.** Nothing in the suite read `description`
+or `name`; the only manifest checks were `minimum_chrome_version` and the
+permission list, added for R6.
+
+**Fix, partial.** `description` corrected to `Set and remove HTTP request and
+response headers by profile; append on request only. No webRequest — it cannot
+read your traffic.` — 129 characters against Chrome's documented 132 limit.
+
+**`name` is NOT fixed, and that is deliberate.** It still reads
+`HeaderWright — Modify HTTP Request Headers`. Renaming a published extension
+affects store search and any existing link, so it is a RULING for
+`decisions.md`, not a patch to be slipped into a defect fix. **The v0.2.0 tag
+is blocked on that ruling** independently of FINDING-035.
+
+**Evidence — four checks, all derived rather than pinned to prose.** A test
+asserting the exact string would pass on any reword including a wrong one, and
+would need editing every time the copy improves. These ask whether the copy
+agrees with the CODE: two premise checks establish that `profileToRule()` emits
+`responseHeaders` and that `validateHeaderEntry()` refuses response-side
+`append`, and the copy checks are conditioned on them, so if the product ever
+stops doing either the checks relax with it rather than going stale.
+`selftest.mjs`, `F039:` prefix. `EXPECTED_CHECKS` 440 → 445 in the same edit.
+The pinned string-scan count in `mutate-scans.py` does NOT move — the new
+checks read `manifest.json` separately and are untouched by the comment
+stripper.
+
+**The append-scoping check was too weak in its first draft, and mutation is
+what said so.** It asked only that `request` appear after `append`, which the
+stale copy `append, and remove HTTP request and response headers` satisfies
+while making exactly the false promise — the mutant PASSED. It now demands an
+explicit request-only qualifier and is deliberately brittle, the same trade the
+oracle page's phase-inversion check makes. Three mutants confirm it: the
+original stale description fails two checks, an unscoped `append` alongside
+response support fails one, and an over-length description fails the limit
+check.
+
+**No SMOKE part.** A browser row would add nothing a source check cannot see,
+and the browser is where this was found rather than where it can be prevented.
