@@ -1698,8 +1698,11 @@ mandatory rather than habitual — the runbook rows now say "verify before you
 press" and that instruction has been skipped once and honoured twice. That gap
 is the same class as FINDING-037's, and it is not closed.
 
-**FINDING-041 — a `git pull` cannot reach the loaded unpacked extension, and
-nothing says so.** Raised 2026-09-20, as a by-product of FINDING-039's fix.
+**FINDING-041 — the loaded manifest is pinned at load and a `git pull` cannot
+reach it; nothing says so.** Raised 2026-09-20 as a by-product of
+FINDING-039's fix, under the title "a `git pull` cannot reach the loaded
+unpacked extension" — **which was too broad and was corrected the same day by
+experiment.**
 
 **Symptom.** After `git pull` to `7e0280e`, `chrome://extensions` showed
 `HeaderWright — Modify HTTP Request Headers` with the pre-039 description.
@@ -1726,13 +1729,59 @@ its first accidental staleness marker for the loaded build: if the card reads
 the tree. Had `rules.js` or `popup.js` moved in that window, every read of the
 afternoon would have been against an unknown build.
 
-**Not fixed.** The stamp mechanism from FINDING-037 does not transfer directly
-— a service worker can hash its own sources at startup and expose them, but
-nothing outside the browser can read that without a page or a message channel,
-and adding either to the shipped extension to serve a test is the wrong trade.
-The cheap alternative is a runbook step: record the card's name string as a
-precondition, and reload the extension deliberately when the tree has moved.
-**Decision entry needed; no patch attempted.**
+**SCOPE CORRECTED BY TWO EXPERIMENTS, 2026-09-20 evening.** The original title
+assumed the whole loaded package was pinned. It is not.
+
+1. **Hashing through `fetch(chrome.runtime.getURL(...))`** in the service
+   worker console, before and after appending a line to `popup.js` on disk with
+   no reload: `popup/popup.js` moved `a07b110c2a18` → `b2e15a84943f` while
+   `lib/rules.js`, `lib/draft.js` and `manifest.json` held. The fetch reads
+   from disk.
+2. **A visible string**, because `fetch()` and the popup's own resource loading
+   are different paths through the same layer and the first result was
+   suggestive rather than decisive. `+ Add header` was edited to
+   `+ Add header!` on disk; the popup was opened without a reload; the button
+   showed the `!`. **Popup resources are read from disk when the popup opens.**
+
+So only `manifest.json` is pinned: `chrome.runtime.getManifest()` serves an
+in-memory copy taken at load. That is exactly why the card showed the
+pre-FINDING-039 name for hours while every other file tracked the tree, and it
+is the whole of the defect.
+
+**A claim made on the strength of the original scope was also wrong.** During
+FINDING-042's verification the instruction was given that the extension MUST be
+reloaded before testing, because `popup.js` had changed. The reload was
+harmless and made the manifest current, so that verification stands — but the
+requirement was asserted, not established, and experiment 2 shows it was
+unnecessary. A reload is needed only when `extension/manifest.json` has moved.
+
+**FIXED 2026-09-20.** `test/preflight.mjs` now prints, before any instrument
+check can fail the run, the `name` and `version` that `chrome://extensions`
+should show, read from `extension/manifest.json` on disk. It also carries the
+warning that the RELOAD arrow is the correct control and **Remove is not** —
+Remove destroys `storage.local` and with it every saved profile, which would
+have cost the entire sitting-2 state had anyone reached for it today.
+
+**It prints rather than checks, and that is the ceiling.** Nothing outside the
+browser can read the loaded manifest. Adding a page or a message channel to the
+SHIPPED extension so a test could ask it would be the wrong trade for a product
+whose pitch is minimal surface. The comparison is a runbook step by necessity,
+and is marked as one rather than dressed up as a gate.
+
+`selftest.mjs`, `F041:` prefix, two checks reading `preflight.mjs` as text —
+`preflight.mjs` is not itself a gate, so nothing else would notice if the block
+were deleted. `EXPECTED_CHECKS` 464 → 466. **The pinned string-scan count in
+`mutate-scans.py` does NOT move**, because these read the file raw and the
+comment-stripper mutant never touches them — predicted 17, measured 15, and
+the harness was right.
+
+**A third silently-weakened scan, in a check written minutes earlier.** The
+first version of the first check matched `/reportExtensionExpectation\(\)/`,
+which the function DEFINITION satisfies, so a mutant deleting the CALL SITE
+survived it. Now bound to the call. That is three instances in one day — the
+`readForm` side scan, the `storage.session` draft scan, and this — and in every
+case the check kept passing, which is indistinguishable from it working.
+**Only a mutation harness tells the two apart.**
 
 **FINDING-042 — the popup discards in-progress edits when it loses focus, with
 no warning, no autosave, and no restore.** Raised 2026-09-20. **This blocks the
