@@ -39,6 +39,7 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
 import { stampFiles } from "./instrument-stamp.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -136,9 +137,52 @@ async function checkInstrument(inst) {
   }
 }
 
+// FINDING-041. The ONE value in the extension that a pull cannot reach.
+//
+// SCOPE, established by experiment 2026-09-20 and narrower than the finding's
+// original title. Popup resources are read from disk when the popup opens:
+// editing `+ Add header` to `+ Add header!` on disk changed the button with no
+// reload, and hashing files through fetch(chrome.runtime.getURL(...)) tracked
+// disk edits the same way. `manifest.json` is the exception —
+// chrome.runtime.getManifest() serves an in-memory copy taken at load, which
+// is why the card showed the pre-FINDING-039 name for hours while every other
+// file tracked the tree.
+//
+// SO THIS PRINTS RATHER THAN CHECKS. Nothing outside the browser can read the
+// loaded manifest, and adding a page or a message channel to the SHIPPED
+// extension so a test could ask it would be the wrong trade for a product
+// whose whole pitch is minimal surface. What this can do is put the expected
+// string in the operator's hand at the moment they are about to look at the
+// card. The comparison is a runbook step, by necessity, and is marked as one.
+function reportExtensionExpectation() {
+  const manifestPath = join(ROOT, "extension", "manifest.json");
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch (e) {
+    console.log("\nextension — could not read extension/manifest.json");
+    console.log(`  ${e.message}`);
+    failed += 1;
+    return;
+  }
+  console.log("\nextension — what chrome://extensions SHOULD show (FINDING-041)");
+  console.log(`  name     ${manifest.name}`);
+  console.log(`  version  ${manifest.version}`);
+  console.log("  If the card differs, the loaded extension predates this tree:");
+  console.log("  press the RELOAD arrow on the card. Do NOT press Remove —");
+  console.log("  that destroys storage.local and with it every saved profile.");
+  console.log("  Only the manifest is pinned at load; popup and lib files are");
+  console.log("  read from disk when the popup opens, so a reload is needed");
+  console.log("  only when extension/manifest.json has moved.");
+}
+
 async function main() {
   console.log("HeaderWright preflight — the processes the BROWSER will use\n");
   console.log("test/verify.mjs checks the tree. This checks what is running.");
+
+  // FIRST, and before any instrument can fail the run: the operator carries
+  // this string into Chrome, so it must print even when a server is down.
+  reportExtensionExpectation();
 
   for (const inst of INSTRUMENTS) {
     await checkInstrument(inst);

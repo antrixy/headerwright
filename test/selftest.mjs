@@ -86,7 +86,7 @@ import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
 import { readFileSync } from "node:fs";
 
-const EXPECTED_CHECKS = 464;
+const EXPECTED_CHECKS = 466;
 
 let passed = 0;
 let failed = 0;
@@ -2073,6 +2073,27 @@ check("F042: the draft store is session, and never local",
   /hw:drafts/.test(popupJs));
 check("F042: the popup exposes a revert-to-saved control",
   /draft-revert/.test(popupJs) && /draft-revert/.test(popupHtml));
+
+// FINDING-041. preflight.mjs is not a gate — it needs running servers and a
+// hosts file — so nothing else would notice if its extension block were
+// dropped. This pins the one thing the operator carries into Chrome.
+// Bound to the statements, not to bare substrings: see the two scans this
+// project silently weakened on 2026-09-20 by adding a second occurrence
+// elsewhere in the same file.
+const preflightJs = readFileSync(
+  new URL("./preflight.mjs", import.meta.url), "utf8"
+);
+// BOUND TO THE CALL, NOT THE NAME. The first version matched
+// /reportExtensionExpectation\(\)/, which the FUNCTION DEFINITION satisfies —
+// deleting the call site left the check passing. Third instance of this exact
+// weakness on 2026-09-20; see the readForm side scan and the storage.session
+// draft scan. A scan that pins behaviour must match the line that DOES the
+// thing, not a line that merely names it.
+check("F041: preflight reports the manifest name the card should show",
+  /manifest\.name/.test(preflightJs) &&
+  /\n\s+reportExtensionExpectation\(\);/.test(preflightJs));
+check("F041: preflight warns against Remove, which destroys storage.local",
+  /Do NOT press Remove/.test(preflightJs));
 
 const referencedIds = [...popupJs.matchAll(/\$\("([^"]+)"\)/g)].map((m) => m[1]);
 const declaredIds = new Set(

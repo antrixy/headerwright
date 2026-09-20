@@ -67,6 +67,10 @@ MUTATIONS = [
     # when the FINDING-002 chip check started reading popup.js as text.
     # 7 -> 12 on 2026-09-13: the v0.2.0 side-control checks and the three
     # oracle-page checks all read source as text.
+    # NOT MOVED by the two FINDING-041 checks added the same evening: they
+    # read preflight.mjs raw, so the stripper never touches them — the same
+    # reason the FINDING-039 manifest checks left this number alone. Predicted
+    # 17, measured 15; the harness was right and the prediction was not.
     # 12 -> 15 on 2026-09-20: the two FINDING-042 checks that read popup.js and
     # popup.html as text for the draft store and the revert control, plus the
     # readFormRaw side-control scan added when FINDING-042's fix silently
