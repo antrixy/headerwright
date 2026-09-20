@@ -1493,6 +1493,57 @@ checkout cannot now be established. Recorded as missing rather than
 reconstructed; the 404 alongside a green `oracle-selfcheck` is the load-bearing
 evidence and does not depend on it.
 
+**FIX, 2026-09-20. The second and third directions above, both taken; the first
+declined.** Curling every referenced asset against the live ports was the cheap
+option and it is the one that would have gone stale — a hand-maintained list of
+assets in a runbook is the same artifact class as the hand-maintained counts
+this project has already been burned by twice.
+
+`test/instrument-stamp.mjs` hashes the files an instrument serves AT STARTUP,
+which is the whole point: `server.mjs` is evaluated once, so the stamp inherits
+exactly the staleness the process has. Both servers freeze that digest and serve
+it at `/whoami`, with per-file hashes so a mismatch names the file rather than
+just asserting one. The body also carries `pid` and `started`, because this
+entry's own provenance paragraph records a process killed before it could be
+identified; a process that reports its own pid and start time cannot take that
+answer to the grave.
+
+`test/preflight.mjs` is the caller and the new before-Chrome command. Four
+checks per instrument, in order: reachable and identifying itself; its startup
+digest equals the files on disk right now; **its own selfcheck passes against
+THAT process rather than against a freshly spawned sibling**; and the hostnames
+the browser will type resolve to that same pid.
+
+**The fourth check exists because of a costume this entry did not name.** Both
+selfchecks dial `127.0.0.1` with a spoofed `Host` header, so a hostname missing
+from `/etc/hosts` is invisible to every gate and fatal to the browser, which
+does a real lookup. Sitting 2 found both fixture entries absent on a machine
+whose runbook called them "assumed present"; on 2026-09-20 a curl to `hw.test`
+returned `000` and the hosts file had to be ruled out by hand. Route-versus-
+process has a sibling in route-versus-resolution.
+
+**NOT a gate in `test/verify.mjs`, deliberately.** It needs running servers and
+a hosts file, neither of which exists in CI, and a gate that skips is a gate
+that lies. The isolation that stops a stray process from faking a pass in
+`verify.mjs` is the same isolation that stops a pass there from meaning anything
+about the process the browser uses — a gate cannot test a process it does not
+own. `verify.mjs` now says so in its green line and points at `preflight.mjs`.
+
+**Evidence: two mutants, both run 2026-09-20.** Appending a line to
+`test/oracle/index.mjs` without restarting the server — this finding's exact
+scenario — produced `oracle-selfcheck` **13/13 PASS against the stale process**
+while preflight failed with `running bbf78ddbddf8, on disk 33f5d4c08fa0,
+differs in: index.mjs`. Removing `hw.test` from `/etc/hosts` produced
+**13/13 rows passed** from the selfcheck and a preflight failure naming the
+missing hosts entry. In both, the gate the project already had stayed green on
+a state that would have cost the sitting.
+
+**Still not fixed, carried forward again:** the `tree:` line reads its count
+from `EXPECTED_CHECKS` in `test/selftest.mjs` alone, so no selfcheck row has
+ever been counted in it — the oracle selfcheck moving 10 rows to 13 did not
+move the printed total. Named here so it is not mistaken for closed by this
+entry.
+
 **FINDING-038 — editing one profile's domain list changes an untouched
 profile's behaviour on the wire.** Raised against `58889bb`, 2026-09-19, across
 rows B1, B2 and B3. **Not a DNR defect**; a candidate for reclassification as a
