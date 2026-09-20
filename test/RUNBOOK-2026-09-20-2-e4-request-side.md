@@ -383,12 +383,25 @@ time registering rows feels like overhead.
       entry flagged for re-verification since it shares C8's provenance.
 - [x] FINDING-040 raised — the popup defect.
 - [x] FINDING-041 raised — a pull cannot reach the loaded extension.
+- [x] **FINDING-042 raised after the sitting closed.** A three-step check —
+      add a row, do not save, open the service worker console — showed the
+      popup discards in-progress edits on focus loss, silently, with no restore
+      on reopen. `getDynamicRules()` confirmed storage never saw the row.
+      **This makes C8's cause under-determined between 040 and 042**, and E5's
+      reproduction a demonstrated possibility rather than a cause. FINDING-035's
+      attribution paragraph was softened accordingly.
 - [ ] `decisions.md` entry for FINDING-040. Three candidate directions, none
       of which addresses the invisible variant (`set` with a value the server
       already sends). **No patch before the ruling.**
-- [ ] The pre-read is the entire defence against FINDING-040 and it is a habit,
-      not a mechanism. It was skipped once and honoured twice on 2026-09-20.
-      Nothing enforces it.
+- [ ] `decisions.md` entry for FINDING-042. Less contested — persist the
+      in-progress form to `chrome.storage.session` and restore on open — but
+      still a behaviour change to the editor.
+- [ ] **The pre-read is the entire defence against FINDING-040, and FINDING-042
+      means the pre-read can itself destroy an unsaved edit.** Opening the
+      service worker console closes the popup. The step written to prevent bad
+      data can silently change what is being measured. Every runbook in this
+      project instructs it. **Order it explicitly: save, then verify, then
+      measure — and never edit between the verify and the press.**
 - [ ] The PID provenance step has now failed in three consecutive sittings.
       Treat it as a checklist that does not work.
 
