@@ -1256,12 +1256,30 @@ through two titles before it fell:
 survived three reads and was written into this file as established. It was
 killed by the first preregistered prediction anyone made against it.
 
-**What the two original sightings actually were.** C8 and C9 sequence 4 were
-built with the operation dropdown left on its `set` default and the intended
-operation typed into the VALUE field — an entry that is legal, silently
-accepted, and produces output indistinguishable from the platform failure that
-was reported. See FINDING-040, which is the real defect this entry was a
-symptom of.
+**What the two original sightings actually were: UNDER-DETERMINED between two
+product defects, and the choice between them is not settled.** Two mechanisms
+in HeaderWright can each leave the operator believing a rule holds something it
+does not, and each reproduces C8's numbers exactly:
+
+- **FINDING-040** — the operation dropdown left on its `set` default with the
+  intended operation typed into the VALUE field. Reproduced deliberately in E5
+  and accidentally twice on 2026-09-20.
+- **FINDING-042** — an in-progress edit discarded silently when the popup loses
+  focus, which is what OPENING DEVTOOLS does. Confirmed 2026-09-20 by adding a
+  row, opening the service worker console, and finding the rule unchanged and
+  the row gone on reopen.
+
+**E5 proved less than it first appeared.** It showed that ONE legal entry
+reproduces C8's verdict line; it did not show that is what happened. The value
+it used, `present`, was chosen because it reproduces C8's output — reasoning
+backwards from the answer. `remove` typed into a value box is a natural slip
+and was made twice in a day; `present` typed there is not natural at all.
+FINDING-042 needs no improbable typing and fits the numbers just as well.
+
+**Both explanations require C8's `getDynamicRules()` claim to be false**, which
+is the part that does not vary. Under 040 the read would have shown
+`operation: "set"` with a value; under 042 it would have shown no
+`X-HW-Removable` entry at all. C8's Observed block reports neither.
 
 **E5 reproduced C8 exactly, from a mis-built entry, with the prediction
 committed first.** `responseHeaders` = `{X-HW-Oracle, set, rewritten}` at index
@@ -1273,7 +1291,8 @@ That is C8's verdict line and all three of its table rows, byte for byte.
 A `set` writing the value the fixture already sends is indistinguishable on the
 wire from a removal that did not happen: the header arrives as `present`, the
 diff reports no change, and the counter reads 1 because only `x-hw-oracle`
-moved.
+moved. **A `remove` entry that never reached storage produces the identical
+reading**, which is why E5 confirms a possibility rather than a cause.
 
 **Why the mis-build is the better explanation than a Chrome defect.** It was
 produced TWICE on 2026-09-20 without anyone trying — once in the morning E1
@@ -1685,3 +1704,55 @@ and adding either to the shipped extension to serve a test is the wrong trade.
 The cheap alternative is a runbook step: record the card's name string as a
 precondition, and reload the extension deliberately when the tree has moved.
 **Decision entry needed; no patch attempted.**
+
+**FINDING-042 — the popup discards in-progress edits when it loses focus, with
+no warning, no autosave, and no restore.** Raised 2026-09-20. **This blocks the
+v0.2.0 tag**, and it is the more serious of the two editor defects.
+
+**Symptom.** Open a profile for editing, add or change a header row, do not
+press Save, then move focus away from the popup — click the page, click
+DevTools, click anywhere. Chrome closes the popup. The edit is gone. Reopening
+the profile shows the pre-edit state with no indication that anything was
+discarded, and `getDynamicRules()` confirms storage never saw it.
+
+**Confirmed directly, not inferred.** A header row was added to `probe` and
+left unsaved; the service worker console was opened, which closed the popup;
+`getDynamicRules()` returned rule 2 unchanged; reopening the popup showed the
+row absent.
+
+**Chrome closing the popup on blur is standard and is not the defect.** The
+defect is what HeaderWright does about it: nothing. No dirty-state prompt, no
+draft persisted to `storage.session`, no restore on reopen. `f-cancel` is wired
+to `showView("list")` and discards as well, which is at least an explicit
+action; focus loss discards identically without the user having chosen
+anything.
+
+**It is aimed squarely at this project's own verification discipline.** Every
+runbook here instructs the operator to verify stored state with
+`getDynamicRules()` in the service worker console BEFORE pressing Measure.
+Opening that console is precisely the action that destroys an unsaved edit. The
+step written to prevent bad data is a step that can silently change what is
+being measured.
+
+**Why it is worse than FINDING-040.** 040 requires an operator slip; this
+requires only using the tool in the documented way. It also affects ordinary
+users, not just testing — anyone who edits a profile and clicks away to check a
+site loses the edit. And its output is invisible rather than wrong: the user
+believes a change is live, the rule is unchanged, and the wire agrees with the
+rule, so nothing anywhere contradicts the user's belief.
+
+**Interaction with FINDING-035, stated plainly.** This is now an equal
+candidate with 040 for what happened at C8 and C9 sequence 4, and the two
+cannot be separated from the surviving record. Neither can be confirmed; both
+are live.
+
+**Not fixed. The fix direction is less contested than 040's:** persist the
+in-progress form to `chrome.storage.session` on every field change and restore
+it on open, so a closed popup resumes rather than reverts. That is a behaviour
+change to the editor and wants a `decisions.md` entry, but unlike 040's three
+options it has no obvious cost to weigh against — nobody wants silent loss.
+
+**No selftest name, no SMOKE part yet.** The discard happens in the browser's
+popup lifecycle, which no source check reaches. A restore-on-open
+implementation WOULD be testable at the module level, which is an argument for
+that fix direction over a warning prompt.
