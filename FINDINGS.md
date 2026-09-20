@@ -1746,13 +1746,57 @@ candidate with 040 for what happened at C8 and C9 sequence 4, and the two
 cannot be separated from the surviving record. Neither can be confirmed; both
 are live.
 
-**Not fixed. The fix direction is less contested than 040's:** persist the
-in-progress form to `chrome.storage.session` on every field change and restore
-it on open, so a closed popup resumes rather than reverts. That is a behaviour
-change to the editor and wants a `decisions.md` entry, but unlike 040's three
-options it has no obvious cost to weigh against — nobody wants silent loss.
+**FIXED 2026-09-20.** `extension/lib/draft.js` (new, pure) snapshots the RAW
+form and restores it; `popup.js` persists to `chrome.storage.session` on every
+input and change, keyed by profile id, and clears the draft on Save and on
+Cancel. Opening the editor for a profile with a draft paints the draft and
+shows an inline `Showing unsaved changes — Revert to saved`. The profile's card
+in the list carries a quiet `Unsaved changes` marker.
 
-**No selftest name, no SMOKE part yet.** The discard happens in the browser's
-popup lifecycle, which no source check reaches. A restore-on-open
-implementation WOULD be testable at the module level, which is an argument for
-that fix direction over a warning prompt.
+**Ruled before it was built:** the list opens normally and is never hijacked by
+a draft. See
+`antrixy/project-planning/handoffs/headerwright/decisions-entry-draft-restore.md`.
+
+**The draft is the RAW form, not `readForm()`'s output.** `readForm()`
+normalizes domains and drops blank rows because it produces something fit to
+SAVE. Restoring that would rewrite the user's typing mid-edit — a quieter
+version of this defect. Four selftest checks pin it.
+
+**Keyed by profile rather than one-at-a-time.** The first design kept a single
+draft and prompted when the user opened a different profile, which makes the
+popup ask a question in order to throw work away. A map has no destructive case
+and removes the prompt rather than writing one.
+
+**Written on every event, never on a timer.** The popup dies the instant focus
+leaves it and a pending debounce dies with it. **Known limit, stated rather
+than implied:** `storage.session.set` is async, so a write dispatched at the
+moment the popup closes may not land and the last keystroke or two can still be
+lost. Closing that window entirely needs a synchronous storage API, which MV3
+does not have.
+
+**The marker only appears when the draft DIFFERS from the saved profile.**
+Opening the editor and closing it again leaves a draft identical to storage;
+marking that would teach the user to ignore the marker, which is the one thing
+it cannot afford.
+
+**Known limit: a draft for a NEW profile gets no marker**, because there is no
+card to mark. It is still restored when Add profile is next pressed.
+
+`selftest.mjs`, `F042:` prefix. `EXPECTED_CHECKS` 447 → 464. The pinned
+string-scan count in `mutate-scans.py` moves 12 → 15.
+
+**Two checks in this fix were weakened by substring collision, and mutation
+found both.** The pre-existing `0.2.0: readForm reads the side control` scan
+asked only whether `querySelector(".h-side")` appeared anywhere in `popup.js`;
+adding `readFormRaw()` gave it a second place to find that substring, so the
+mutant that blanks `readForm`'s side read stopped failing anything.
+`mutate-collisions.py` reported it as a ZERO-FAIL mutation on the first run
+after the change. Minutes later the same shape appeared in a check written for
+THIS fix: `chrome.storage.session` appearing anywhere satisfied it, so a mutant
+switching the draft READ to `storage.local` survived. Both are now bound to the
+statements they mean.
+
+**The lesson is general and belongs with R15's family.** A bare substring scan
+is weakened by any new occurrence anywhere in the file, and the weakening is
+SILENT — the check keeps passing, which is what it looks like when it is
+working. Only a mutation harness distinguishes the two.
