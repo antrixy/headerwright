@@ -1202,3 +1202,100 @@ none reused from sittings A–D.
                        master toggle = ?  status line = ?
                        verdict = chrome / markup / inconclusive
     Notes:
+
+---
+
+## Part 15 — Response headers (v0.2.0 headline capability)
+
+**Added 2026-09-20, and found by a test rather than by a person.** R15's
+release-consistency check fired on its first run: this script had no response
+part at all, on the release whose entire subject is response headers. Fifth
+instance of the artifact-drift class after `SCOPE.md`, the manifest copy,
+`README.md` and `manifest.version` — and the first one caught by a check
+instead of by accident.
+
+**What the selftest cannot do here.** The suite proves that a response entry
+becomes `action.responseHeaders` with the right operation and no stray `value`.
+It cannot show that Chrome APPLIES it. Every response finding this project has
+raised turned on that gap: FINDING-035 was withdrawn only after four browser
+reads, and two of its sightings were entries that never did what the operator
+believed.
+
+**Instrument, not a public echo service.** Parts 1–14 use
+`postman-echo.com/headers`, which reports REQUEST headers and cannot show a
+response header being rewritten. Use the local oracle:
+
+```
+node test/oracle/server.mjs 8787
+node test/preflight.mjs
+```
+
+`preflight.mjs` must print **PREFLIGHT PASSES** before anything below is run.
+It checks the instrument process rather than the tree, which is FINDING-037,
+and it prints the `name` the extension card should show, which is FINDING-041.
+A red preflight makes every row here uninterpretable.
+
+**The verdict box is not a verdict.** The oracle page says so itself, and it is
+the most common misreading: `UNMODIFIED` is the expected result in a control
+phase and a FAILURE in a feature phase. Know which phase you are in before
+reading it.
+
+**Build every row with the dropdown, and verify before you press.** Three
+distinct popup defects produce a stored rule that differs from what the
+operator believes: FINDING-040 (an operation name typed into the value field),
+FINDING-042 (an edit discarded on focus loss — fixed, but the habit it
+punished is the one below), FINDING-043 (a header name longer than the field,
+displayed truncated). **All three are invisible on screen and visible in
+`getDynamicRules()`.** For every row: SAVE, then VERIFY in the service worker
+console, then MEASURE, and never edit between the verify and the read.
+
+```js
+chrome.declarativeNetRequest.getDynamicRules().then(r => console.log(JSON.stringify(r, null, 2)))
+```
+
+The full namespace matters: a bare `getDynamicRules()` throws
+`ReferenceError`, and on 2026-09-20 a row was pressed anyway on that error and
+had to be voided.
+
+### Rows
+
+| # | profile `responseHeaders` | run | expect |
+| --- | --- | --- | --- |
+| 15.1 | *(none — control)* | plain | `UNMODIFIED`. Here that is the PASS. |
+| 15.2 | `X-HW-Oracle` / `set` / `rewritten` | plain | `1 changed`; `x-hw-oracle` `baseline` → `rewritten` |
+| 15.3 | `X-HW-Removable` / `remove`, alone | plain | `0 changed, 1 removed`; `x-hw-removable` absent |
+| 15.4 | `set X-HW-Oracle`, then `remove X-HW-Removable` | plain | `1 changed, 1 removed` — BOTH apply |
+| 15.5 | as 15.4 | CORS | same as 15.4, plus the CORS family unchanged |
+
+**15.3 and 15.4 are the rows FINDING-035 got wrong for two sittings.** It was
+raised as "response `remove` never applies" and then as "an earlier `set`
+suppresses a later `remove`". Both were withdrawn on 2026-09-20: `remove`
+applies in every position tested. If either row fails here, **do not re-raise
+035 — check the stored rule first**, because that is what the withdrawal turned
+on.
+
+**The remove entry must show exactly two keys** in `getDynamicRules()`:
+`{"header": "...", "operation": "remove"}`, with **no `value`**. A `value`
+present is an emit-side defect and is its own finding.
+
+**15.5 exists because the CORS case has its own blind spot.** `Set-Cookie` is
+stripped from `Response.headers` by the Fetch spec even same-origin, so an
+empty diff for it means NOT OBSERVED, never UNMODIFIED. Do not record a
+Set-Cookie result from this part at all.
+
+### Record
+
+    Date / Chrome / OS / build      = ?
+    preflight verdict               = ?   (PREFLIGHT PASSES required)
+    extension card name matches     = ?   (FINDING-041)
+    15.1 control UNMODIFIED         = ?
+    15.2 verified rule JSON         = "..."
+         verdict + table row        = ?
+    15.3 remove entry has 2 keys    = ?   no `value` key = ?
+         verdict + table row        = ?
+    15.4 verdict                    = ?   both applied = ?
+    15.5 CORS verdict               = ?   CORS family unchanged = ?
+    Any row where the popup and getDynamicRules() DISAGREED = ?
+         (040 / 042 / 043 — record which, and the stored JSON verbatim)
+    Notes:
+

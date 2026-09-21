@@ -16,6 +16,13 @@
 // fails the run. Update it deliberately or not at all.
 
 import {
+  deriveFacts,
+  checkArtifacts,
+  ARTIFACTS,
+  REGISTERED_PATHS,
+  PINNED_MANIFEST_VERSION,
+} from "./release-consistency.mjs";
+import {
   formToDraft,
   draftToForm,
   isValidDraft,
@@ -84,9 +91,9 @@ import {
 } from "../extension/lib/collisions.js";
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
-const EXPECTED_CHECKS = 466;
+const EXPECTED_CHECKS = 473;
 
 let passed = 0;
 let failed = 0;
@@ -2094,6 +2101,57 @@ check("F041: preflight reports the manifest name the card should show",
   /\n\s+reportExtensionExpectation\(\);/.test(preflightJs));
 check("F041: preflight warns against Remove, which destroys storage.local",
   /Do NOT press Remove/.test(preflightJs));
+
+// ------------------------------------------------- release consistency (R15)
+//
+// FOUR INSTANCES FOUND BY ACCIDENT BEFORE THIS EXISTED — SCOPE.md, the
+// manifest copy, README.md, and manifest.version which nothing read. All four
+// were FORGETTINGS: someone updated one artifact and did not think of the
+// next. Per-artifact assertions catch those four and nothing about the fifth
+// artifact nobody thinks of, which is the mechanism itself. The tripwires
+// below are the actual deliverable.
+const r15Facts = deriveFacts();
+check("R15: the derived facts describe a response-capable build",
+  r15Facts.emitsResponseHeaders === true &&
+  r15Facts.appendRefusedOnResponse === true &&
+  r15Facts.appendAllowedOnRequest === true);
+check("R15: an export carrying a response entry declares format version 2",
+  r15Facts.exportVersionWithResponse === 2 &&
+  r15Facts.exportVersionRequestOnly === 1);
+
+const r15Failures = checkArtifacts(new URL("../", import.meta.url), r15Facts);
+check("R15: every registered artifact agrees with the code",
+  r15Failures.length === 0, r15Failures.join("; "));
+
+// COVERAGE TRIPWIRE — the point of the whole exercise. A new user-facing file
+// must be registered, even when the honest answer is "makes no capability
+// claims": stating that is a decision, leaving it out is a forgetting, and
+// nothing downstream can tell them apart.
+//
+// THE COST IS REAL AND WAS ACCEPTED: a CONTRIBUTING.md fails this until
+// someone adds it with claims:false. Same shape as EXPECTED_CHECKS and
+// EXPECTED_ROWS, both of which caught drift on 2026-09-20.
+const rootDocs = readdirSync(new URL("../", import.meta.url))
+  .filter((f) => f.endsWith(".md"));
+const unregisteredRootDocs = rootDocs.filter((f) => !REGISTERED_PATHS.includes(f));
+check("R15: every root .md is registered in the artifact list",
+  unregisteredRootDocs.length === 0,
+  `unregistered: ${unregisteredRootDocs.join(", ")} — add to ARTIFACTS in ` +
+  "test/release-consistency.mjs, with claims:false if it makes no capability claims");
+
+// A NEW CAPABILITY MUST BE REGISTERED TOO. Adding a derived fact without
+// deciding which artifacts must reflect it recreates the gap one level up.
+check("R15: the derived-fact count is pinned",
+  Object.keys(r15Facts).length === 5,
+  `deriveFacts() returns ${Object.keys(r15Facts).length} facts, expected 5 — ` +
+  "if a capability was added, register which artifacts must state it");
+check("R15: the artifact count is pinned",
+  ARTIFACTS.length === 6,
+  `${ARTIFACTS.length} artifacts registered, expected 6`);
+check("R15: manifest.version is pinned and read by the suite",
+  JSON.parse(
+    readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8")
+  ).version === PINNED_MANIFEST_VERSION);
 
 const referencedIds = [...popupJs.matchAll(/\$\("([^"]+)"\)/g)].map((m) => m[1]);
 const declaredIds = new Set(

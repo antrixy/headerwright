@@ -37,7 +37,14 @@ SUBTREES = ("extension", "test")
 # and left it edited.
 #
 # ANY NEW MUTANT TARGETING A ROOT FILE MUST ADD IT HERE in the same commit.
-ROOT_FILES = ("README.md", "SCOPE.md", "PRIVACY.md")
+#
+# SO MUST ANY ROOT FILE THE SUITE READS, which is how FINDINGS.md arrived on
+# 2026-09-20: R15's release-consistency registry reads it, the sandbox did not
+# have it, and every scan mutant failed at once with an empty restore line
+# because selftest never reached its summary. The symptom pointed at the
+# mutants and the cause was a missing copy — worth knowing, because the
+# harness reports that shape of failure indistinguishably from a real one.
+ROOT_FILES = ("README.md", "SCOPE.md", "PRIVACY.md", "FINDINGS.md")
 
 
 def disposable_root(source_root):
