@@ -3,7 +3,8 @@
 [![Chrome Web Store](https://img.shields.io/chrome-web-store/v/ooapgilielelobkkcdlnkenkflbnnmhi)](https://chromewebstore.google.com/detail/headerwright/ooapgilielelobkkcdlnkenkflbnnmhi)
 
 A small, dependency-free Chrome extension for setting, appending, and removing
-HTTP request headers, built on Manifest V3's `declarativeNetRequest` API only.
+HTTP headers — request and response — built on Manifest V3's
+`declarativeNetRequest` API only.
 No `webRequest` permission, ever. HeaderWright receives no request or response
 events: it hands declarative rules to Chrome, and Chrome applies them
 internally. That's verifiable by reading the manifest rather than trusting a
@@ -11,16 +12,35 @@ description.
 
 ## What it does
 
-- Header profiles: set / append / remove request headers
+- Header profiles: set / append / remove request headers; set / remove
+  response headers
 - Per-profile domain scoping (subdomains included)
 - Master on/off toggle with a badge showing that toggle's state, plus a
   distinct state when Chrome rejects a rule registration
 - Deterministic JSON import/export — canonical key-sorted, byte-stable
   output, so configs can be shared and versioned in git
 
+## Repeated entries on one header
+
+A profile may hold more than one entry for the same header name, and **the
+order matters.** Chrome applies them in the order the profile lists them, with
+one consequence worth knowing before you rely on it:
+
+| profile order, one header | result on the wire |
+| --- | --- |
+| `set A`, then `append B` | `A, B` |
+| `append B`, then `set A` | `B` — **the `set` does not apply** |
+
+Once a rule has appended to a header, a later `set` on that same header is
+discarded. This is Chrome's `declarativeNetRequest` precedence, not a
+HeaderWright choice, and HeaderWright does not reorder your entries to work
+around it. Measured on Chrome 153; see `FINDINGS.md`, FINDING-036.
+
+If you want a specific final value, put the `set` first.
+
 ## What it deliberately does not do (yet)
 
-- No response header modification — a later version
+- No response-side `append` — request headers only, for now
 - No account, no sync, no backend — profiles live in local extension storage
 - No telemetry
 

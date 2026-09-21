@@ -1987,3 +1987,46 @@ the one most likely to be wrong about a legitimate custom header.
 **No selftest name, no SMOKE part.** A source check cannot see a field that is
 too narrow. A `title` attribute or a list-card name COULD be pinned by a source
 scan once the direction is ruled.
+
+**FINDING-044 — `README.md` described a request-only extension, the same drift
+FINDING-039 found in the manifest, in the same release cycle.** Raised
+2026-09-20 while adding an unrelated section to the same file.
+
+**Symptom.** At `1a64aa8`, with the manifest already at `0.2.0` and its copy
+corrected by FINDING-039, `README.md` still opened with "setting, appending,
+and removing HTTP request headers", listed "set / append / remove request
+headers" under what it does, and listed "No response header modification — a
+later version" under what it deliberately does not do — on the release whose
+entire subject is response headers.
+
+**Found by accident, again.** FINDING-039 surfaced because the manifest copy
+happened to be on screen in a screenshot taken for an unrelated precondition.
+This surfaced because an unrelated section was being added to the file. Neither
+was found by looking.
+
+**FIXED in the same edit**, because adding an accurate section two lines below
+a known falsehood is worse than not editing. The intro and feature list now
+name both sides; the not-yet list now says "No response-side `append` — request
+headers only, for now", which is what `validateHeaderEntry()` actually
+enforces.
+
+**No ruling was needed, unlike FINDING-039's name.** Renaming a published
+extension costs store search and existing links. Correcting prose in a README
+costs nothing and has no alternative worth weighing.
+
+**R15 IS NOW AT FOUR INSTANCES AND STILL UNBUILT.** A release-consistency check
+covering manifest version, manifest copy, README capabilities, `SCOPE.md`,
+export format version and visible popup features would have caught `SCOPE.md`
+in September, the manifest copy on 2026-09-20 morning, this on 2026-09-20
+evening, and `manifest.version`, which nothing reads even now. Four instances,
+fixed one field at a time, each found by accident. **The general check has
+never been attempted.** At four, "we keep finding these" stops being an
+observation and becomes the finding.
+
+**Not guarded.** Nothing in `selftest.mjs` reads `README.md`. A scan could
+assert that the file does not claim request-only while `profileToRule()` emits
+`responseHeaders` — the same derived form as the FINDING-039 manifest checks —
+and that is the obvious next step, but it would be the fifth one-field patch
+rather than R15. **Deliberately left for the R15 ruling** so the choice between
+another point check and the general one is made on purpose.
+
