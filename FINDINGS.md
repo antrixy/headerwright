@@ -1733,6 +1733,22 @@ mandatory rather than habitual — the runbook rows now say "verify before you
 press" and that instruction has been skipped once and honoured twice. That gap
 is the same class as FINDING-037's, and it is not closed.
 
+**RULED AND FIXED IN CODE 2026-09-21: the registered rule, one line per entry, on every profile card — the
+`getDynamicRules()` pre-read moved from the service worker console onto the
+card. `extension/lib/readback.js` (new, pure) plus the list render in
+`popup.js`. Ruled 2026-09-21 in `antrixy/project-planning` `decisions.md`,
+*HeaderWright v0.2.0 — FINDING-040 and FINDING-043*; design and predictions
+frozen first in `test/PREDICTIONS-2026-09-21-readback.md`. `selftest.mjs`
+`RB:` prefix, 19 checks; M1–M12 in the mutation harnesses. **Browser-unverified
+until `SMOKE.md` Part 16 runs.**
+
+**The tag line above is SUPERSEDED.** This entry does not block v0.2.0 on its
+own: the `set` default and the three-operation dropdown shipped unchanged in
+v0.1.7, and an operator slip is required. FINDING-043 blocks, and the change
+that clears 043 covers this entry too. The input-side directions are ranked
+in the ruling; none was built. The slip remains possible — what changed is that
+its result is now legible on the card without opening DevTools.
+
 **FINDING-041 — the loaded manifest is pinned at load and a `git pull` cannot
 reach it; nothing says so.** Raised 2026-09-20 as a by-product of
 FINDING-039's fix, under the title "a `git pull` cannot reach the loaded
@@ -1987,6 +2003,21 @@ the one most likely to be wrong about a legitimate custom header.
 **No selftest name, no SMOKE part.** A source check cannot see a field that is
 too narrow. A `title` attribute or a list-card name COULD be pinned by a source
 scan once the direction is ruled.
+
+**RULED AND FIXED IN CODE 2026-09-21: the registered rule, one line per entry, on every profile card — the
+`getDynamicRules()` pre-read moved from the service worker console onto the
+card. `extension/lib/readback.js` (new, pure) plus the list render in
+`popup.js`. Ruled 2026-09-21 in `antrixy/project-planning` `decisions.md`,
+*HeaderWright v0.2.0 — FINDING-040 and FINDING-043*; design and predictions
+frozen first in `test/PREDICTIONS-2026-09-21-readback.md`. `selftest.mjs`
+`RB:` prefix, 19 checks; M1–M12 in the mutation harnesses. **Browser-unverified
+until `SMOKE.md` Part 16 runs.**
+
+**This entry blocked the v0.2.0 tag**, because this cycle narrowed the name
+field (v0.1.7 grid `1fr 82px 1fr 24px`, now `1fr 56px 82px 1fr 24px`; the
+`.hrow` comment records 100.5px → 70px). **The editor field still clips** —
+widening it is deferred to v0.2.1 — so the card is where a name is read in
+full, and its lines wrap rather than clip.
 
 **FINDING-044 — `README.md` described a request-only extension, the same drift
 FINDING-039 found in the manifest, in the same release cycle.** Raised

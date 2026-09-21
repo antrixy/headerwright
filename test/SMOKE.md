@@ -1299,3 +1299,64 @@ Set-Cookie result from this part at all.
          (040 / 042 / 043 — record which, and the stored JSON verbatim)
     Notes:
 
+
+## Part 16 — Registered-rule readback on the card (FINDING-040 / FINDING-043, v0.2.0)
+
+**Added 2026-09-21, UNVERIFIED until a sitting runs it.** Ruled in
+`antrixy/project-planning` `decisions.md`, *HeaderWright v0.2.0 — FINDING-040
+and FINDING-043 — ruled 2026-09-21*. Design and code predictions frozen in
+`test/PREDICTIONS-2026-09-21-readback.md`.
+
+**What this part is for.** Each profile card now shows the rule Chrome has
+REGISTERED, one line per entry, e.g. `res · set · X-HW-Removable → "present"`.
+The selftest proves the formatter; it cannot prove the card shows what
+`getDynamicRules()` returns in a real browser. This part does that, and it
+re-commits the two mistakes that produced false readings in this project's own
+sittings — deliberately, with the prediction written first.
+
+**The console read is still the ground truth here.** For every row: SAVE, then
+read the card, then run the full-namespace read below, and compare them.
+**Any disagreement between the card and the console is a finding in its own
+right** — record the card text and the JSON verbatim.
+
+```js
+chrome.declarativeNetRequest.getDynamicRules().then(r => console.log(JSON.stringify(r, null, 2)))
+```
+
+**Opening the service worker console closes the popup** (FINDING-042). Read the
+card FIRST, then open the console. Reopen the popup afterwards only to confirm
+nothing changed.
+
+### Rows — predictions frozen before Chrome opens
+
+| # | build (profile `probe`) | predicted card lines |
+| --- | --- | --- |
+| 16.1 | response `X-HW-Oracle` / `set` / `rewritten` | `res · set · X-HW-Oracle → "rewritten"` |
+| 16.2 | add response `X-HW-Removable`, dropdown LEFT on `set`, type `remove` in the value (the FINDING-040 slip) | 16.1's line, then `res · set · X-HW-Removable → "remove"` |
+| 16.3 | change 16.2's value to `present` (the invisible variant, C8's exact mis-build) | `res · set · X-HW-Removable → "present"` — the word `remove` appears on no line |
+| 16.4 | replace the rows with request `X-Forwarded-For` / `append` / `bravo`, then request `X-Forwarded` / `set` / `alpha` (the S2 near-miss) | `req · append · X-Forwarded-For → "bravo"` then `req · set · X-Forwarded → "alpha"` — two visibly different names |
+| 16.5 | add response `Access-Control-Allow-Origin` / `set` / `*` | the full name on the card, wrapped if it must be; no `…` anywhere |
+| 16.6 | master toggle OFF | every card: `Off — nothing registered`, no lines |
+| 16.7 | master toggle ON | 16.5's lines return without reopening the popup |
+| 16.8 | case: type a name in mixed case, e.g. `X-Hw-CaseProbe` | **least confident:** the card shows the case as typed. Chrome's docs do not say whether `getDynamicRules()` preserves it. Record what is shown either way. |
+
+**The stale window is not a row.** Between Save and the worker's re-register
+the card deliberately shows `Checking what Chrome has registered…` and no
+lines. It lasts milliseconds and cannot be read by eye; the selftest pins it
+(`RB: stale shows NO lines even when a rule is registered`). If it is ever SEEN
+for longer than a moment, record it — that is a sync that did not land.
+
+### Record
+
+    Date / Chrome / OS / build      = ?
+    extension card name matches     = ?   (FINDING-041)
+    16.1 card = ?                     console agrees = ?
+    16.2 card = ?                     console agrees = ?
+    16.3 card = ?                     console agrees = ?   "remove" on any line = ?
+    16.4 card = ?                     console agrees = ?   names distinct = ?
+    16.5 name in full, no ellipsis    = ?
+    16.6 off text, no lines           = ?
+    16.7 lines back without reopen    = ?
+    16.8 case shown                   = ?   (verbatim)
+    Any row where the card and getDynamicRules() DISAGREED = ?
+    Notes:

@@ -140,4 +140,80 @@ register.
 
 ## 3. Outcomes
 
-*(Empty until the code runs.)*
+Recorded 2026-09-21 on the change built against `e7fc1d5`, which is `2853572`
+plus this file. Sections 1 and 2 above are unedited.
+
+**P1 — CORRECT.** Seven PASS. `module-syntax` 24 files, 7 gates.
+
+**P2 — CORRECT on the count, with one check rewritten before it was trusted.**
+`EXPECTED_CHECKS` 492. All 473 pre-existing checks pass with their
+assertions unchanged. Check 19's first form was `!/innerHTML/` over
+`renderProfileCard`. `mutate-scans.py`'s pre-FINDING-032 row ("the comment
+strip is removed", expect 0) went to 1 on it. The cause was the existing
+comment *textContent, never innerHTML* in that same function: with comments
+unstripped, the guard fired on its own explanation. It is now bound to the
+ASSIGNMENT, `/\.innerHTML\s*\+?=/`, and that row is back to 0. This is the
+use-versus-mention weakness again, found by mutation again, on a check written
+to pin that exact property.
+
+**P3 — WRONG. Original wording:** "The pinned stripper count in
+`mutate-scans.py` moves **15 → 19**, because all four scans read `popup.js`
+or `popup.html` as text." **Measured 16.** The stripper mutant blanks STRING
+CONTENTS in `popupJs`. A scan moves the number only if it matches inside a
+string literal, and only check 19 does (`"readback-line"`). Reading the file
+as text is not enough. Same shape as the 17-vs-15 miss on 2026-09-13. The
+reasoning was about what a scan reads, when the mutant is about what it
+matches.
+
+**P4 — CORRECT.** 104 → 116 scenarios, all twelve caught.
+
+| mutant | harness | failures |
+| --- | --- | --- |
+| M1 | `mutate-collisions.py` | 1 |
+| M2 | `mutate-collisions.py` | 1 |
+| M3 | `mutate-collisions.py` | 3 |
+| M4 | `mutate-collisions.py` | 4 |
+| M5 | `mutate-collisions.py` | 5 |
+| M6 | `mutate-collisions.py` | 2 |
+| M7 | `mutate-collisions.py` | 1 |
+| M8 | `mutate-collisions.py` | 1 |
+| M9 | `mutate-scans.py` | 1 (expect 1) |
+| M10 | `mutate-scans.py` | 1 (expect 1) |
+| M11 | `mutate-scans.py` | 1 (expect 1) |
+| M12 | `mutate-scans.py` | 1 (expect 1) |
+
+**M6's first draft did not implement M6.** It emptied the request list
+instead of reordering it, which is a different mutant that any line-count
+check would catch. Found by reading the patch before any harness ran, and
+rewritten to swap the two loops, which is what M6 says. Recorded because a
+mutant that is easier to catch than its name claims inflates coverage
+silently.
+
+M1, M2 and M7 are each caught by exactly ONE check. Those are the constraints
+the ruling calls non-negotiable (stale and paused show nothing, and failed
+keeps the lines), and each rests on a single assertion. That is thin, but it
+is not uncovered.
+
+**P5 — PASSES, and the pass is hollow.** `release-consistency` is green.
+It did not notice a new user-visible surface, because its registry enumerates
+capabilities and artifacts, not popup surfaces. R15's own wording includes
+"visible popup features", and this is the first one added since R15 existed.
+`README.md`'s *What you see is what's true* section says nothing about the
+readback, and nothing flagged that. **Open before the tag:** one README
+sentence, and a decision on whether R15's registry should enumerate popup
+surfaces.
+
+**Outside the frozen design, stated rather than folded in:**
+
+- The master toggle handler now calls `renderList()` instead of
+  `updateStatusLine()`. Without it, every card would keep claiming its rule is
+  registered for the moment between the toggle and the worker's sync write.
+  Blast radius is unchanged (`popup.js`), but it is a behaviour change the
+  design did not list.
+- `updateStatusLine`'s comment described "the line 798 caller" that makes its
+  own permission pass. That caller was the toggle handler, now gone, so the
+  comment is corrected in the same change.
+
+**Not yet exercised anywhere:** the card rendering itself. No gate renders
+`popup.html`. The source scans pin the wiring, and `SMOKE.md` Part 16 is the
+first place the card will actually be seen.

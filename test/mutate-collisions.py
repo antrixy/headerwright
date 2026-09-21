@@ -28,6 +28,7 @@ ORC = ROOT / "test/oracle/index.html"
 ORM = ROOT / "test/oracle/index.mjs"
 MC  = ROOT / "test/mutate-scans.py"
 STO = ROOT / "extension/lib/stored.js"
+RBK = ROOT / "extension/lib/readback.js"
 PRO = ROOT / "extension/lib/profile.js"
 
 MUTATIONS = [
@@ -390,6 +391,34 @@ MUTATIONS = [
     ("minimum_chrome_version drifts below requestDomains' floor", MAN,
      '"minimum_chrome_version": "101"',
      '"minimum_chrome_version": "88"'),
+
+    # ---- FINDING-040 / FINDING-043 readback, M1-M8 of
+    # test/PREDICTIONS-2026-09-21-readback.md. Every one is a way the card
+    # could show a plausible line that is not what Chrome registered.
+    ("M1 stale renders the registered lines (pre-save rule shown as current)", RBK,
+     '  if (syncState === "stale") {',
+     '  if (false) {'),
+    ("M2 paused renders the registered lines", RBK,
+     '  if (syncState === "paused") {',
+     '  if (false) {'),
+    ("M3 response entries labelled req (side from the wrong array)", RBK,
+     '    lines.push({ side: "res", operation: e.operation, header: e.header, value: e.value });',
+     '    lines.push({ side: "req", operation: e.operation, header: e.header, value: e.value });'),
+    ("M4 header name cut to 8 characters (FINDING-043 reinstated)", RBK,
+     '  const head = `${line.side} \\u00b7 ${line.operation} \\u00b7 ${line.header}`;',
+     '  const head = `${line.side} \\u00b7 ${line.operation} \\u00b7 ${line.header.slice(0, 8)}`;'),
+    ("M5 value dropped from set lines (invisible variant hidden again)", RBK,
+     '  if (line.operation === "remove" || line.value === undefined) return head;',
+     '  return head;'),
+    ("M6 response lines emitted before request lines", RBK,
+     '  for (const e of action.requestHeaders || []) {\n    lines.push({ side: "req", operation: e.operation, header: e.header, value: e.value });\n  }\n  for (const e of action.responseHeaders || []) {\n    lines.push({ side: "res", operation: e.operation, header: e.header, value: e.value });\n  }\n',
+     '  for (const e of action.responseHeaders || []) {\n    lines.push({ side: "res", operation: e.operation, header: e.header, value: e.value });\n  }\n  for (const e of action.requestHeaders || []) {\n    lines.push({ side: "req", operation: e.operation, header: e.header, value: e.value });\n  }\n'),
+    ("M7 failed hides the still-registered lines", RBK,
+     '    return { kind: "previous", note: READBACK_NOTES.previous, lines };',
+     '    return { kind: "previous", note: READBACK_NOTES.previous, lines: [] };'),
+    ("M8 malformed-rule guard removed", RBK,
+     '    !readableList(action.requestHeaders) ||\n    !readableList(action.responseHeaders)',
+     '    false'),
 ]
 
 backup = {}

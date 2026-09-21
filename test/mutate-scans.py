@@ -25,6 +25,7 @@ SOURCE_ROOT = pathlib.Path(__file__).resolve().parent.parent
 DIGEST_BEFORE = tree_digest(SOURCE_ROOT)
 ROOT = disposable_root(SOURCE_ROOT)
 HTML = ROOT / "extension/popup/popup.html"
+POP = ROOT / "extension/popup/popup.js"
 TEST = ROOT / "test/selftest.mjs"
 
 MUTATIONS = [
@@ -78,6 +79,13 @@ MUTATIONS = [
     # substring. The
     # FINDING-039 manifest checks did NOT move it — they read manifest.json
     # separately and the stripper never touches them.
+    # 15 -> 16 on 2026-09-21: of the four readback source scans, only the
+    # textContent scan quotes a string literal ("readback-line"). PREDICTED 19
+    # in test/PREDICTIONS-2026-09-21-readback.md, on the reasoning that all
+    # four read popup source as text; measured 16. The stripper blanks STRING
+    # CONTENTS, so a scan moves this number only if it matches inside a
+    # string, not merely because it reads the file. Same error shape as the
+    # 17-vs-15 prediction on 2026-09-13.
     # HOW THE DRIFT WAS FOUND IS THE PART WORTH KEEPING. It was not found here.
     # Two sessions added checks, ran mutate-collisions.py because FIRST ACTIONS
     # named that one, reported the tree green, and never ran this file — which
@@ -85,7 +93,7 @@ MUTATIONS = [
     # are THREE harnesses and no single command runs them all; until there is,
     # "the tree is green" means "the harness someone remembered is green".
     # (`node test/verify.mjs` is now that command, added 2026-09-13.)
-    ("the comment stripper also eats string literals", TEST, 15,
+    ("the comment stripper also eats string literals", TEST, 16,
      "const popupJs = stripJsComments(popupJsRaw);",
      'const popupJs = stripJsComments(popupJsRaw).replace(/"[^"]*"/g, \'""\');'),
 
@@ -96,6 +104,33 @@ MUTATIONS = [
     ("the comment strip is removed (pre-FINDING-032 state)", TEST, 0,
      "const popupJs = stripJsComments(popupJsRaw);",
      "const popupJs = popupJsRaw;"),
+
+    # ---- FINDING-040 / FINDING-043 readback, M9-M12 of
+    # test/PREDICTIONS-2026-09-21-readback.md. Each is a planted product defect
+    # the four source scans exist to catch; expect is the pinned count.
+    #
+    # M9 is the use-versus-mention mutant this project keeps losing to: the
+    # card stops CALLING the formatter, while the import stays and a comment
+    # names the call. A scan matching the name would stay green.
+    ("M9 readback call deleted; import kept, call named in a comment", POP, 1,
+     """  const readback =
+    registration && registration.registeredById
+      ? describeReadback({
+          syncState: registration.syncState,
+          rule: registration.registeredById.get(profile.id) ?? null,
+        })
+      : { kind: "unreadable", note: READBACK_NOTES.unreadable, lines: [] };""",
+     """  // was: ? describeReadback({ syncState: registration.syncState, rule: registration.registeredById.get(profile.id) ?? null, })
+  const readback = { kind: "none", note: READBACK_NOTES.none, lines: [] };"""),
+    ("M10 the readback reads storage instead of the registered rules", POP, 1,
+     "    const registered = await chrome.declarativeNetRequest.getDynamicRules();",
+     "    const registered = (await getProfiles()).map((p) => ({ id: p.id }));"),
+    ("M11 readback lines clip with an ellipsis (FINDING-043 reinstated)", HTML, 1,
+     "    white-space: normal; overflow-wrap: anywhere;",
+     "    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"),
+    ("M12 readback lines written with innerHTML", POP, 1,
+     "    lineEl.textContent = formatReadbackLine(line);",
+     "    lineEl.innerHTML = formatReadbackLine(line);"),
 ]
 
 backup = {}

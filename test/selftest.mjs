@@ -91,9 +91,13 @@ import {
 } from "../extension/lib/collisions.js";
 import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
+import {
+  describeReadback,
+  formatReadbackLine,
+} from "../extension/lib/readback.js";
 import { readFileSync, readdirSync } from "node:fs";
 
-const EXPECTED_CHECKS = 473;
+const EXPECTED_CHECKS = 492;
 
 let passed = 0;
 let failed = 0;
@@ -583,6 +587,114 @@ check("F042: projecting a sideless stored entry yields side=request",
 check("F042: an empty profile projects to one blank row",
   profileToFormShape(null, sideOf).rows.length === 1 &&
     profileToFormShape(null, sideOf).rows[0].name === "");
+
+// ------------------------------------ registered-rule readback (F040/F043)
+//
+// FINDING-040 and FINDING-043, ruled together 2026-09-21 (project-planning
+// decisions.md). The card renders what getDynamicRules() returned, so a `set`
+// the operator meant as a `remove` reads "set", and a clipped header name is
+// shown in full. Checks 1–15 of test/PREDICTIONS-2026-09-21-readback.md, in
+// that order. Every call goes through attempt(): a throw must FAIL a check,
+// never abort the run.
+
+const rbRule = (requestHeaders, responseHeaders) => {
+  const action = { type: "modifyHeaders" };
+  if (requestHeaders !== undefined) action.requestHeaders = requestHeaders;
+  if (responseHeaders !== undefined) action.responseHeaders = responseHeaders;
+  return { id: 2, priority: 1, action, condition: {} };
+};
+const rbText = (r) =>
+  r === THREW ? [] : r.lines.map((line) => formatReadbackLine(line));
+const rbMixed = rbRule(
+  [
+    { header: "X-HW-Probe", operation: "set", value: "present" },
+    { header: "X-HW-Second", operation: "append", value: "b" },
+  ],
+  [{ header: "X-HW-Oracle", operation: "set", value: "rewritten" }]
+);
+
+const rb1 = attempt(() => describeReadback({ syncState: "applied", rule: null }));
+check("RB: applied with no registered rule reads 'none', with no lines",
+  rb1 !== THREW && rb1.kind === "none" && rb1.lines.length === 0);
+
+const rb2 = attempt(() => describeReadback({ syncState: "stale", rule: rbMixed }));
+check("RB: stale shows NO lines even when a rule is registered",
+  rb2 !== THREW && rb2.kind === "checking" && rb2.lines.length === 0);
+
+const rb3 = attempt(() => describeReadback({ syncState: "paused", rule: rbMixed }));
+check("RB: paused shows NO lines even when a rule is registered",
+  rb3 !== THREW && rb3.kind === "off" && rb3.lines.length === 0);
+
+const rb4 = attempt(() => describeReadback({ syncState: "applied", rule: rbMixed }));
+check("RB: request lines precede response lines, each in array order",
+  JSON.stringify(rbText(rb4)) === JSON.stringify([
+    'req \u00b7 set \u00b7 X-HW-Probe \u2192 "present"',
+    'req \u00b7 append \u00b7 X-HW-Second \u2192 "b"',
+    'res \u00b7 set \u00b7 X-HW-Oracle \u2192 "rewritten"',
+  ]));
+
+check("RB: an entry in responseHeaders is labelled res",
+  rb4 !== THREW && rb4.lines[2] && rb4.lines[2].side === "res" &&
+    rb4.lines[0].side === "req");
+
+const rb6 = attempt(() => describeReadback({ syncState: "applied",
+  rule: rbRule(undefined, [{ header: "X-HW-Removable", operation: "remove" }]) }));
+check("RB: a remove line carries no arrow and no value",
+  rbText(rb6)[0] === "res \u00b7 remove \u00b7 X-HW-Removable");
+
+const rb7 = attempt(() => describeReadback({ syncState: "applied",
+  rule: rbRule([{ header: "X-Empty", operation: "set", value: "" }]) }));
+check("RB: a set with an empty value renders the empty quotes",
+  rbText(rb7)[0] === 'req \u00b7 set \u00b7 X-Empty \u2192 ""');
+
+const rbLong = "X-HeaderWright-A-Very-Long-Custom-Header-Name-For-Testing";
+const rb8 = attempt(() => describeReadback({ syncState: "applied",
+  rule: rbRule([{ header: rbLong, operation: "set", value: "v" }]) }));
+check("RB: a 40+ character header name appears in full",
+  rbLong.length >= 40 && (rbText(rb8)[0] || "").includes(rbLong));
+
+// THE INVISIBLE VARIANT. C8's exact mis-build: a `set` whose value is what the
+// fixture already sends. The wire shows no change; the card must show "set".
+const rb9 = attempt(() => describeReadback({ syncState: "applied",
+  rule: rbRule(undefined, [{ header: "X-HW-Removable", operation: "set", value: "present" }]) }));
+const rb9Line = rbText(rb9)[0] || "";
+check("RB: F040 invisible variant reads set and the value, never remove",
+  rb9Line.includes("set") && rb9Line.includes('"present"') &&
+    !rb9Line.includes("remove"));
+
+// S2's near-miss: two rows that rendered identically in the editor.
+const rb10 = attempt(() => describeReadback({ syncState: "applied",
+  rule: rbRule([
+    { header: "X-Forwarded-For", operation: "append", value: "bravo" },
+    { header: "X-Forwarded", operation: "set", value: "alpha" },
+  ]) }));
+const rb10Text = rbText(rb10);
+check("RB: F043 pair X-Forwarded / X-Forwarded-For renders two distinct lines",
+  rb10Text.length === 2 && rb10Text[0] !== rb10Text[1] &&
+    rb10Text[0].includes("X-Forwarded-For ") && rb10Text[1].includes("X-Forwarded "));
+
+const rb11 = attempt(() => describeReadback({ syncState: "failed", rule: rbMixed }));
+check("RB: failed keeps the still-registered lines, with a note",
+  rb11 !== THREW && rb11.kind === "previous" && rb11.lines.length === 3 &&
+    typeof rb11.note === "string" && rb11.note.length > 0);
+
+const rb12 = attempt(() => describeReadback({ syncState: "partial", rule: rbMixed }));
+check("RB: partial with a rule reads as entries",
+  rb12 !== THREW && rb12.kind === "entries" && rb12.lines.length === 3);
+
+const rb13 = attempt(() => describeReadback({ syncState: "applied",
+  rule: rbRule([{ header: "X-Pad", operation: "set", value: "  padded  " }]) }));
+check("RB: edge whitespace in a value survives inside the quotes",
+  rbText(rb13)[0] === 'req \u00b7 set \u00b7 X-Pad \u2192 "  padded  "');
+
+const rb14 = attempt(() => describeReadback({ syncState: "applied",
+  rule: rbRule({ header: "X-Not-An-Array", operation: "set", value: "v" }) }));
+check("RB: a non-array requestHeaders reads 'unreadable' and does not throw",
+  rb14 !== THREW && rb14.kind === "unreadable" && rb14.lines.length === 0);
+
+const rb15 = attempt(() => describeReadback({ syncState: "applied", rule: rbRule() }));
+check("RB: a rule with neither header list reads 'none'",
+  rb15 !== THREW && rb15.kind === "none" && rb15.lines.length === 0);
 
 
 // ---------------------------------------- manifest user-facing copy (F039)
@@ -2080,6 +2192,38 @@ check("F042: the draft store is session, and never local",
   /hw:drafts/.test(popupJs));
 check("F042: the popup exposes a revert-to-saved control",
   /draft-revert/.test(popupJs) && /draft-revert/.test(popupHtml));
+
+// FINDING-040 / FINDING-043 readback. Checks 16–19 of
+// test/PREDICTIONS-2026-09-21-readback.md. BOUND TO THE STATEMENTS THAT DO THE
+// THING: a bare `describeReadback(` or `getDynamicRules` substring would be
+// satisfied by the import, a definition or a comment-free mention elsewhere,
+// which is the weakness this project found seven times in one session.
+const renderCardBody = (popupJs.match(
+  /function renderProfileCard\([^)]*\) \{[\s\S]*?\n\}\n/) || [""])[0];
+const renderListBody = (popupJs.match(
+  /async function renderListNow\(\) \{[\s\S]*?\n\}\n/) || [""])[0];
+check("RB: renderProfileCard calls describeReadback on the registered rule",
+  /\? describeReadback\(\{\s*syncState: registration\.syncState,\s*rule: registration\.registeredById\.get\(profile\.id\) \?\? null,\s*\}\)/
+    .test(renderCardBody));
+check("RB: renderListNow reads the REGISTERED rules, not storage",
+  /const registered = await chrome\.declarativeNetRequest\.getDynamicRules\(\);/
+    .test(renderListBody) &&
+  /registeredById = new Map\(registered\.map\(\(rule\) => \[rule\.id, rule\]\)\);/
+    .test(renderListBody));
+const readbackCss = (popupHtml.match(/\.profile \.readback-line \{([^}]*)\}/) || ["", ""])[1];
+check("RB: readback lines wrap and never clip",
+  /overflow-wrap:\s*anywhere/.test(readbackCss) &&
+  /white-space:\s*normal/.test(readbackCss) &&
+  !/nowrap|text-overflow|overflow:\s*hidden/.test(readbackCss));
+check("RB: readback lines are written with textContent, never innerHTML",
+  /lineEl\.className = "readback-line";\s*lineEl\.textContent = formatReadbackLine\(line\);/
+    .test(renderCardBody) &&
+  // AN ASSIGNMENT, NOT A MENTION. The first version was !/innerHTML/, which
+  // the existing "textContent, never innerHTML" COMMENT in this function
+  // satisfies once the comment strip is gone — mutate-scans' pre-FINDING-032
+  // row went 0 -> 1 on it. A guard that forbids a word forbids its own
+  // explanation; this one forbids the statement.
+  !/\.innerHTML\s*\+?=/.test(renderCardBody));
 
 // FINDING-041. preflight.mjs is not a gate — it needs running servers and a
 // hosts file — so nothing else would notice if its extension block were

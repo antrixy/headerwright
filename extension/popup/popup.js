@@ -46,6 +46,11 @@ import {
 } from "../lib/draft.js";
 import { createSerialQueue, createDebounced } from "../lib/queue.js";
 import { decodeStoredState } from "../lib/stored.js";
+import {
+  describeReadback,
+  formatReadbackLine,
+  READBACK_NOTES,
+} from "../lib/readback.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
 const STORAGE_KEY_ENABLED = "hw:enabled";
@@ -395,9 +400,30 @@ async function renderListNow() {
   const nameById = new Map(profiles.map((p) => [p.id, p.name]));
   const drafts = await getDrafts();
 
+  // FINDING-040 / FINDING-043: what Chrome has REGISTERED, read once per
+  // render and joined by id — a profile's id IS its DNR rule id. The sync
+  // state is classified from the same inputs updateStatusLine() uses, so the
+  // cards and the status line cannot disagree about whether the registered
+  // rules are current. A rejected read must not take the list down with it:
+  // every card then says the rule could not be read, which is true.
+  const readbackEnabled = await getEnabled();
+  const syncState = classify({
+    enabled: readbackEnabled,
+    desiredRevision: configRevision(profiles, readbackEnabled),
+    record: await getSyncState(),
+  });
+  let registeredById = null;
+  try {
+    const registered = await chrome.declarativeNetRequest.getDynamicRules();
+    registeredById = new Map(registered.map((rule) => [rule.id, rule]));
+  } catch (err) {
+    console.error("HeaderWright: could not read registered rules \u2014", err);
+  }
+  const registration = { syncState, registeredById };
+
   for (const profile of profiles) {
     list.appendChild(
-      renderProfileCard(profile, grants, collisions, nameById, drafts)
+      renderProfileCard(profile, grants, collisions, nameById, drafts, registration)
     );
   }
 
@@ -432,8 +458,11 @@ const renderList = createSerialQueue(renderListNow, (err) => {
 // Editor-style status line: the one-glance truth about what is actually
 // in effect right now. Domain counts are deduplicated across profiles.
 // `grants` is optional: renderListNow has already made the permission pass
-// and hands it down rather than paying for a second one. The line 798 caller
-// has no render in flight, so it makes its own.
+// and hands it down rather than paying for a second one. Since 2026-09-21
+// renderListNow is the ONLY caller — the master toggle used to call this
+// directly and now re-renders the list, because the cards' readback depends
+// on the toggle too. The fallback pass is kept so a future caller without a
+// render in flight still gets a truthful line.
 async function updateStatusLine(profiles, grants) {
   const enabled = await getEnabled();
   const sync = await getSyncState();
@@ -484,7 +513,7 @@ async function updateStatusLine(profiles, grants) {
   line.classList.toggle("sync-partial", syncState === "partial");
 }
 
-function renderProfileCard(profile, grants, collisions, nameById, drafts) {
+function renderProfileCard(profile, grants, collisions, nameById, drafts, registration) {
   const card = document.createElement("div");
   card.className = "profile";
 
@@ -522,7 +551,35 @@ function renderProfileCard(profile, grants, collisions, nameById, drafts) {
     domains.appendChild(renderDomainChip(domain, grants));
   }
 
-  card.append(row1, meta, domains);
+  // FINDING-040 / FINDING-043. The registered rule, one line per entry, under
+  // the header count. This is the getDynamicRules() pre-read every runbook
+  // demands, moved from the service worker console onto the card: a `set`
+  // the operator meant as a `remove` now reads "set", and X-Forwarded no
+  // longer looks like X-Forwarded-For. textContent only — header names and
+  // values are user-supplied.
+  const readback =
+    registration && registration.registeredById
+      ? describeReadback({
+          syncState: registration.syncState,
+          rule: registration.registeredById.get(profile.id) ?? null,
+        })
+      : { kind: "unreadable", note: READBACK_NOTES.unreadable, lines: [] };
+  const readbackBox = document.createElement("div");
+  readbackBox.className = "readback";
+  if (readback.note) {
+    const note = document.createElement("div");
+    note.className = "readback-note";
+    note.textContent = readback.note;
+    readbackBox.appendChild(note);
+  }
+  for (const line of readback.lines) {
+    const lineEl = document.createElement("div");
+    lineEl.className = "readback-line";
+    lineEl.textContent = formatReadbackLine(line);
+    readbackBox.appendChild(lineEl);
+  }
+
+  card.append(row1, meta, readbackBox, domains);
 
   // FINDING-042's honesty surface, the same move as the collision marker
   // above: the card otherwise reads as though what is stored is what the user
@@ -1205,7 +1262,10 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 $("master-toggle").addEventListener("change", async (event) => {
   await setEnabled(event.target.checked);
   $("toggle-state").textContent = event.target.checked ? "On" : "Off";
-  await updateStatusLine(await getProfiles());
+  // renderList, not updateStatusLine alone: the cards' readback depends on
+  // the toggle too, and re-rendering only the status line would leave every
+  // card claiming its rule is registered until the worker's sync write lands.
+  await renderList();
 });
 
 $("add-profile").addEventListener("click", () => openEditor(null));
