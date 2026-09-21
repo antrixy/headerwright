@@ -2030,3 +2030,72 @@ and that is the obvious next step, but it would be the fifth one-field patch
 rather than R15. **Deliberately left for the R15 ruling** so the choice between
 another point check and the general one is made on purpose.
 
+**R15 — BUILT 2026-09-20, after four instances found by accident, and it caught
+a fifth on its first run.** Ruled as option (b): derived facts plus a coverage
+tripwire, not five point checks with a shared header.
+
+**Why (b).** Every one of the four instances — `SCOPE.md` promising a refused
+`append`, the manifest copy, `README.md` (FINDING-044), and `manifest.version`
+which nothing read — was a FORGETTING rather than a falsehood. Nobody wrote
+something untrue on purpose; someone updated one artifact and did not think of
+the next. Per-artifact assertions close four known cases and change nothing
+about the mechanism that produced them. **The registry and its tripwires are
+the deliverable.** A new root `.md`, or a new derived capability, fails the
+suite until it is registered — even when the honest answer is "this file makes
+no capability claims", which must then be SAID. Forgetting becomes an error.
+
+**The cost was accepted, not discovered.** A `CONTRIBUTING.md` will fail the
+suite until someone adds it with `claims: false`. Same shape as
+`EXPECTED_CHECKS` and `EXPECTED_ROWS`, both of which caught real drift on
+2026-09-20.
+
+**Fifth instance, caught by the check on its first run: `test/SMOKE.md` had no
+response-header part.** The manual script run before a tag did not exercise
+v0.2.0's headline capability, and nothing had noticed. **Part 15 written**, in
+the house form, carrying the save-verify-measure ordering and the three popup
+defects that make a stored rule differ from what the operator believes
+(FINDING-040, -042, -043). It is unverified until the next sitting; it is a
+script, not evidence.
+
+**What R15 cannot do, stated rather than implied.** Its wording — "manifest
+version ... must describe the same release" — reads as though versions can be
+cross-checked. They cannot: there is no second version string in the repository
+to compare `manifest.version` against. It is PINNED in the registry instead,
+which catches a value left at `0.1.7` through a tag and a `0.20` typo, and is
+weaker than the wording suggests.
+
+**The per-artifact half is best-effort and the file says so.** You cannot
+reliably assert "this document does not claim X" about prose, because documents
+legitimately discuss X while not claiming it.
+
+**FOUR MORE SUBSTRING-WEAKENED SCANS, ALL IN CODE WRITTEN FOR THIS RULING.**
+The README rule asked whether `response` appeared anywhere in the file, and a
+mutant reverting the intro survived because the word remained further down. The
+SCOPE rule asked whether `v0.2.1` and `append` shared a line, which the sentence
+"Append moved from v0.2.0 to v0.2.1" satisfies, so a mutant moving the bullet
+back survived. The SMOKE rule asked for `response header` anywhere, and a
+heading rename survived it. All three now read the SECTION or the LINE that
+makes the claim, via a `section()` helper that returns "" for a missing heading
+so a renamed section fails rather than passing vacuously.
+
+**That is seven instances of the same weakness in one day** — the `readForm`
+side scan, the `storage.session` draft scan, the `reportExtensionExpectation`
+call scan, and these four. **The pattern is now a standing rule for this
+project: a scan that pins behaviour must match the line that DOES the thing,
+never a substring that merely names it.** In every case the check kept passing,
+which is indistinguishable from it working, and only the mutation harnesses
+told them apart.
+
+**A harness gap surfaced with it.** `mutate_common.py` copies only
+`README.md`, `SCOPE.md` and `PRIVACY.md` into its sandbox. R15's registry reads
+`FINDINGS.md`, which was absent there, so every scan mutant failed at once with
+an empty restore line — selftest never reached its summary. **The symptom
+pointed at the mutants and the cause was a missing copy**, and the harness
+reports that shape indistinguishably from a real failure. `FINDINGS.md` added
+to `ROOT_FILES`, and the comment now says that any root file the SUITE READS
+must be added, not only any root file a MUTANT TARGETS.
+
+`test/release-consistency.mjs` (new). `selftest.mjs`, `R15:` prefix, seven
+checks. `EXPECTED_CHECKS` 466 → 473. The pinned string-scan count in
+`mutate-scans.py` does not move — these read files raw.
+
