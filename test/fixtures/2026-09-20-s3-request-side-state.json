@@ -1,0 +1,39 @@
+{
+  "format": "headerwright-profiles",
+  "profiles": [
+    {
+      "domains": [
+        "hw.test"
+      ],
+      "headers": [
+        {
+          "name": "X-HW-Legacy",
+          "operation": "set",
+          "value": "1"
+        }
+      ],
+      "id": 1,
+      "name": "legacy"
+    },
+    {
+      "domains": [
+        "hw.test"
+      ],
+      "headers": [
+        {
+          "name": "X-Forwarded-For",
+          "operation": "set",
+          "value": "alpha"
+        },
+        {
+          "name": "X-Forwarded-For",
+          "operation": "append",
+          "value": "bravo"
+        }
+      ],
+      "id": 2,
+      "name": "probe"
+    }
+  ],
+  "version": 1
+}

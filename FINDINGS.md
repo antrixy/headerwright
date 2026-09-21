@@ -1417,7 +1417,7 @@ values; array order alone decides between `bravo` and `alpha, bravo`.
 
 Live state at the end of the sitting:
 `test/fixtures/2026-09-20-s3-request-side-state.json`, sha256
-`__S3_STATE_SHA256__`.
+`7e68d1889fe89085fb83a2c85e6ce71bd0dfb839612d8d3ac058c40173f50233`.
 
 **Not a HeaderWright defect.** The mechanism is very likely documented Chrome
 behaviour. What fails is this project's CLAIM, and the correction is a sentence
