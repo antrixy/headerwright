@@ -1388,6 +1388,41 @@ Not to be conflated with FINDING-035, whose second sighting is a `remove`
 following a `set` on the response side. Whether they share a mechanism is
 unknown and should not be assumed from their adjacency.
 
+**CONFIRMED 2026-09-20 by re-reading, and it is the only thing from the 09-19
+sitting that survived one.** `test/RUNBOOK-2026-09-20-3-f036.md`, rows S1, S2
+and S3, on Chrome 153.0.8010.48 (arm64), macOS 26.5.2, `Profile 15`, tree
+`988a1c7`. Every row verified with `getDynamicRules()` immediately before the
+navigation and untouched after.
+
+| row | one rule, one `requestHeaders` array | wire |
+| --- | --- | --- |
+| S1 | `set alpha` alone | `alpha` |
+| S2 | `append bravo`, then `set alpha` | **`bravo`** — the `set` discarded |
+| S3 | `set alpha`, then `append bravo` | `alpha, bravo` — both applied |
+
+**The FINDING-042 explanation was tested and rejected.** This entry was
+re-read because C9 sequence 2 could have been an edit that never reached
+storage — which would produce `bravo` with no Chrome anomaly at all, and which
+is what C8 turned out to be. It was not: both entries were verifiably in
+storage when the request went out. Chrome received the `set` and did not apply
+it.
+
+**S1 had never been run in the project's history**, and it is what makes S2
+clean. Without it, `bravo` is equally consistent with "a plain `set` on this
+header never reaches the wire". C9 only ever measured this header in
+combination.
+
+**The asymmetry is the finding.** Same two operations, same header, same
+values; array order alone decides between `bravo` and `alpha, bravo`.
+
+Live state at the end of the sitting:
+`test/fixtures/2026-09-20-s3-request-side-state.json`, sha256
+`__S3_STATE_SHA256__`.
+
+**Not a HeaderWright defect.** The mechanism is very likely documented Chrome
+behaviour. What fails is this project's CLAIM, and the correction is a sentence
+rather than a code change. `buildRules()` needs nothing.
+
 **UPDATE 2026-09-20, twice in one day.** An earlier update here proposed that
 this entry and FINDING-035 might be one mechanism, on the strength of a shared
 shape: an earlier array entry suppressing a later one. **That is withdrawn
@@ -1908,3 +1943,47 @@ cannot afford.
 restores character-for-character rather than normalized. The four raw
 round-trip checks in `selftest.mjs` pin the module's behaviour, but nothing
 automated connects the module to the actual `f-domains` input.
+
+**FINDING-043 — the popup's header-name field truncates with no indication, so
+a wrong name is indistinguishable from a right one.** Raised 2026-09-20 during
+the FINDING-036 re-verification, which it nearly turned into a false
+confirmation.
+
+**Symptom.** The name input shows roughly eight characters. `X-Forwarded-For`
+and `X-Forwarded` both display as `X-Forwa…`. Nothing marks the field as
+holding more text than it shows, and the list card shows a header COUNT, not
+names, so nothing downstream surfaces the difference either.
+
+**How it surfaced, which is the part that matters.** Row S2 was built as two
+entries on `X-Forwarded-For`. `getDynamicRules()` showed index 0 on
+`X-Forwarded-For` and index 1 on `X-Forwarded`. On screen the two rows were
+identical.
+
+**It would have read as a CONFIRMATION, not as a failure.** Two entries on
+different headers produce `bravo` on `x-forwarded-for` and `alpha` on
+`x-forwarded` — and `bravo` is precisely what FINDING-036 predicts. The row
+would have "reproduced" the finding while measuring something else entirely.
+Only the console read caught it, and only because the read happens before the
+press.
+
+**Third distinct way this popup produces a wrong entry that looks right**,
+after FINDING-040 (an operation name typed into the value field) and
+FINDING-042 (an edit discarded on focus loss, since fixed). The common shape:
+the UI accepts something legal, the stored rule differs from what the operator
+believes, and the wire result is plausible rather than obviously broken.
+
+**Ranking is open.** 040 needs an operator slip. This needs only a header name
+longer than the field, which is most real header names —
+`Access-Control-Allow-Origin`, `Content-Security-Policy`, `Strict-Transport-Security`.
+Whether it blocks the v0.2.0 tag is not yet ruled.
+
+**Not fixed. Candidate directions, none ruled:** widen the field and let the
+grid reflow; show the full name in a `title` attribute on hover; render the
+name in the list card so a wrong one is visible without opening the editor;
+validate against a known-header list and warn on near-misses. The last is the
+only one that catches a typo rather than merely displaying it, and it is also
+the one most likely to be wrong about a legitimate custom header.
+
+**No selftest name, no SMOKE part.** A source check cannot see a field that is
+too narrow. A `title` attribute or a list-card name COULD be pinned by a source
+scan once the direction is ruled.
