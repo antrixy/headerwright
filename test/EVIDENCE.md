@@ -10,6 +10,141 @@ from.
 
 ---
 
+# Sitting H — v0.2.0 candidate, `SMOKE.md` Parts 15 and 16 (2026-09-21)
+
+Part 15 is response-header behaviour on the wire and had been unverified since
+2026-09-20. Part 16 is the registered-rule readback on the card, and this is
+its first sitting. Part 16's predictions were frozen in its table, committed
+at `52071a6` before Chrome opened. Part 15's rows were committed earlier. The
+tree was `7868752`, which is `52071a6` plus one `README.md` paragraph, and
+`extension/` is byte-identical between them.
+
+### Environment
+
+| | |
+|---|---|
+| Build | `786875226c2dcfc0cfee68472971505f06b080ed`, unpacked |
+| Extension ID | `khjeofpciphjaclledledepfppaiicnf` (unpacked-dev, NOT the store ID) |
+| Card on `chrome://extensions` | `HeaderWright — Modify HTTP Headers`, `0.2.0` (FINDING-041: matches the tree) |
+| Profile | `hw-test`, `Profile 15` |
+| Chrome | **153.0.8010.48** (Official Build) (arm64) |
+| OS | macOS 26.5.2 (25F84) |
+| Oracle | `127.0.0.1:8787`, pid 25044, build `bbf78ddbddf8`, selftest 13/13 |
+| Initiator | `127.0.0.1:8790`, pid 25060, build `1e6dc8fd662c`, selftest 12/12 |
+
+**Preflight passed twice.** It passed once before Chrome opened. It passed
+again after a gap of about nine hours between 15.4's build and its measurement,
+and gave the same pids and start times, so every measurement came from the
+processes the first preflight vouched for. The first preflight run FAILED
+because the initiator was not running, and Chrome stayed closed until it
+passed. At shutdown `lsof` showed exactly pids 25044 and 25060 on the two
+ports, both were killed by pid, and `lsof` then exited 1.
+
+**The loaded popup bytes are the new ones.** The first popup open showed the
+readback lines. Only `lib/readback.js` produces them, so the card itself is the
+proof of what was loaded. The manifest did not move, so no reload was needed or
+done.
+
+**Method on every row.** Save, read the card with the popup still open, then
+run the full-namespace `chrome.declarativeNetRequest.getDynamicRules()` in the
+service worker console, then measure (Part 15 only). Nothing was edited
+between the console read and the press.
+
+### Unpredicted first observation
+
+The popup was opened before any row was built, on the state left by the
+2026-09-20 sittings. The cards read:
+
+- **legacy:** `req · set · X-HW-Legacy → "1"`
+- **probe:** `req · set · X-Forwarded-For → "alpha"`, then
+  `req · append · X-Forwarded-For → "bravo"`
+
+`getDynamicRules()` agreed entry for entry and in order. This is the first time
+the card was rendered anywhere, and no gate renders it.
+
+### Part 15 — response headers on the wire
+
+| # | build | run | observed | verdict |
+|---|---|---|---|---|
+| 15.1 | no `responseHeaders` (control) | plain | `UNMODIFIED`; all three headers agree | **PASS** |
+| 15.2 | `X-HW-Oracle` / set / `rewritten` | plain | `1 changed, 0 removed, 0 added`; `x-hw-oracle` `baseline` → `rewritten` | **PASS** |
+| 15.4 | 15.2, then `X-HW-Removable` / remove | plain | `1 changed, 1 removed, 0 added`; both applied | **PASS** |
+| 15.5 | as 15.4 | CORS | `1 changed, 0 removed, 0 added`; `x-hw-oracle` rewritten; `access-control-allow-origin`, `-headers`, `-methods` unchanged | **PASS for `set` and the CORS family; `remove` NOT OBSERVED** (FINDING-045) |
+| 15.3 | `X-HW-Removable` / remove, alone | plain | `0 changed, 1 removed, 0 added`; `x-hw-removable` `present` → `—` | **PASS** |
+
+**Run order was 15.1, 15.2, 15.4, 15.5, 15.3.** 15.4 adds one row to 15.2's
+state and 15.5 measures the same state, so each build changed the rule by one
+row.
+
+**`remove` entries were stored with exactly two keys, `header` and
+`operation`, and no `value` key.** That held in 15.4 and in 15.3.
+
+**FINDING-035 stays withdrawn.** `remove` applied both alone and after a `set`
+in the same rule, and both are positions the withdrawal covered.
+
+**15.5's written expectation was wrong, not the product.** "Same as 15.4"
+assumes the CORS case sends `X-HW-Removable`. `test/oracle/server.mjs` gives
+the CORS case only the three `Access-Control-*` headers and `X-HW-Oracle`. The
+row's wording is recorded here verbatim and the row is corrected in `SMOKE.md`.
+The operator also restated the wrong expectation before pressing, without
+checking the fixture.
+
+### Part 16 — the registered-rule readback on the card
+
+| # | build (profile `probe`) | card | console agrees | verdict |
+|---|---|---|---|---|
+| 16.1 | response `X-HW-Oracle` / set / `rewritten` | `res · set · X-HW-Oracle → "rewritten"` | yes | **PASS** |
+| 16.2 | 16.1, then `X-HW-Removable`, dropdown left on `set`, value `remove` | `res · set · X-HW-Oracle → "rewritten"`, then `res · set · X-HW-Removable → "remove"` | yes | **PASS** (second attempt; see below) |
+| 16.3 | 16.2's value changed to `present` | `res · set · X-HW-Oracle → "rewritten"`, then `res · set · X-HW-Removable → "present"`; `remove` appears on no line | yes | **PASS** |
+| 16.4 | request `X-Forwarded-For` / append / `bravo`, then request `X-Forwarded` / set / `alpha` | `req · append · X-Forwarded-For → "bravo"`, then `req · set · X-Forwarded → "alpha"` | yes | **PASS** |
+| 16.5 | add response `Access-Control-Allow-Origin` / set / `*` | the full name on one line, with no `…` | yes | **PASS; wrapping NOT exercised** |
+| 16.8 | add request `X-Hw-CaseProbe` / set / `case` | `req · set · X-Hw-CaseProbe → "case"` | yes, with casing preserved | **PASS** |
+| 16.6 | master toggle OFF | both cards: `Off — nothing registered`, no lines; status `paused` | `[]` | **PASS** |
+| 16.7 | master toggle ON, popup not reopened | both cards' lines back, as before 16.6 | yes for rule 2; rule 1's `action` scrolled out of the screenshot | **PASS** (rule 1 card-only on this row) |
+
+**Across all of Part 16, no row had the card and `getDynamicRules()`
+disagreeing.**
+
+**16.2's first attempt was an unplanned build slip, and the card caught it
+first.** The operator meant to build 16.1's line plus the slip. The card showed
+ONE line, `res · set · X-HW-Oracle → "remove"`, and the console agreed with
+that single entry. What was typed where is not recorded. The row was rebuilt
+and then matched its prediction. This was not a planted error, and the card
+showed it before any console read.
+
+**16.5 proves the name is not clipped. It does not prove wrapping.**
+`res · set · Access-Control-Allow-Origin → "*"` fit on one line at 380px.
+Wrapping stays pinned only by the CSS scan (`RB: readback lines wrap and never
+clip`) and mutant M11.
+
+**16.8 settles the design's UNMEASURED question.** Chrome 153's
+`getDynamicRules()` returns header names in the case they were typed
+(`X-Hw-CaseProbe`, `X-HW-Legacy`). The card prints them as returned.
+
+**The stale window was not observed, as the part predicted.** Every card read
+after a save already showed the new rule. `Checking what Chrome has
+registered…` was never seen.
+
+**The domain chip's dot stayed green while the toggle was OFF.** The dot means
+the domain is granted, not that rules are applying, so this is pre-existing and
+not in scope. It is recorded because it is the one element on an "off" card
+that could be read as active.
+
+### Operator feedback raised during the sitting (not changed, to keep the tree fixed)
+
+- **Readback as a table.** Aligned columns (side | op | name | value) would
+  make the operation scannable. Deferred to v0.2.1 by the operator's decision
+  during the sitting, so the sitting stayed on `7868752`.
+- **`+ Add header` should focus the new row's name field.** At present it
+  needs a click, and that click is where a half-built row starts. Deferred to
+  v0.2.1.
+
+### Not run
+
+Nothing. Every row of Parts 15 and 16 ran.
+
+---
+
 # Sitting G — v0.1.7 candidate, FINDING-028 / FINDING-024 (2026-09-07)
 
 Predictions pre-registered in `test/RUNBOOK-2026-09-06-v017.md`, committed

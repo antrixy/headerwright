@@ -1265,7 +1265,7 @@ had to be voided.
 | 15.2 | `X-HW-Oracle` / `set` / `rewritten` | plain | `1 changed`; `x-hw-oracle` `baseline` → `rewritten` |
 | 15.3 | `X-HW-Removable` / `remove`, alone | plain | `0 changed, 1 removed`; `x-hw-removable` absent |
 | 15.4 | `set X-HW-Oracle`, then `remove X-HW-Removable` | plain | `1 changed, 1 removed` — BOTH apply |
-| 15.5 | as 15.4 | CORS | same as 15.4, plus the CORS family unchanged |
+| 15.5 | as 15.4 | CORS | `1 changed, 0 removed`; `x-hw-oracle` `baseline` → `rewritten`; the CORS family unchanged. **The `remove` entry is NOT OBSERVABLE here** — see below. |
 
 **15.3 and 15.4 are the rows FINDING-035 got wrong for two sittings.** It was
 raised as "response `remove` never applies" and then as "an earlier `set`
@@ -1277,6 +1277,14 @@ on.
 **The remove entry must show exactly two keys** in `getDynamicRules()`:
 `{"header": "...", "operation": "remove"}`, with **no `value`**. A `value`
 present is an emit-side defect and is its own finding.
+
+**15.5 was CORRECTED on 2026-09-21, after Sitting H (FINDING-045).** Its
+expectation used to read "same as 15.4, plus the CORS family unchanged". That
+cannot happen: the CORS case in `test/oracle/server.mjs` sends only the three
+`Access-Control-*` headers and `X-HW-Oracle`, so a response `remove` of
+`X-HW-Removable` has nothing to act on there. **In this row, `0 removed` is
+NOT OBSERVED, never PASS and never FAIL.** Response `remove` is proved by 15.3
+and 15.4, in the plain case, and nowhere else.
 
 **15.5 exists because the CORS case has its own blind spot.** `Set-Cookie` is
 stripped from `Response.headers` by the Fetch spec even same-origin, so an

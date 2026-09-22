@@ -2130,3 +2130,48 @@ must be added, not only any root file a MUTANT TARGETS.
 checks. `EXPECTED_CHECKS` 466 → 473. The pinned string-scan count in
 `mutate-scans.py` does not move — these read files raw.
 
+
+**FINDING-045 — `SMOKE.md` row 15.5 claimed a result its fixture cannot
+produce.** Raised 2026-09-21 in Sitting H (`test/EVIDENCE.md`).
+
+**Symptom.** Row 15.5 ran 15.4's rule (`set X-HW-Oracle`, then `remove
+X-HW-Removable`) through the oracle's CORS case, and expected "same as 15.4":
+`1 changed, 1 removed`. It measured `1 changed, 0 removed, 0 added`. The
+`X-HW-Removable` row was absent from the table altogether.
+
+**Cause: the fixture, not the product.** `test/oracle/server.mjs` defines the
+CORS case as the three `Access-Control-*` headers and `X-HW-Oracle`.
+`X-HW-Removable` exists only in the plain case: it was added on 2026-09-14 so
+that response `remove` would have something to remove, and it was added to that
+one case only. So in 15.5 the `remove` entry had nothing to act on, and
+`0 removed` is NOT OBSERVED. HeaderWright behaved correctly on everything the
+row could see. `x-hw-oracle` was rewritten, the CORS family was unchanged, and
+nothing was added.
+
+**The same shape as FINDING-032, 033 and 037, a fifth time: what a written
+procedure claims to exercise is not what the instrument contains.** The oracle's
+own comment block records this lesson for its tampers ("what the gate
+exercises is not what the browser exercises"). The row was written from the
+feature's point of view, meaning a CORS response with both entries, without
+reading which headers the CORS case sends. **The operator then restated the
+wrong expectation before the press, also without reading the fixture.** Two
+readers repeated it, and a measurement caught it.
+
+**Harmless here, and only by luck.** Had `remove` been broken in the CORS path
+alone, this row would have reported it as the expected result being missed, a
+FAIL pointing at the product. Had the row been read loosely, `0 removed` could
+have been taken as a CORS-specific failure of `remove`, which is FINDING-035's
+withdrawn claim coming back through a different door.
+
+**FIXED in `SMOKE.md`.** 15.5's expectation now names what the CORS case can
+show and marks the `remove` as NOT OBSERVABLE, with the original wording kept
+in the note beside it. **Not fixed: the fixture.** Adding `X-HW-Removable` to
+the CORS case would make the row observable, but it changes the oracle build
+stamp, and with it every preflight identity on record. Whether CORS-path
+`remove` needs its own wire proof is a question for v0.2.1, not a reason to
+move the instrument now.
+
+**Not guarded.** Nothing checks that a `SMOKE.md` expectation names only
+headers its fixture case sends. A check could parse the row tables against
+`CASES` in `server.mjs`. That is a derived-fact check of the R15 kind, and it
+is noted, not built.
