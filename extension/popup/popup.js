@@ -44,7 +44,11 @@ import {
   draftDiffersFromProfile,
   profileToFormShape,
 } from "../lib/draft.js";
-import { createSerialQueue, createDebounced } from "../lib/queue.js";
+import {
+  createSerialQueue,
+  createDebounced,
+  runThenAlways,
+} from "../lib/queue.js";
 import { decodeStoredState } from "../lib/stored.js";
 import {
   describeReadback,
@@ -250,8 +254,9 @@ async function grantStateFor(domains) {
  * pure and lives in lib/grants.js; this function is only the chrome.*
  * wiring around it.
  *
- * MUST be called AFTER the profile write and after renderList(). Ordering
- * rules, both load-bearing:
+ * MUST be called AFTER the profile write and after renderList(). Callers
+ * reach it through runThenAlways(renderList, ...), so a failed render cannot
+ * skip it (FINDING-046). Ordering rules, both load-bearing:
  *
  *  - Persist first (the v0.1.0 Bug record). chrome.permissions.request()
  *    opens a native dialog that closes the popup and destroys this JS
@@ -745,8 +750,9 @@ async function deleteProfile(id) {
   // while the confirmation sat open.
   if (nextProfiles.length === previousProfiles.length) return;
   await setProfiles(nextProfiles);
-  await renderList();
-  await reconcileGrants(previousProfiles, nextProfiles);
+  // FINDING-046: a failed render must not skip the revoke.
+  await runThenAlways(renderList, () =>
+    reconcileGrants(previousProfiles, nextProfiles));
 }
 
 // ---------------------------------------------------------- editor view
@@ -1100,9 +1106,9 @@ async function saveProfile() {
   // Popup UI state, in case we survive the request (already granted, or
   // denied without a dialog). Set BEFORE the request for the same reason.
   showView("list");
-  await renderList();
-
-  await reconcileGrants(previousProfiles, nextProfiles);
+  // FINDING-046: a failed render must not skip reconciliation.
+  await runThenAlways(renderList, () =>
+    reconcileGrants(previousProfiles, nextProfiles));
 }
 
 // -------------------------------------------------------- export/import
@@ -1212,9 +1218,9 @@ async function applyImport() {
   // Persist FIRST — same lesson as saveProfile.
   await setProfiles(nextProfiles);
   hideIoUi();
-  await renderList();
-
-  await reconcileGrants(previousProfiles, nextProfiles);
+  // FINDING-046: a failed render must not skip reconciliation.
+  await runThenAlways(renderList, () =>
+    reconcileGrants(previousProfiles, nextProfiles));
 }
 
 // ------------------------------------------------------- live state (f8)

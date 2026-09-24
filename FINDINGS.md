@@ -2175,3 +2175,58 @@ move the instrument now.
 headers its fixture case sends. A check could parse the row tables against
 `CASES` in `server.mjs`. That is a derived-fact check of the R15 kind, and it
 is noted, not built.
+
+**FINDING-046 — the serial queue reported a failed task as success, and three
+popup handlers depended on it.** Raised 2026-09-24 in v0.2.1/s1 as AR-05
+(`LEDGER.md`).
+
+**Symptom.** None observed by a user. `createSerialQueue()` returned the
+chain's tail, which had already caught any rejection, so a failed task
+resolved `undefined` to its caller: failure reported as success. Its own
+docstring said the returned promise "still settles with the task's outcome".
+The suite depended on the defect too: `await q2(true)` and `await q4()` were
+only safe because the rejection never reached them.
+
+**Cause.** `return tail` where `return run` was meant.
+
+**The defect was load-bearing, and that is the finding.** The delete, save
+and import handlers in `popup.js` write profiles, `await renderList()`, then
+`await reconcileGrants(...)`. The swallowed render failure is what let
+reconciliation run after a failed render. Fixing the queue alone would stop the
+handler at the render instead, and a skipped revoke leaves a host grant that no
+profile uses until the worker's startup sweep, `reconcileHostGrants()`. That is
+FINDING-001b's symptom: silent over-permission. **Found by reading the ten
+`await renderList()` call sites before applying the fix, not by a test:** no
+test reaches the popup handlers.
+
+**Fix.** `return run`, with the docstring rewritten to state the contract.
+New `runThenAlways(first, then)` in `lib/queue.js`: `then` starts only after
+`first` settles, whatever `first` did; a single failure reaches the caller as
+that step's own error; two failures reach it as an `AggregateError`, first's
+first. The three handlers call `runThenAlways(renderList, () =>
+reconcileGrants(...))`. The other seven `await renderList()` sites have nothing
+after the await, so the only change there is that a render failure now
+propagates instead of vanishing. `onError` still logs it, so a failed render
+appears twice in the popup console: once from `onError`, once as the click
+handler's unhandled rejection. Showing it in the UI is the action-outcome half
+of s1 (AR-07a), not this entry.
+
+**Measured, 2026-09-24.** A queued call nobody awaits raises no unhandled
+rejection after the fix, because the chain's catch is attached to the promise
+the caller receives. So the worker's bare `syncRules()` calls are unaffected.
+An earlier claim in the same session that they would be affected was wrong.
+
+**Evidence.** `selftest.mjs`: four `AR-05:` checks and seven `runThenAlways:`
+checks, `EXPECTED_CHECKS` 492 → 502. Two red runs recorded before any fix was
+applied: against `ba0d0d1`'s `queue.js`, 1 of 495, the first `AR-05:` check;
+against a stub holding the popup's sequence verbatim, 3 of 502. Wrong fixes
+were run in a sandbox and each failed named checks: dropping the chain's catch
+(chain poisoned), rethrowing a wrapped error, dropping values, a plain
+`try/finally` (loses the render error), swallowing the first error, and
+running both steps concurrently. **The drop-the-catch mutant first crashed the
+suite with no FAIL line printed**, because `await q2(false)` was uncaught. That
+await is caught now, and the comment beside it says why.
+
+**Not guarded.** Nothing checks that the three handlers call `runThenAlways`.
+Reverting any one of them to the bare two-await sequence passes every gate. No
+browser evidence exists, so AR-05 is `fixed-unverified`.

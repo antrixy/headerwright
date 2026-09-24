@@ -89,7 +89,11 @@ import {
   describeSaveRefusal,
   describeImportRefusal,
 } from "../extension/lib/collisions.js";
-import { createSerialQueue, createDebounced } from "../extension/lib/queue.js";
+import {
+  createSerialQueue,
+  createDebounced,
+  runThenAlways,
+} from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
 import {
   describeReadback,
@@ -97,7 +101,7 @@ import {
 } from "../extension/lib/readback.js";
 import { readFileSync, readdirSync } from "node:fs";
 
-const EXPECTED_CHECKS = 492;
+const EXPECTED_CHECKS = 502;
 
 let passed = 0;
 let failed = 0;
@@ -2864,8 +2868,14 @@ async function queueChecks() {
     },
     (err) => { caught = err.message; }
   );
-  await q2(true);
-  await q2(false);
+  // AR-05: these awaits were only safe BECAUSE the queue swallowed the
+  // rejection. Once the caller receives the task's outcome, an uncaught
+  // rejection here aborts the run before any FAIL line prints. The second is
+  // caught too: a fix that poisons the chain makes q2(false) reject, and that
+  // must reach the check below as ran === 1, not crash the suite. Observed on
+  // 2026-09-24 against a drop-the-catch mutant, before this was caught.
+  await q2(true).catch(() => {});
+  await q2(false).catch(() => {});
   check("a failed run does not stop later runs", ran === 2);
   check("the failure is surfaced to onError", caught === "boom");
 
@@ -2887,8 +2897,103 @@ async function queueChecks() {
 
   // Missing onError must not itself throw.
   const q4 = createSerialQueue(async () => { throw new Error("silent"); });
-  await q4();
+  // Caught for the same AR-05 reason as q2 above.
+  await q4().catch(() => {});
   check("omitting onError is safe", true);
+
+  // AR-05: the caller receives the TASK's outcome, not the chain's. enqueue
+  // returned the chain's tail, which had already caught the rejection, so a
+  // failed task resolved undefined to its caller: failure reported as success.
+  // The docstring on createSerialQueue promised the opposite. What each check
+  // distinguishes, from mutants run on 2026-09-24:
+  //   first   the defect itself, and a fix that rethrows a wrapped error
+  //   second  a fix that drops the tail's catch and so poisons the chain
+  //   third   pins value delivery with no failure before it, so a fix that
+  //           drops values fails second AND third, while a poisoned chain
+  //           fails second alone. The pair says which one happened.
+  const ar05 = new Error("ar05");
+  const q5 = createSerialQueue(async (x) => {
+    if (x === "fail") throw ar05;
+    return x;
+  }, () => {});
+  const settle = (p) => p.then((value) => ({ value }), (error) => ({ error }));
+  const okRun = await settle(q5("ok"));
+  const failRun = await settle(q5("fail"));
+  const afterRun = await settle(q5("after"));
+  check("AR-05: a failed task rejects to its caller with the task's own error",
+    failRun.error === ar05);
+  check("AR-05: a call queued after a failure still runs and resolves with its value",
+    afterRun.value === "after");
+  check("AR-05: a successful task's value reaches its caller",
+    okRun.value === "ok");
+}
+
+// ------------------------------------ run then always (AR-05 guard)
+// The popup's delete, save and import handlers write profiles, render, then
+// reconcile grants. Until AR-05 was fixed, the queue swallowed a render
+// failure, so reconcileGrants still ran. Fixing the queue alone would let a
+// render failure stop the handler before the revoke, leaving a host grant no
+// profile uses until the worker's startup sweep: finding 1's symptom, the
+// silent one. runThenAlways makes "reconcile runs whatever render did" a
+// property of a tested function instead of an accident of a defect.
+//
+// Ordering is pinned because reconcileGrants must still run AFTER render:
+// permissions.request() can destroy the popup's context, so nothing after it
+// may be load-bearing.
+
+async function runThenAlwaysChecks() {
+  const settle = (p) => p.then((value) => ({ value }), (error) => ({ error }));
+  const tick = () => new Promise((res) => setTimeout(res, 1));
+
+  // first rejects, then succeeds: the render-failed-after-delete case.
+  const renderErr = new Error("render");
+  let firstDone = false;
+  let thenRan = false;
+  let thenSawFirstDone = null;
+  const failFirst = await settle(runThenAlways(
+    async () => { await tick(); firstDone = true; throw renderErr; },
+    async () => { thenRan = true; thenSawFirstDone = firstDone; },
+  ));
+  check("runThenAlways: then runs when first rejects", thenRan);
+  check("runThenAlways: then starts only after a rejecting first has settled",
+    thenSawFirstDone === true);
+  check("runThenAlways: first's own error reaches the caller when only first fails",
+    failFirst.error === renderErr);
+
+  // Both succeed: the ordinary path must keep its order.
+  let okFirstDone = false;
+  let okThenSaw = null;
+  const bothOk = await settle(runThenAlways(
+    async () => { await tick(); okFirstDone = true; },
+    async () => { okThenSaw = okFirstDone; },
+  ));
+  check("runThenAlways: then starts only after a succeeding first has settled",
+    okThenSaw === true);
+  check("runThenAlways: when both succeed, the caller resolves",
+    !("error" in bothOk));
+
+  // first succeeds, then rejects: a failed revoke must not be swallowed.
+  const reconcileErr = new Error("reconcile");
+  const failThen = await settle(runThenAlways(
+    async () => {},
+    async () => { throw reconcileErr; },
+  ));
+  check("runThenAlways: then's own error reaches the caller when only then fails",
+    failThen.error === reconcileErr);
+
+  // Both reject: neither failure may be lost. A plain try/finally keeps only
+  // the second, which is the wrong fix this check exists to catch.
+  const e1 = new Error("render");
+  const e2 = new Error("reconcile");
+  const failBoth = await settle(runThenAlways(
+    async () => { throw e1; },
+    async () => { throw e2; },
+  ));
+  check("runThenAlways: when both fail, the caller gets an AggregateError holding both, first's first",
+    failBoth.error instanceof AggregateError &&
+    failBoth.error.errors.length === 2 &&
+    failBoth.error.errors[0] === e1 &&
+    failBoth.error.errors[1] === e2);
 }
 
 // --------------------------------------------- debounce (finding 8)
@@ -2960,6 +3065,7 @@ async function debounceChecks() {
 }
 
 await queueChecks();
+await runThenAlwaysChecks();
 await debounceChecks();
 
 // -------------------------------------------------------------- result

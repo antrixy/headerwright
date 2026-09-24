@@ -1,7 +1,7 @@
 # HeaderWright ledger — authoritative current state
 
 **Seeded:** 2026-09-22 UTC
-**Last amended:** 2026-09-22 UTC (AR-04 decided; store listing confirmed)
+**Last amended:** 2026-09-24 UTC (AR-05 fixed on main with FINDING-046's guard; browser evidence outstanding)
 **Release state:** v0.2.0 published to the Chrome Web Store; clean-profile store-CRX verification outstanding
 
 This file is the only present-tense answer to "what is open" in HeaderWright. `FINDINGS.md` stays the immutable narrative history — symptom, cause, evidence, decision, regression lesson — and is not a status index. Roadmap projections, release-gate counts and the current-work block in the planning handoff are generated from the rows here, not written by hand. When a row's status changes, this file changes in the same commit as the code.
@@ -41,7 +41,7 @@ s5  compatibility and truth language
 
 ```text
 AR-18  | Test oracles are incomplete: no adversarial properties, no use-case tests, no fault injection, no browser-contract evidence | open | high | ongoing | R14, R15, HW-V6-20 | source | method for every slice
-AR-05  | Serial queue reports task failure as caller success; the suite's own await depends on the defect | open | high | v0.2.1/s1 | HW-V6-12, HW-V6-14 | reproduced | —
+AR-05  | Serial queue reports task failure as caller success; the suite's own await depends on the defect | fixed-unverified | high | v0.2.1/s1 | HW-V6-12, HW-V6-14, FINDING-046 | reproduced | runThenAlways guards reconcileGrants at delete, save and import
 AR-07a | No action control is ever disabled during an async mutation; two clicks give two overlapping read-modify-write transactions in one popup | open | high | v0.2.1/s1 | — | reproduced | —
 AR-01  | configRevision serialization is ambiguous; delimiters legal inside field values are unescaped | open | high | v0.2.1/s2 | — | reproduced | canonical FNV, stays a status hint
 AR-01b | Stale-edit and draft binding need a per-profile SHA-256 digest, not the configuration revision | open | high | v0.2.1/s2 | — | design | sha256:profile-v1 prefix

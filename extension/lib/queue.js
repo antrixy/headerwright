@@ -26,9 +26,22 @@
  * Returns a function that runs `task` such that calls never overlap. Each
  * call waits for all previously queued calls to settle, in order.
  *
- * Failures do not poison the chain: a rejected run is caught here so the next
- * queued call still runs. The caller's own error handling is unaffected —
- * the returned promise still settles with the task's outcome.
+ * Each call's returned promise settles with ITS OWN task's outcome: it
+ * resolves with the task's value or rejects with the task's error.
+ *
+ * Failures do not poison the chain: the rejection is also caught on the
+ * internal chain, so the next queued call still runs, and onError observes
+ * every rejection whether or not the caller handles it. That catch is attached
+ * to the promise the caller receives, so a call nobody awaits raises no
+ * unhandled rejection; a caller that awaits it and does not handle the error
+ * does. Both measured 2026-09-24.
+ *
+ * AR-05, fixed 2026-09-24: enqueue used to return the chain's tail, which had
+ * already caught the rejection, so a failed task resolved undefined to its
+ * caller. Failure was reported as success, contradicting this comment. The
+ * popup's delete, save and import handlers depended on that to reach
+ * reconcileGrants after a failed render; runThenAlways below replaces the
+ * dependency (FINDING-046).
  */
 export function createSerialQueue(task, onError) {
   let tail = Promise.resolve();
@@ -39,8 +52,50 @@ export function createSerialQueue(task, onError) {
     tail = run.catch((err) => {
       if (onError) onError(err);
     });
-    return tail;
+    return run;
   };
+}
+
+/**
+ * Runs `first`, then runs `then` once `first` has settled, whatever `first`
+ * did. Neither failure is lost: if only one step fails, the returned promise
+ * rejects with that step's own error; if both fail, it rejects with an
+ * AggregateError holding both, first's first.
+ *
+ * `then` never starts before `first` settles. In the popup, `then` is
+ * reconcileGrants, which can call permissions.request(), and that can destroy
+ * the popup's context, so nothing after it may be load-bearing.
+ *
+ * Why this exists (FINDING-046, 2026-09-24): the popup's delete, save and
+ * import handlers render and then reconcile grants. While AR-05 stood, the
+ * queue swallowed a render failure and reconciliation still ran. Fixing the
+ * queue alone would have let a failed render skip the revoke, leaving a host
+ * grant no profile uses until the worker's startup sweep.
+ */
+export async function runThenAlways(first, then) {
+  let firstFailed = false;
+  let firstError;
+  try {
+    await first();
+  } catch (err) {
+    firstFailed = true;
+    firstError = err;
+  }
+
+  let thenFailed = false;
+  let thenError;
+  try {
+    await then();
+  } catch (err) {
+    thenFailed = true;
+    thenError = err;
+  }
+
+  if (firstFailed && thenFailed) {
+    throw new AggregateError([firstError, thenError], "both steps failed");
+  }
+  if (firstFailed) throw firstError;
+  if (thenFailed) throw thenError;
 }
 
 /**
