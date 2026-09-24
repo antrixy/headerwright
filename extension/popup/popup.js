@@ -48,6 +48,8 @@ import {
   createSerialQueue,
   createDebounced,
   runThenAlways,
+  createActionGate,
+  ACTION_REFUSED,
 } from "../lib/queue.js";
 import { decodeStoredState } from "../lib/stored.js";
 import {
@@ -460,6 +462,34 @@ const renderList = createSerialQueue(renderListNow, (err) => {
   console.error("HeaderWright: popup render failed —", err);
 });
 
+// AR-07a, FINDING-047. ONE gate for every mutating control, so one popup UI
+// mutation runs at a time across all of them: the interim mutation contract in
+// LEDGER.md. A click while one runs is REFUSED, not queued (ruled 2026-09-24).
+// The busy signal disables the controls; the gate refuses anything that
+// arrives anyway, such as keyboard activation.
+//
+// Static controls take `disabled`. Grant chips do NOT: they are rebuilt on
+// every render, and a render can start while an action runs and append its
+// chips after the gate reopens, which would leave a chip stuck disabled. That
+// chip is the only in-app recovery for an ungranted domain (FINDING-002), so
+// chips take their state from a class on body instead, which no render can
+// leave stale.
+const MUTATING_CONTROL_IDS = [
+  "f-save",
+  "delete-proceed",
+  "import-replace",
+  "master-toggle",
+  "f-cancel",
+  "draft-revert",
+];
+
+function setMutationBusy(busy) {
+  for (const id of MUTATING_CONTROL_IDS) $(id).disabled = busy;
+  document.body.classList.toggle("mutating", busy);
+}
+
+const runMutation = createActionGate(setMutationBusy);
+
 // Editor-style status line: the one-glance truth about what is actually
 // in effect right now. Domain counts are deduplicated across profiles.
 // `grants` is optional: renderListNow has already made the permission pass
@@ -678,7 +708,9 @@ function renderDomainChip(domain, grants) {
 
   if (!granted) {
     chip.type = "button";
-    chip.addEventListener("click", async () => {
+    // Gated (FINDING-047). runMutation starts the action inside the call, so
+    // request() is still the first thing this click does.
+    chip.addEventListener("click", () => runMutation(async () => {
       // Nothing load-bearing may follow request(): the dialog destroys this
       // JS context. Nothing needs to — the profile is already stored, and
       // sw.js's permissions.onAdded listener re-syncs rules unaided. The
@@ -687,7 +719,7 @@ function renderDomainChip(domain, grants) {
         origins: originsForDomain(domain),
       });
       if (ok) await renderList();
-    });
+    }));
   }
 
   chip.append(dot, document.createTextNode(domain));
@@ -1266,12 +1298,19 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 // ---------------------------------------------------------------- wiring
 
 $("master-toggle").addEventListener("change", async (event) => {
-  await setEnabled(event.target.checked);
-  $("toggle-state").textContent = event.target.checked ? "On" : "Off";
-  // renderList, not updateStatusLine alone: the cards' readback depends on
-  // the toggle too, and re-rendering only the status line would leave every
-  // card claiming its rule is registered until the worker's sync write lands.
-  await renderList();
+  const wanted = event.target.checked;
+  const result = await runMutation(async () => {
+    await setEnabled(wanted);
+    $("toggle-state").textContent = wanted ? "On" : "Off";
+    // renderList, not updateStatusLine alone: the cards' readback depends on
+    // the toggle too, and re-rendering only the status line would leave every
+    // card claiming its rule is registered until the worker's sync write
+    // lands.
+    await renderList();
+  });
+  // Refused: the click has already flipped the box. Put it back, or the
+  // toggle shows a state that was never written.
+  if (result === ACTION_REFUSED) event.target.checked = !wanted;
 });
 
 $("add-profile").addEventListener("click", () => openEditor(null));
@@ -1283,14 +1322,14 @@ $("add-header-row").addEventListener("click", () => {
 // CANCEL DISCARDS, and that is deliberate. FINDING-042 is about work vanishing
 // without the user choosing it; pressing Cancel IS choosing it. Keeping the
 // draft here would mean the button no longer does what it says.
-$("f-cancel").addEventListener("click", async () => {
+$("f-cancel").addEventListener("click", () => runMutation(async () => {
   await dropDraft(draftKeyFor(editingProfileId));
   setRestoredNotice(false);
   showView("list");
   await renderList();
-});
+}));
 
-$("draft-revert").addEventListener("click", revertToSaved);
+$("draft-revert").addEventListener("click", () => runMutation(revertToSaved));
 
 // Every keystroke and every dropdown change. See persistDraft.
 $("profile-form").addEventListener("input", persistDraft);
@@ -1300,7 +1339,7 @@ $("profile-form").addEventListener("change", persistDraft);
 $("header-rows").addEventListener("click", (event) => {
   if (event.target.closest(".remove-row")) persistDraft();
 });
-$("f-save").addEventListener("click", saveProfile);
+$("f-save").addEventListener("click", () => runMutation(saveProfile));
 $("profile-form").addEventListener("submit", (e) => e.preventDefault());
 
 $("export-profiles").addEventListener("click", exportProfiles);
@@ -1309,10 +1348,10 @@ $("import-profiles").addEventListener("click", () => {
   $("import-file").click();
 });
 $("delete-cancel").addEventListener("click", hideDeleteConfirm);
-$("delete-proceed").addEventListener("click", confirmDelete);
+$("delete-proceed").addEventListener("click", () => runMutation(confirmDelete));
 $("import-file").addEventListener("change", onImportFileChosen);
 $("import-cancel").addEventListener("click", hideIoUi);
-$("import-replace").addEventListener("click", applyImport);
+$("import-replace").addEventListener("click", () => runMutation(applyImport));
 
 // ------------------------------------------------------------------ init
 

@@ -291,6 +291,11 @@
   .hrow .remove-row { border: none; background: none; color: var(--ink-soft); font-size: 15px; padding: 0; }
   .hrow .remove-row:hover { color: var(--danger); background: none; }
   input:disabled { opacity: 0.45; }
+  /* FINDING-047. Buttons carry their own colours above, so a disabled one
+     looked exactly like an enabled one. Grant chips are not disabled; they
+     read body.mutating, because a render can outlive the busy window. */
+  button:disabled { opacity: 0.45; cursor: default; }
+  body.mutating button.domain { opacity: 0.45; pointer-events: none; }
 
   .error { color: var(--danger); font-size: 12px; margin-top: 6px; }
   /* Neutral counterpart to .error, for a message that reports a SUCCESS the

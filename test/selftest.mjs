@@ -93,6 +93,8 @@ import {
   createSerialQueue,
   createDebounced,
   runThenAlways,
+  createActionGate,
+  ACTION_REFUSED,
 } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
 import {
@@ -101,7 +103,7 @@ import {
 } from "../extension/lib/readback.js";
 import { readFileSync, readdirSync } from "node:fs";
 
-const EXPECTED_CHECKS = 502;
+const EXPECTED_CHECKS = 513;
 
 let passed = 0;
 let failed = 0;
@@ -2996,6 +2998,126 @@ async function runThenAlwaysChecks() {
     failBoth.error.errors[1] === e2);
 }
 
+// ------------------------------------------------ action gate (AR-07a)
+// No mutating control in the popup was ever disabled while its work ran, so
+// two clicks gave two overlapping read-modify-write transactions in one
+// popup. The interim mutation contract in LEDGER.md says one popup UI mutation
+// at a time, across all controls, so the popup holds ONE gate shared by Save,
+// Delete, Import, the master toggle, the grant chip, Cancel and Revert.
+//
+// REFUSE, NOT QUEUE, ruled 2026-09-24. A queued second click would still run
+// its read-modify-write once the first finished, so a double-click would do
+// the action twice; and a queued grant-chip click would reach
+// permissions.request() after an await, outside the click's gesture.
+//
+// The action must start INSIDE run(), with no await before it, for the same
+// gesture reason: the grant chip calls permissions.request() as its first act.
+
+async function actionGateChecks() {
+  const tick = () => new Promise((res) => setTimeout(res, 1));
+  const settle = (p) => p.then((value) => ({ value }), (error) => ({ error }));
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((res) => { resolve = res; });
+    return { promise, resolve };
+  };
+
+  // Refusal. The second call is made while the first is still in flight, and
+  // is checked only after the first has settled, so a gate that QUEUES the
+  // second call fails here as surely as one that lets it through.
+  const runRefuse = createActionGate();
+  const firstHold = deferred();
+  const firstCall = runRefuse(() => firstHold.promise);
+  let secondStarted = false;
+  const secondCall = settle(runRefuse(async () => {
+    secondStarted = true;
+    return "second";
+  }));
+  firstHold.resolve("first");
+  await settle(firstCall);
+  const second = await secondCall;
+  await tick();
+  check("action gate: a call made while an action is in flight never starts its action",
+    !secondStarted);
+  check("action gate: a refused call resolves to ACTION_REFUSED, not success",
+    second.value === ACTION_REFUSED);
+
+  // Synchronous start: checked before anything is awaited.
+  const runSync = createActionGate();
+  let startedSync = false;
+  const syncCall = runSync(async () => { startedSync = true; });
+  check("action gate: the action starts inside run(), with no await before it",
+    startedSync);
+  await syncCall;
+
+  // Reopening, on both outcomes, measured by a call made the moment the
+  // caller resumes. A gate that reopens later than that refuses this call.
+  const runReopen = createActionGate();
+  await runReopen(async () => "ok");
+  const afterOk = await settle(runReopen(async () => "next"));
+  check("action gate: the gate is open again when the caller resumes after a success",
+    afterOk.value === "next");
+  await settle(runReopen(async () => { throw new Error("save failed"); }));
+  const afterFail = await settle(runReopen(async () => "next"));
+  check("action gate: the gate is open again when the caller resumes after a failure",
+    afterFail.value === "next");
+
+  // Outcome: AR-05's lesson, carried forward.
+  const runOutcome = createActionGate();
+  const okOutcome = await settle(runOutcome(async () => "value"));
+  check("action gate: the action's own value reaches the caller",
+    okOutcome.value === "value");
+  const gateErr = new Error("action");
+  const errOutcome = await settle(runOutcome(async () => { throw gateErr; }));
+  check("action gate: the action's own error reaches the caller",
+    errOutcome.error === gateErr);
+
+  // Busy signal: this is what the popup uses to disable and re-enable the
+  // controls. "idle" must come after the action ENDS, and only once.
+  const log = [];
+  const runSignal = createActionGate((busy) => log.push(busy ? "busy" : "idle"));
+  await runSignal(async () => { log.push("start"); await tick(); log.push("end"); });
+  check("action gate: onBusyChange(true) fires before the action starts",
+    log.indexOf("busy") === 0 && log.indexOf("start") === 1);
+  check("action gate: onBusyChange(false) fires once, after a successful action settles",
+    log.filter((e) => e === "idle").length === 1 &&
+    log.indexOf("idle") === log.length - 1 &&
+    log.indexOf("idle") > log.indexOf("end"));
+  log.length = 0;
+  await settle(runSignal(async () => {
+    log.push("start");
+    await tick();
+    log.push("end");
+    throw new Error("delete failed");
+  }));
+  check("action gate: onBusyChange(false) fires once, after a failed action settles",
+    log.filter((e) => e === "idle").length === 1 &&
+    log.indexOf("idle") === log.length - 1 &&
+    log.indexOf("idle") > log.indexOf("end"));
+
+  // A refused call must not touch the signal. Signalling idle on refusal
+  // would re-enable every control while the first action is still running.
+  //
+  // The refused call is NOT awaited while the hold is in place. Awaiting it
+  // deadlocked the suite under a queueing gate on 2026-09-24: the queued call
+  // waited for the held action, the held action waited for a resolve that came
+  // after the await, and Node exited 13 with no summary line. Ticks instead.
+  const signals = [];
+  const runQuiet = createActionGate((busy) => signals.push(busy));
+  const quietHold = deferred();
+  const held = runQuiet(() => quietHold.promise);
+  await tick();
+  const signalsBefore = signals.join(",");
+  const refusedCall = settle(runQuiet(async () => {}));
+  await tick();
+  const signalsDuring = signals.join(",");
+  quietHold.resolve();
+  await settle(held);
+  await refusedCall;
+  check("action gate: a refused call leaves the busy signal alone",
+    signalsBefore === signalsDuring);
+}
+
 // --------------------------------------------- debounce (finding 8)
 // Rate control for the popup's storage listener. renderList costs one
 // permissions.contains() per chip, so coalescing a burst is load-bearing.
@@ -3066,6 +3188,7 @@ async function debounceChecks() {
 
 await queueChecks();
 await runThenAlwaysChecks();
+await actionGateChecks();
 await debounceChecks();
 
 // -------------------------------------------------------------- result

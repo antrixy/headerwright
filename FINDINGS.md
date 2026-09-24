@@ -2230,3 +2230,67 @@ await is caught now, and the comment beside it says why.
 **Not guarded.** Nothing checks that the three handlers call `runThenAlways`.
 Reverting any one of them to the bare two-await sequence passes every gate. No
 browser evidence exists, so AR-05 is `fixed-unverified`.
+
+**FINDING-047 — no mutating control in the popup was ever disabled while its
+work ran.** Raised 2026-09-24 in v0.2.1/s1 as AR-07a (`LEDGER.md`).
+
+**Symptom.** Not reported by a user. `.disabled` appeared once in `popup.js`,
+on the header value input. Save, Delete's confirm, Import's Replace, the master
+toggle, the grant chip, Cancel and Revert all stayed live while their own work
+ran, so two clicks gave two overlapping read-modify-write transactions in one
+popup. The earlier downgrade of this row rested on two popups being
+impossible. That is true and irrelevant, because one popup re-enters itself.
+
+**Cause.** No mutation boundary existed. Each handler was wired straight to its
+function, and nothing knew another was running.
+
+**Ruled 2026-09-24: REFUSE, NOT QUEUE.** A queued second click would still run
+its read-modify-write once the first finished, so a double-click would do the
+action twice. A queued grant-chip click would reach `permissions.request()`
+after an await, outside the click's gesture, and fail.
+
+**Fix.** New `createActionGate(onBusyChange)` and `ACTION_REFUSED` in
+`lib/queue.js`. A call made while another action is in flight never runs, and
+its caller receives `ACTION_REFUSED`. The action starts inside `run()` with no
+await first, so the chip's `request()` stays the first act of its click. The
+busy signal fires before the action starts and once after it settles, on
+either outcome, before the caller resumes. A refused call leaves the signal
+alone. `popup.js` holds ONE gate, `runMutation`, for all seven controls: the
+interim contract says one popup UI mutation at a time across controls, not per
+control. `setMutationBusy` sets `disabled` on the six static controls and
+toggles `body.mutating`. **Grant chips read the body class rather than taking
+`disabled`**, because chips are rebuilt on every render, and a render can start
+while an action runs and append its chips after the gate reopens. A
+build-time `disabled` would leave a chip stuck, and that chip is the only
+in-app recovery for an ungranted domain (FINDING-002). If the master toggle's
+change is refused, the checkbox is flipped back, since the click has already
+changed it. `popup.html` gains `button:disabled` and `body.mutating
+button.domain` rules, because the buttons carry their own colours and a
+disabled one looked exactly like an enabled one.
+
+**Not gated, deliberately.** Controls that write nothing: Edit, Add profile,
+Export, the Import file chooser, and Delete's first button, which only opens
+the confirmation. **Also not gated: `persistDraft()`,** which writes the draft
+on every keystroke. Draft writes belong to s3 (drafts), not here.
+
+**Evidence.** `selftest.mjs`: eleven `action gate:` checks, `EXPECTED_CHECKS`
+502 → 513. Red run recorded before the fix, against a stub holding today's
+behaviour (`run(action) => action()`): 5 of 513, the refusal and busy-signal
+checks. Wrong gates were run in a sandbox, and each failed named checks:
+awaiting before the action, reopening on success only, refusal resolving
+`undefined`, refusal signalling idle, queueing instead of refusing, and
+reopening a timer tick late. **The queueing gate first deadlocked the suite**:
+the last check awaited the refused call while the first action was held,
+under a queue each waited on the other, and Node exited 13 with no summary
+line. Same hazard as FINDING-046's crash, from a different cause. The check
+now waits a tick instead, and the comment beside it says why.
+
+**Guarded, partly.** Nothing checks the popup wiring: reverting Save to
+`addEventListener("click", saveProfile)` passes every gate, and so does
+removing the `button:disabled` rule. The `body.mutating` rule IS guarded, by an
+existing check that every class `popup.js` toggles is defined in `popup.html`.
+An earlier draft of this entry claimed both rules were unguarded; running the
+removal showed otherwise. No browser evidence exists, so AR-07a is
+`fixed-unverified`. The browser rows this needs: a double-click on Save and on
+Delete's confirm performs one write; every control greys out during a slow
+save; and a grant chip still opens the permission dialog on first click.

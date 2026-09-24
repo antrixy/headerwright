@@ -99,6 +99,57 @@ export async function runThenAlways(first, then) {
 }
 
 /**
+ * What a gated call receives when it was refused because another action was
+ * in flight. A Symbol, so no action's own value can be mistaken for it.
+ */
+export const ACTION_REFUSED = Symbol("action refused");
+
+/**
+ * Returns run(action). It runs `action` unless another action started through
+ * the same gate is still in flight, in which case the call is REFUSED: the
+ * action never runs, and the caller receives ACTION_REFUSED instead of a
+ * success it did not earn.
+ *
+ * The action starts inside run(), before run() returns, with no await in
+ * between. The popup's grant chip calls permissions.request() as its first
+ * act, and the click only counts as a user gesture if nothing is awaited
+ * first.
+ *
+ * onBusyChange(true) fires before the action starts. onBusyChange(false)
+ * fires once after the action settles, on success or failure, and before the
+ * caller sees the outcome. A refused call does not touch the signal. The
+ * action's own value or error reaches the caller.
+ *
+ * Why this exists (AR-07a, FINDING-047, 2026-09-24): no mutating control in
+ * the popup was ever disabled while its work ran, so two clicks gave two
+ * overlapping read-modify-write transactions in one popup. Refused, not
+ * queued: a queued second click would still do the action twice, and a queued
+ * grant-chip click would reach permissions.request() outside its gesture.
+ */
+export function createActionGate(onBusyChange) {
+  let busy = false;
+  const signal = (state) => {
+    if (onBusyChange) onBusyChange(state);
+  };
+
+  return function run(action) {
+    if (busy) return Promise.resolve(ACTION_REFUSED);
+    busy = true;
+    signal(true);
+    let result;
+    try {
+      result = Promise.resolve(action());
+    } catch (err) {
+      result = Promise.reject(err);
+    }
+    return result.finally(() => {
+      busy = false;
+      signal(false);
+    });
+  };
+}
+
+/**
  * Returns a function that defers `task` by `waitMs`, restarting the timer on
  * every call, so a burst collapses into ONE trailing run with the last
  * arguments.
