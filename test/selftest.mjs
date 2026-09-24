@@ -2289,9 +2289,12 @@ check("R15: the derived-fact count is pinned",
   Object.keys(r15Facts).length === 5,
   `deriveFacts() returns ${Object.keys(r15Facts).length} facts, expected 5 — ` +
   "if a capability was added, register which artifacts must state it");
+// 6 -> 7 on 2026-09-24: LEDGER.md registered with claims:false. It landed at
+// the repo root without registration and the coverage tripwire above caught
+// it, which left main red until this commit.
 check("R15: the artifact count is pinned",
-  ARTIFACTS.length === 6,
-  `${ARTIFACTS.length} artifacts registered, expected 6`);
+  ARTIFACTS.length === 7,
+  `${ARTIFACTS.length} artifacts registered, expected 7`);
 check("R15: manifest.version is pinned and read by the suite",
   JSON.parse(
     readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8")

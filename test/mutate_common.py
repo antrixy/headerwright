@@ -44,7 +44,14 @@ SUBTREES = ("extension", "test")
 # because selftest never reached its summary. The symptom pointed at the
 # mutants and the cause was a missing copy — worth knowing, because the
 # harness reports that shape of failure indistinguishably from a real one.
-ROOT_FILES = ("README.md", "SCOPE.md", "PRIVACY.md", "FINDINGS.md")
+#
+# LEDGER.md arrived on 2026-09-24, and its gap ran BOTH ways. Before it was
+# registered, the copy lacked it, so R15's root-.md tripwire passed inside the
+# sandbox while the real tree was red: the mutation gates stayed green over a
+# red main. Once it was registered, the registry read it, the copy still
+# lacked it, and the grants and scans gates failed at once. A root file the
+# suite can see must be in the copy, or the sandbox tests a different tree.
+ROOT_FILES = ("README.md", "SCOPE.md", "PRIVACY.md", "FINDINGS.md", "LEDGER.md")
 
 
 def disposable_root(source_root):

@@ -229,6 +229,17 @@ export const ARTIFACTS = [
       "to be rewritten every release — which is the opposite of what it is for.",
     rules: [],
   },
+  {
+    path: "LEDGER.md",
+    claims: false,
+    why:
+      "the present-tense status index, not release copy. It names open defects " +
+      "and planned work, including capabilities not yet built (FEAT-2, response " +
+      "append), so a capability scan would read a planned row as a claim. Its " +
+      "own consistency belongs to the ledger gate in its Validator contract, " +
+      "which is AR-20's work, not R15's.",
+    rules: [],
+  },
 ];
 
 /** Root-level and doc artifacts the registry must account for. */
