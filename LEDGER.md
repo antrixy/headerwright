@@ -1,8 +1,8 @@
 # HeaderWright ledger — authoritative current state
 
 **Seeded:** 2026-09-22 UTC
-**Last amended:** 2026-09-24 UTC (AR-05 and AR-07a fixed on main, FINDING-046 and FINDING-047; browser evidence outstanding for both)
-**Release state:** v0.2.0 published to the Chrome Web Store; clean-profile store-CRX verification outstanding
+**Last amended:** 2026-09-25 UTC (Description fix published and read on the public listing: DR-01 and DR-03 shipped, DR-01b interim wording live)
+**Release state:** v0.2.0 published to the Chrome Web Store; Description fix published 2026-09-25 (no package); clean-profile store-CRX verification outstanding
 
 This file is the only present-tense answer to "what is open" in HeaderWright. `FINDINGS.md` stays the immutable narrative history — symptom, cause, evidence, decision, regression lesson — and is not a status index. Roadmap projections, release-gate counts and the current-work block in the planning handoff are generated from the rows here, not written by hand. When a row's status changes, this file changes in the same commit as the code.
 
@@ -49,9 +49,9 @@ AR-02  | Draft identity reuses DNR rule ids; no purge on delete, no rebase on im
 AR-04  | permissions.request() runs after unbounded storage, render, collision and permission work inside one user gesture | open | high | v0.2.1/s4 | HW-V6-10 | source, chrome-docs | DECIDED 2026-09-22: explicit Grant control
 AR-13a | permissions.remove() boolean result discarded at both call sites (popup.js:297, sw.js:431); no error surface | open | medium | v0.2.1/s4 | HW-V6-14 | reproduced | —
 AR-11  | Manifest floor 101 but storage.session requires 102; the test pins the obsolete number instead of deriving it | open | high | v0.2.1/s5 | — | reproduced | —
-DR-03  | Published listing states "Requires Chrome 101 or later"; storage.session needs 102, so the live claim is wrong today | open | high | v0.2.1/s5 | AR-11 | reproduced | copy fix ships without a package
-DR-01  | Listing heading says "What you see is what's applied" and the badge "always shows whether headers are currently being applied" | open | high | v0.2.1/s5 | — | reproduced | body text is accurate; headings are not
-DR-01b | Listing sells export as "share a setup" while export can produce a file the same build refuses to import | open | medium | v0.2.1/s5 | AR-16 | reproduced | interim: "keep a setup in git"
+DR-03  | Published listing states "Requires Chrome 101 or later"; storage.session needs 102, so the live claim is wrong today | shipped | high | v0.2.1/s5 | AR-11 | reproduced | copy fix shipped without a package; public listing reads "Requires Chrome 102 or later" on 2026-09-25; the manifest's 101 stays AR-11
+DR-01  | Listing heading says "What you see is what's applied" and the badge "always shows whether headers are currently being applied" | shipped | high | v0.2.1/s5 | — | reproduced | heading and badge sentence rewritten; public listing reads "What you see is what Chrome has registered" on 2026-09-25
+DR-01b | Listing sells export as "share a setup" while export can produce a file the same build refuses to import | open | medium | v0.2.1/s5 | AR-16 | reproduced | interim: "keep a setup in git", live on the public listing 2026-09-25; stays open until AR-16 is decided
 DR-02  | At a Chrome 102 floor, storage.session is 1 MB and storage.local 5 MB, not 10 MB; drafts write into the smaller area | open | medium | v0.2.1/s5 | — | chrome-docs | DECIDE: fixed product budgets independent of quota
 AR-17  | Privacy wording imprecise; SW/CacheStorage limitation and stale README status language undocumented | open | medium | v0.2.1/s5 | HW-V6-15, HW-V6-17, HW-V6-20 | chrome-docs | —
 HW-DESC| GitHub repository description field still says request headers only and predates v0.2.0 | open | medium | v0.2.1/s5 | FINDING-044 class | reproduced | —
@@ -129,6 +129,8 @@ Read directly from the Developer Dashboard on 2026-09-22.
 Accurate and needing no change: the package-derived Title and Summary, both permission justification strings, the single-purpose description, and the Data usage declarations (nothing checked, consistent with no collection).
 
 Needing change, all of it dashboard-editable and shippable without a package: the Description field only — DR-01 (heading and badge sentence), DR-03 (Chrome 101), DR-01b (share-a-setup). Title and Summary are marked *from package* and cannot be changed without a release; fortunately neither needs to be.
+
+**2026-09-25:** the Description fix, submitted 2026-09-24, has published. Read on the public listing: the heading "What you see is what Chrome has registered", "keep a setup in git" with no "share", the grant scope "that domain and its subdomains only", and "Requires Chrome 102 or later". DR-01 and DR-03 are `shipped`; DR-01b's interim wording is live and the row stays open under AR-16. The permissions paragraph goes stale when AR-04 ships (`v0.2.1/s4`) and will need another dashboard edit.
 
 ## Target summary
 
