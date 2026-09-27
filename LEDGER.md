@@ -1,8 +1,8 @@
 # HeaderWright ledger — authoritative current state
 
 **Seeded:** 2026-09-22 UTC
-**Last amended:** 2026-09-27 UTC (release plan: each slice ships as its own release, s4 and s5 swapped, s4 is v0.3.0, FEAT-1 to v0.4.0; earlier the same day, Sitting I verified AR-05 and AR-07a)
-**Release state:** v0.2.0 published to the Chrome Web Store; Description fix published 2026-09-25 (no package); clean-profile store-CRX verification outstanding
+**Last amended:** 2026-09-27 UTC (GATE-0 re-scoped to v0.2.1 and version bumped to 0.2.1 for packaging; earlier, the release plan: each slice ships as its own release, s4 and s5 swapped, s4 is v0.3.0, FEAT-1 to v0.4.0; earlier the same day, Sitting I verified AR-05 and AR-07a)
+**Release state:** v0.2.0 published to the Chrome Web Store; Description fix published 2026-09-25 (no package); v0.2.1 (s1) bumped for packaging, not yet submitted; clean-profile store-CRX verification (GATE-0) outstanding, re-scoped to run on the published v0.2.1
 
 This file is the only present-tense answer to "what is open" in HeaderWright. `FINDINGS.md` stays the immutable narrative history — symptom, cause, evidence, decision, regression lesson — and is not a status index. Roadmap projections, release-gate counts and the current-work block in the planning handoff are generated from the rows here, not written by hand. When a row's status changes, this file changes in the same commit as the code.
 
@@ -80,7 +80,7 @@ UI-02  | Focus the new header name field after "+ Add header" | open | low | sli
 UI-03  | Widen the editor's header-name field | open | low | slice:scope | NEXT v0.2.1 list, FINDING-043 | design | —
 R15    | Popup-surface item: rule on it or park it | blocked | low | slice:scope | R15 | design | DECIDE: rule or park
 AR-22  | CI actions pinned to mutable tags; no tag-triggered packaging gate; ubuntu-latest is not reproducible | open | low | slice:release | — | source | —
-GATE-0 | Store CRX in a clean profile: store id and version, save/grant/apply, one readback line, one request and one response wire case, initiator negative control | open | high | v0.2.0 | release gate | browser-needed | —
+GATE-0 | Store CRX in a clean profile: store id and version, save/grant/apply, one readback line, one request and one response wire case, initiator negative control | open | high | v0.2.1 | release gate | browser-needed | RE-SCOPED 2026-09-27: runs on the published v0.2.1 store CRX, row content unchanged; the 2026-09-24 store-profile pass on v0.2.0 is partial evidence only
 FEAT-1 | Target/initiator model with durable profileUid in schema v3 | open | high | v0.4.0 | decision 2026-09-13 | design | —
 FEAT-2 | Response-side append | open | medium | later | SCOPE.md, ROADMAP.md | chrome-docs | DECIDE: version policy
 F-025  | originsForDomain requests exact and wildcard patterns redundantly | accepted-risk | low | later | FINDING-025 | source | retained for migration
@@ -148,6 +148,26 @@ Consequences:
 - DR-01b stays open until AR-16 is decided, and AR-16 is `slice:scope`. Before v0.2.4 is packaged, decide AR-16 or move DR-01b out of v0.2.4. DR-02's `DECIDE:` must be ruled before v0.2.4 becomes the next release, or validator check 4 fails.
 - GATE-0 stays open at `v0.2.0` and must be run or re-scoped before v0.2.1 is packaged.
 
+## Decision record — GATE-0 re-scoped, 2026-09-27
+
+**GATE-0 is not run against v0.2.0. It moves to `v0.2.1` and runs on the published v0.2.1 store CRX. Its content is unchanged.**
+
+```text
+clean profile, store install
+store id ooapgilielelobkkcdlnkenkflbnnmhi and version 0.2.1
+save / grant / apply, one readback line
+one request and one response wire case
+initiator negative control
+```
+
+Rationale: a store-signed CRX exists only after review publishes, so the row is post-publish for every release, and v0.2.1 needs the same proof v0.2.0 did. Running it on v0.2.0 now would prove bytes about to be replaced. Leaving the target at `v0.2.0` would also break validator check 3 once `manifest.version` is `0.2.1`; that check is contract only today (the ledger gate is AR-20's work), so nothing would have turned red.
+
+What stands as evidence for v0.2.0: the 2026-09-24 pass in the store profile (not clean) read the store ID, version `0.2.0`, one save with its readback line and the footer. No wire case and no negative control ran. That is partial, and it is recorded as partial.
+
+Accepted risk, stated: a store-pipeline defect in v0.2.1 would be found after users have it. v0.2.0 carried the same exposure, and its partial pass showed the store bytes behaving. Predictions for GATE-0's rows are committed before Chrome opens, as for every browser row.
+
+Also ruled the same day: AR-05 ships on its delete-path browser evidence. Save and import share the same `runThenAlways` wiring and were not run under the fault; the row says so, and that wording carries into its `shipped` decision cell. AR-05 and AR-07a move to `shipped` only when v0.2.1 is confirmed published.
+
 ## Store listing — confirmed state
 
 Read directly from the Developer Dashboard on 2026-09-22.
@@ -162,8 +182,7 @@ Needing change, all of it dashboard-editable and shippable without a package: th
 
 | Target | Count |
 | --- | ---: |
-| `v0.2.0` | 1 |
-| `v0.2.1` | 2 |
+| `v0.2.1` | 3 |
 | `v0.2.2` | 2 |
 | `v0.2.3` | 1 |
 | `v0.2.4` | 8 |
