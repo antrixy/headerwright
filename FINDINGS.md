@@ -2231,6 +2231,18 @@ await is caught now, and the comment beside it says why.
 Reverting any one of them to the bare two-await sequence passes every gate. No
 browser evidence exists, so AR-05 is `fixed-unverified`.
 
+**Browser evidence, 2026-09-27 (Sitting I, `test/EVIDENCE.md`).** The delete
+path was run with a render failure forced from the popup's DevTools console:
+a read of `hw:sync` was made to reject, and `extension/` was unchanged. The
+`api.example.com` grant was revoked after the failed render, and the caller
+received `AggregateError: both steps failed` from `runThenAlways`. The gate
+reopened afterwards. The predictions were frozen in
+`test/RUNBOOK-2026-09-27-s1.md` before Chrome opened, and all held. AR-05 is
+`verified`. **Save and import were not run under the fault.** They share the
+wiring but are not what was observed. The "not guarded" note above still
+stands: a browser pass shows the wiring is right today, and nothing stops it
+being reverted.
+
 **FINDING-047 — no mutating control in the popup was ever disabled while its
 work ran.** Raised 2026-09-24 in v0.2.1/s1 as AR-07a (`LEDGER.md`).
 
@@ -2294,3 +2306,20 @@ removal showed otherwise. No browser evidence exists, so AR-07a is
 `fixed-unverified`. The browser rows this needs: a double-click on Save and on
 Delete's confirm performs one write; every control greys out during a slow
 save; and a grant chip still opens the permission dialog on first click.
+
+**Browser evidence, 2026-09-27 (Sitting I, `test/EVIDENCE.md`).** With a save
+held at DevTools breakpoints, all six static controls were disabled,
+`body.mutating` was set, Save's opacity read `0.45`, and an ungranted grant
+chip read opacity `0.45` and `pointer-events: none`. All of it cleared once
+the save finished. The call stack at the pause ran through the gate's `run()`,
+so the Save wiring the note above calls unguarded is the one loaded. Two
+`click()`s on Save in one task gave one `hw:profiles` write. A grant-chip
+`click()` during a save opened no dialog, even with DevTools treating console
+evaluation as a user gesture, so the gate refused it. A real first click on
+the chip opened the permission dialog. The predictions were frozen in
+`test/RUNBOOK-2026-09-27-s1.md` before Chrome opened, and all held. AR-07a is
+`verified`. **Two of the rows named above cannot fail on the build before
+s1**: a mouse double-click on Save, because a normal save finishes inside the
+double-click gap, and a double click on Delete's confirm, because
+`confirmDelete` already cleared `pendingDeleteId` synchronously. Both were
+run, both passed, and neither is counted. The wiring stays unguarded.
