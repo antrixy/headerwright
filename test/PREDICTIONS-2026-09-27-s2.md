@@ -137,6 +137,18 @@
 **Red run: `selftest: 4 of 525 checks FAILED`.** No crash and no tripwire
 line (failures exit before the count check).
 
+> **Outcome (AR-01 red, 2026-09-27): as predicted, `selftest: 4 of 525 checks
+> FAILED`, checks 1–4, no crash.** One deviation in the FIXTURE, not the
+> result. Check 3's predicted pair spelled two headers through a header name,
+> which needs a `;` in the name, and `;` is not an HTTP token character, so
+> the pair was not storable. One check-4 fixture also had a NUL in a header
+> value, which the validator refuses. Both were found by running every fixture
+> through `validateProfile` before trusting the red run. Check 3 now uses a
+> storable pair that collides on the old encoding (`7494f90f` for both): header
+> name `x|set|v` with value `w`, versus name `x` with value `v|set|w`. Checks
+> 1–4 now assert storability as a precondition, so the count stays 12. The red
+> run was repeated after the fix: still 4 of 525, the same four checks.
+
 ### AR-01b — 30 checks, `EXPECTED_CHECKS` 525 → 555
 
 **Digest (15):**
@@ -193,9 +205,22 @@ crash.
   every mutant at least one failure. Recorded as a property of the harnesses,
   not as coverage.
 
+> **Outcome (AR-01 red tree): WRONG on two of four harnesses.** selftest and
+> mutate-scans FAILED as predicted. mutate-collisions also FAILED: the new s2
+> mutants' anchors do not exist in the pre-fix `status.js`, so M2 and M3
+> reported PATCH DID NOT APPLY. That was foreseeable, because the mutants ship
+> in the same commit as the fix. mutate-grants also FAILED: like mutate-scans,
+> it pins an exact expected count per mutant, so the red baseline shifted
+> every row. **No harness passes vacuously on a red tree of this shape**, and
+> 4 of 7 gates were red. The premise that mutate-grants scores "at least one
+> failure" was wrong. It was assumed, not read.
+
 ## 3. Green, predicted
 
 - After AR-01: 525/525, 7 gates.
+
+  > **Outcome: as predicted.** 525/525; `verify.mjs` all 7 gates pass, 119
+  > mutation scenarios.
 - After AR-01b: 555/555, 7 gates.
 - No mutate-scans row changes its expected count.
 - No existing check changes.
@@ -224,6 +249,10 @@ predictions.
 
 Mutation scenarios go from 116 to 119 after AR-01 and to 130 after AR-01b.
 No mutant crashes.
+
+> **Outcome, M1–M3: as predicted, counts and checks exactly.** M1 fails checks
+> 1–4, M2 fails checks 4 and 10, M3 fails checks 4 and 11. Each was read by
+> name, not only counted.
 
 ## 5. Outcomes
 

@@ -419,6 +419,18 @@ MUTATIONS = [
     ("M8 malformed-rule guard removed", RBK,
      '    !readableList(action.requestHeaders) ||\n    !readableList(action.responseHeaders)',
      '    false'),
+
+    # ---- AR-01, M1-M3 of test/PREDICTIONS-2026-09-27-s2.md. The revision's
+    # input must stay unambiguous and must keep every field it reads.
+    ("s2 M1 revision text reverted to the delimiter join (AR-01 undone)", STA,
+     '  return JSON.stringify([\n    enabled ? "on" : "off",\n    (profiles ?? []).map((profile) => [\n      profile.id,\n      profile.name,\n      profile.domains ?? [],\n      (profile.headers ?? []).map((h) => [\n        h.side ?? "request",\n        h.name,\n        h.operation,\n        h.value ?? "",\n      ]),\n    ]),\n  ]);',
+     '  const parts = [enabled ? "on" : "off"];\n  for (const profile of profiles ?? []) {\n    parts.push(`${profile.id}:${profile.name}:${(profile.domains ?? []).join(",")}:` + (profile.headers ?? []).map((h) => `${h.side ?? "request"}|${h.name}|${h.operation}|${h.value ?? ""}`).join(";"));\n  }\n  return parts.join("\\u0000");'),
+    ("s2 M2 side dropped from the revision tuple", STA,
+     '        h.side ?? "request",\n',
+     ''),
+    ("s2 M3 headers sorted by name inside the revision tuple", STA,
+     '      (profile.headers ?? []).map((h) => [',
+     '      [...(profile.headers ?? [])].sort((a, b) => (a.name < b.name ? -1 : 1)).map((h) => ['),
 ]
 
 backup = {}

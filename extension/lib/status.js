@@ -186,22 +186,50 @@ export function describeSync({ enabled, desiredRevision, record }) {
  * FNV-1a over profile identity and the toggle. A collision would mean a stale
  * record read as current; the cost is a status line that lags by one sync, not
  * a wrong rule on the wire.
+ *
+ * AR-01 (v0.2.2). The hash was never the weak point; its INPUT was. The text
+ * joined fields with ":", ",", "|", ";" and "\u0000", and every one of those is
+ * legal inside some field: a header value may contain ";" and "|", a header
+ * name may contain "|", a profile name may contain ":" and NUL. So two
+ * different configurations could produce the same text before any hashing
+ * happened, and no choice of hash fixes that. See configRevisionText().
  */
 export function configRevision(profiles, enabled) {
-  const parts = [enabled ? "on" : "off"];
-  for (const profile of profiles ?? []) {
-    parts.push(
-      `${profile.id}:${profile.name}:${(profile.domains ?? []).join(",")}:` +
-        (profile.headers ?? [])
-          .map((h) => `${h.side ?? "request"}|${h.name}|${h.operation}|${h.value ?? ""}`)
-          .join(";")
-    );
-  }
-  const text = parts.join("\u0000");
+  const text = configRevisionText(profiles, enabled);
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i += 1) {
     hash ^= text.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
   return hash.toString(16).padStart(8, "0");
+}
+
+/**
+ * The exact text configRevision() hashes. Exported so its one property can be
+ * tested directly: it is UNAMBIGUOUS, because it can be decoded back into the
+ * projection it encodes. JSON gives that for free — strings are quoted and
+ * escaped, arrays are delimited — and ids are validated integers, so the two
+ * number cases JSON does not round-trip (-0 and NaN) cannot arise.
+ *
+ * ONLY THE ENCODING CHANGED IN AR-01. The fields, their defaults (an absent
+ * side is "request", an absent value is "") and storage order are exactly what
+ * the old delimiter-joined text read. Nothing is sorted or normalized, and
+ * nothing here can throw on decoded profiles: this is a status hint, and a
+ * hint that refuses to compute would take the status line down with it.
+ */
+export function configRevisionText(profiles, enabled) {
+  return JSON.stringify([
+    enabled ? "on" : "off",
+    (profiles ?? []).map((profile) => [
+      profile.id,
+      profile.name,
+      profile.domains ?? [],
+      (profile.headers ?? []).map((h) => [
+        h.side ?? "request",
+        h.name,
+        h.operation,
+        h.value ?? "",
+      ]),
+    ]),
+  ]);
 }

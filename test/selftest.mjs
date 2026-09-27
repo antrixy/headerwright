@@ -77,6 +77,12 @@ import {
   BADGE_STALE,
   DEFAULT_SYNC_STATE,
 } from "../extension/lib/status.js";
+// NAMESPACE IMPORT FOR SYMBOLS ADDED IN s2 (AR-01), deliberately. A named
+// import of an export that does not exist is a LINK-TIME error: the whole
+// suite dies before its first check, which reads as a crash rather than as the
+// FAIL lines a missing function should produce. That holds for the red run and
+// for any mutant that deletes the export. See test/PREDICTIONS-2026-09-27-s2.md.
+import * as statusLib from "../extension/lib/status.js";
 import {
   domainsOverlap,
   domainListsOverlap,
@@ -97,13 +103,14 @@ import {
   ACTION_REFUSED,
 } from "../extension/lib/queue.js";
 import { decodeStoredState } from "../extension/lib/stored.js";
+import { validateProfile } from "../extension/lib/profile.js";
 import {
   describeReadback,
   formatReadbackLine,
 } from "../extension/lib/readback.js";
 import { readFileSync, readdirSync } from "node:fs";
 
-const EXPECTED_CHECKS = 513;
+const EXPECTED_CHECKS = 525;
 
 let passed = 0;
 let failed = 0;
@@ -2843,6 +2850,115 @@ check("HW-V7-04: configRevision changes when a header value changes",
   configRevision(pA, true) !== configRevision(pB, true));
 check("HW-V7-04: configRevision changes when the toggle changes",
   configRevision(pA, true) !== configRevision(pA, false));
+
+// ---- AR-01. The three checks above test stability and change, never
+// INJECTIVITY, and that was the gap: the text fed to the hash joined fields
+// with ":", ",", "|", ";" and "\u0000", and every one of those is legal INSIDE
+// some field. Two different configurations produced the same text, so the
+// same revision, so a status record for one read as current for the other.
+// Checks 1–12 of test/PREDICTIONS-2026-09-27-s2.md, in that order.
+//
+// Each pair below is built from values the validators accept, so each is a
+// configuration a user can actually store — not a synthetic string.
+const ar01Base = { id: 1, name: "n", domains: ["a.com"] };
+// EVERY FIXTURE IS STORABLE, and checks 1–4 assert it as a precondition: a
+// collision between configurations no user can store proves nothing. Added
+// after two predicted fixtures turned out to be invalid (see check 3).
+const ar01Storable = (profiles) =>
+  profiles.every((p) => validateProfile(p, { version: FILE_VERSION }).valid);
+// 1. A header VALUE containing the entry and field separators.
+const ar01ValueOne = [{ ...ar01Base,
+  headers: [{ name: "x-a", operation: "set", value: "v;request|x-b|set|w" }] }];
+const ar01ValueTwo = [{ ...ar01Base,
+  headers: [{ name: "x-a", operation: "set", value: "v" },
+            { name: "x-b", operation: "set", value: "w" }] }];
+check("AR-01: a header value containing separators does not collide with two headers",
+  ar01Storable(ar01ValueOne) && ar01Storable(ar01ValueTwo) &&
+  configRevision(ar01ValueOne, true) !== configRevision(ar01ValueTwo, true));
+// 2. A profile NAME containing the profile separator swallows a second profile.
+const ar01NameOne = [{ id: 1,
+  name: "a:a.com:request|x|set|v\u00002:b", domains: ["b.com"],
+  headers: [{ name: "y", operation: "set", value: "w" }] }];
+const ar01NameTwo = [
+  { id: 1, name: "a", domains: ["a.com"],
+    headers: [{ name: "x", operation: "set", value: "v" }] },
+  { id: 2, name: "b", domains: ["b.com"],
+    headers: [{ name: "y", operation: "set", value: "w" }] },
+];
+check("AR-01: a profile name containing NUL does not collide with two profiles",
+  ar01Storable(ar01NameOne) && ar01Storable(ar01NameTwo) &&
+  configRevision(ar01NameOne, true) !== configRevision(ar01NameTwo, true));
+// 3. A header NAME containing "|" (a legal token character) moves the boundary
+//    between name and value. The predicted fixture spelled out two headers,
+//    but that needs a ";" in the name, and ";" is NOT a token character, so it
+//    was not storable. Caught by validating the fixtures before trusting the
+//    red run. This pair is valid and collides on the pre-AR-01 encoding.
+const ar01HNameOne = [{ ...ar01Base,
+  headers: [{ name: "x|set|v", operation: "set", value: "w" }] }];
+const ar01HNameTwo = [{ ...ar01Base,
+  headers: [{ name: "x", operation: "set", value: "v|set|w" }] }];
+check("AR-01: a header name containing | does not collide with a different name/value split",
+  ar01Storable(ar01HNameOne) && ar01Storable(ar01HNameTwo) &&
+  configRevision(ar01HNameOne, true) !== configRevision(ar01HNameTwo, true));
+
+// 4. INJECTIVE BECAUSE DECODABLE. If the exact projection can be read back out
+//    of the text, no two different projections can share a text. The expected
+//    projection is built HERE, independently of status.js, from the fields the
+//    revision has always read: side (absent means request), name, operation,
+//    value (absent means ""), in storage order. One fixture has headers out of
+//    name order, so a sorting encoder cannot pass.
+const ar01Projection = (profiles, enabled) => [
+  enabled ? "on" : "off",
+  profiles.map((p) => [p.id, p.name, p.domains,
+    p.headers.map((h) => [h.side ?? "request", h.name, h.operation, h.value ?? ""])]),
+];
+const ar01Fixtures = [
+  [ar01ValueOne, true], [ar01ValueTwo, false], [ar01NameOne, true],
+  [ar01NameTwo, true], [ar01HNameOne, false],
+  [[{ id: 9, name: "z\"\\,:;|\u0000", domains: ["b.com", "a.com"],
+      headers: [{ name: "x-b", operation: "remove", side: "response" },
+                { name: "x-a", operation: "set", value: "\"\\,:;|" }] }], true],
+];
+check("AR-01: configRevisionText decodes back to exactly the projection it encodes",
+  typeof statusLib.configRevisionText === "function" &&
+  ar01Fixtures.every(([profiles, enabled]) => {
+    if (!ar01Storable(profiles)) return false;
+    const text = attempt(() => statusLib.configRevisionText(profiles, enabled));
+    if (typeof text !== "string") return false;
+    const back = attempt(() => JSON.parse(text));
+    return back !== THREW &&
+      JSON.stringify(back) === JSON.stringify(ar01Projection(profiles, enabled));
+  }));
+
+// 5–11. Every field the revision reads still changes it. The encoding changed;
+//       these pin that no field fell out of it on the way.
+const ar01Ref = [{ id: 1, name: "n", domains: ["a.com", "b.com"],
+  headers: [{ name: "x-a", operation: "set", value: "v" },
+            { name: "x-b", operation: "remove" }] }];
+const ar01With = (edit) => {
+  const copy = JSON.parse(JSON.stringify(ar01Ref));
+  edit(copy[0]);
+  return copy;
+};
+const ar01Rev = configRevision(ar01Ref, true);
+check("AR-01: configRevision changes when the id changes",
+  configRevision(ar01With((p) => { p.id = 2; }), true) !== ar01Rev);
+check("AR-01: configRevision changes when the name changes",
+  configRevision(ar01With((p) => { p.name = "m"; }), true) !== ar01Rev);
+check("AR-01: configRevision changes when a domain changes",
+  configRevision(ar01With((p) => { p.domains[1] = "c.com"; }), true) !== ar01Rev);
+check("AR-01: configRevision changes when a header name changes",
+  configRevision(ar01With((p) => { p.headers[0].name = "x-c"; }), true) !== ar01Rev);
+check("AR-01: configRevision changes when an operation changes",
+  configRevision(ar01With((p) => { p.headers[0].operation = "append"; }), true) !== ar01Rev);
+check("AR-01: configRevision changes when a side changes",
+  configRevision(ar01With((p) => { p.headers[1].side = "response"; }), true) !== ar01Rev);
+check("AR-01: configRevision changes when header order changes",
+  configRevision(ar01With((p) => { p.headers.reverse(); }), true) !== ar01Rev);
+// 12. The legacy default is part of the projection, not an encoding accident.
+check("AR-01: an absent side and side \"request\" give the same revision",
+  configRevision(ar01Ref, true) ===
+    configRevision(ar01With((p) => { p.headers[0].side = "request"; }), true));
 
 // ------------------------------------------- serial queue (finding 5)
 // Async, so these run after the synchronous checks above and their results
