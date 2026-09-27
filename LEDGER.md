@@ -1,8 +1,8 @@
 # HeaderWright ledger — authoritative current state
 
 **Seeded:** 2026-09-22 UTC
-**Last amended:** 2026-09-27 UTC (GATE-0 re-scoped to v0.2.1 and version bumped to 0.2.1 for packaging; earlier, the release plan: each slice ships as its own release, s4 and s5 swapped, s4 is v0.3.0, FEAT-1 to v0.4.0; earlier the same day, Sitting I verified AR-05 and AR-07a)
-**Release state:** v0.2.0 published to the Chrome Web Store; Description fix published 2026-09-25 (no package); v0.2.1 (s1) bumped for packaging, not yet submitted; clean-profile store-CRX verification (GATE-0) outstanding, re-scoped to run on the published v0.2.1
+**Last amended:** 2026-09-27 UTC (v0.2.1 published: AR-05 and AR-07a shipped, GATE-0 rationale corrected; earlier, GATE-0 re-scoped to v0.2.1 and version bumped to 0.2.1 for packaging; earlier, the release plan: each slice ships as its own release, s4 and s5 swapped, s4 is v0.3.0, FEAT-1 to v0.4.0; earlier the same day, Sitting I verified AR-05 and AR-07a)
+**Release state:** v0.2.1 (s1) published to the Chrome Web Store 2026-09-27, read on the dashboard and the public listing (Version 0.2.1, Updated September 27, 2026); clean-profile store verification (GATE-0) outstanding, to run on the published v0.2.1
 
 This file is the only present-tense answer to "what is open" in HeaderWright. `FINDINGS.md` stays the immutable narrative history — symptom, cause, evidence, decision, regression lesson — and is not a status index. Roadmap projections, release-gate counts and the current-work block in the planning handoff are generated from the rows here, not written by hand. When a row's status changes, this file changes in the same commit as the code.
 
@@ -43,8 +43,8 @@ v0.3.0  s4  permission and platform result contract
 
 ```text
 AR-18  | Test oracles are incomplete: no adversarial properties, no use-case tests, no fault injection, no browser-contract evidence | open | high | ongoing | R14, R15, HW-V6-20 | source | method for every slice
-AR-05  | Serial queue reports task failure as caller success; the suite's own await depends on the defect | verified | high | v0.2.1 | HW-V6-12, HW-V6-14, FINDING-046 | reproduced | runThenAlways guards reconcileGrants at delete, save and import; browser-verified 2026-09-27 on the delete path only, render failure forced from DevTools with extension/ unchanged (Sitting I); wiring still unguarded
-AR-07a | No action control is ever disabled during an async mutation; two clicks give two overlapping read-modify-write transactions in one popup | verified | high | v0.2.1 | FINDING-047 | reproduced | RULED 2026-09-24: refuse, not queue; one gate for all seven mutating controls; browser-verified 2026-09-27: busy state, one write per overlapping Save, chip refusal, chip first-click dialog (Sitting I); wiring still unguarded
+AR-05  | Serial queue reports task failure as caller success; the suite's own await depends on the defect | shipped | high | v0.2.1 | HW-V6-12, HW-V6-14, FINDING-046 | reproduced | runThenAlways guards reconcileGrants at delete, save and import; browser-verified 2026-09-27 on the delete path only, render failure forced from DevTools with extension/ unchanged (Sitting I); wiring still unguarded; shipped in v0.2.1 on the delete-path evidence (ruled 2026-09-27), published 2026-09-27
+AR-07a | No action control is ever disabled during an async mutation; two clicks give two overlapping read-modify-write transactions in one popup | shipped | high | v0.2.1 | FINDING-047 | reproduced | RULED 2026-09-24: refuse, not queue; one gate for all seven mutating controls; browser-verified 2026-09-27: busy state, one write per overlapping Save, chip refusal, chip first-click dialog (Sitting I); wiring still unguarded; shipped in v0.2.1, published 2026-09-27
 AR-01  | configRevision serialization is ambiguous; delimiters legal inside field values are unescaped | open | high | v0.2.2 | — | reproduced | canonical FNV, stays a status hint
 AR-01b | Stale-edit and draft binding need a per-profile SHA-256 digest, not the configuration revision | open | high | v0.2.2 | — | design | sha256:profile-v1 prefix
 AR-02  | Draft identity reuses DNR rule ids; no purge on delete, no rebase on import, no write ordering, no enum validation | open | high | v0.2.3 | FINDING-042 | reproduced | —
@@ -80,7 +80,7 @@ UI-02  | Focus the new header name field after "+ Add header" | open | low | sli
 UI-03  | Widen the editor's header-name field | open | low | slice:scope | NEXT v0.2.1 list, FINDING-043 | design | —
 R15    | Popup-surface item: rule on it or park it | blocked | low | slice:scope | R15 | design | DECIDE: rule or park
 AR-22  | CI actions pinned to mutable tags; no tag-triggered packaging gate; ubuntu-latest is not reproducible | open | low | slice:release | — | source | —
-GATE-0 | Store CRX in a clean profile: store id and version, save/grant/apply, one readback line, one request and one response wire case, initiator negative control | open | high | v0.2.1 | release gate | browser-needed | RE-SCOPED 2026-09-27: runs on the published v0.2.1 store CRX, row content unchanged; the 2026-09-24 store-profile pass on v0.2.0 is partial evidence only
+GATE-0 | Store CRX in a clean profile: store id and version, save/grant/apply, one readback line, one request and one response wire case, initiator negative control | open | high | v0.2.1 | release gate | browser-needed | RE-SCOPED 2026-09-27: runs on the published v0.2.1 store install, row content unchanged; the 2026-09-24 store-profile pass on v0.2.0 is partial evidence only
 FEAT-1 | Target/initiator model with durable profileUid in schema v3 | open | high | v0.4.0 | decision 2026-09-13 | design | —
 FEAT-2 | Response-side append | open | medium | later | SCOPE.md, ROADMAP.md | chrome-docs | DECIDE: version policy
 F-025  | originsForDomain requests exact and wildcard patterns redundantly | accepted-risk | low | later | FINDING-025 | source | retained for migration
@@ -160,7 +160,7 @@ one request and one response wire case
 initiator negative control
 ```
 
-Rationale: a store-signed CRX exists only after review publishes, so the row is post-publish for every release, and v0.2.1 needs the same proof v0.2.0 did. Running it on v0.2.0 now would prove bytes about to be replaced. Leaving the target at `v0.2.0` would also break validator check 3 once `manifest.version` is `0.2.1`; that check is contract only today (the ledger gate is AR-20's work), so nothing would have turned red.
+Rationale: a store install in a clean profile exists only after review publishes, so the row is post-publish for every release, and v0.2.1 needs the same proof v0.2.0 did. Running it on v0.2.0 now would prove bytes about to be replaced. *Corrected after publish, the same day:* this sentence first said "a store-signed CRX exists only after review publishes". That was false: the dashboard's Draft column serves the draft CRX before submission, and v0.2.1's draft CRX was downloaded and byte-checked against the tag before it was submitted. The ruling does not depend on it: GATE-0 checks a store install, and that does exist only after publish. Leaving the target at `v0.2.0` would also break validator check 3 once `manifest.version` is `0.2.1`; that check is contract only today (the ledger gate is AR-20's work), so nothing would have turned red.
 
 What stands as evidence for v0.2.0: the 2026-09-24 pass in the store profile (not clean) read the store ID, version `0.2.0`, one save with its readback line and the footer. No wire case and no negative control ran. That is partial, and it is recorded as partial.
 

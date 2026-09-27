@@ -87,7 +87,7 @@ users as soon as each is verified, instead of waiting for a bundle.
 
 | Version | Contents | Kind |
 | --- | --- | --- |
-| v0.2.1 | queue and action outcomes | fixes |
+| v0.2.1 | queue and action outcomes | fixes; published 2026-09-27 |
 | v0.2.2 | canonical identity and stale writes | fixes |
 | v0.2.3 | drafts | fixes |
 | v0.2.4 | compatibility and truth language | fixes |
