@@ -46,10 +46,10 @@ initiator site. The fix is a second, separately granted list.
 
 ## v0.2 — response headers
 
-One feature, per the versioning rule, taken in two increments.
+One feature, per the versioning rule. It shipped in part.
 
-- **v0.2.0 — response `set` and `remove`.**
-- **v0.2.1 — response `append`.**
+- **v0.2.0 — response `set` and `remove`.** Published.
+- **Response `append` — not numbered.** Planned, after v0.4.0.
 
 `declarativeNetRequest` supports response header modification. The profile
 schema extends rather than changes: a second header list per profile, same
@@ -62,10 +62,15 @@ against the DNR reference on 2026-07-30 for REQUEST headers — the constant's
 name says so. Reusing that list for responses would ship an allowlist nobody
 checked, which is FINDING-020's shape. `validateHeaderEntry()` refuses
 response-side `append` outright until its own list exists; that is the
-fail-closed side. Establishing the list from the reference is v0.2.1's
+fail-closed side. Establishing the list from the reference is append's
 precondition, and it is a precondition rather than a date.
 
-What has to be settled during v0.2.0, not assumed:
+**Append lost its version number on 2026-09-27.** v0.2.1 was given to fixes
+instead, under the release plan below. Append keeps its precondition and its
+place in scope. Which version it takes is decided with the open
+version-policy question in `LEDGER.md` (FEAT-2), not assigned here.
+
+What had to be settled during v0.2.0, not assumed:
 
 - Export format changes shape. Import of a v0.1 config must keep working, and
   the canonical output must stay byte-stable. This is the part most likely to
@@ -74,6 +79,27 @@ What has to be settled during v0.2.0, not assumed:
   layout answer that does not turn the popup into a form.
 
 Not in v0.2.0: append, and anything else.
+
+## Release plan from 2026-09-27
+
+Recorded under the change rule below. The reason: correctness fixes reach
+users as soon as each is verified, instead of waiting for a bundle.
+
+| Version | Contents | Kind |
+| --- | --- | --- |
+| v0.2.1 | queue and action outcomes | fixes |
+| v0.2.2 | canonical identity and stale writes | fixes |
+| v0.2.3 | drafts | fixes |
+| v0.2.4 | compatibility and truth language | fixes |
+| v0.3.0 | an explicit Grant control; Save stops prompting for permission | feature |
+| v0.4.0 | separate target and initiator domains | feature |
+
+After v0.4.0, not numbered: response `append`.
+
+The v0.2.x rows fix defects and add nothing. v0.3.0's Grant control is a new
+control, so it takes a minor version under the versioning rule, not a patch.
+`LEDGER.md` names the rows in each version and is authoritative for their
+status.
 
 ## Permanently out of scope — cannot be built
 

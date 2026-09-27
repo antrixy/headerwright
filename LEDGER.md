@@ -1,7 +1,7 @@
 # HeaderWright ledger — authoritative current state
 
 **Seeded:** 2026-09-22 UTC
-**Last amended:** 2026-09-27 UTC (Sitting I: AR-05 and AR-07a verified in the browser, `test/RUNBOOK-2026-09-27-s1.md`)
+**Last amended:** 2026-09-27 UTC (release plan: each slice ships as its own release, s4 and s5 swapped, s4 is v0.3.0, FEAT-1 to v0.4.0; earlier the same day, Sitting I verified AR-05 and AR-07a)
 **Release state:** v0.2.0 published to the Chrome Web Store; Description fix published 2026-09-25 (no package); clean-profile store-CRX verification outstanding
 
 This file is the only present-tense answer to "what is open" in HeaderWright. `FINDINGS.md` stays the immutable narrative history — symptom, cause, evidence, decision, regression lesson — and is not a status index. Roadmap projections, release-gate counts and the current-work block in the planning handoff are generated from the rows here, not written by hand. When a row's status changes, this file changes in the same commit as the code.
@@ -18,44 +18,46 @@ id | title | status | pri | target | prior | evidence | decision
 
 - **status** — exactly one of `open`, `in-progress`, `blocked`, `fixed-unverified`, `verified`, `shipped`, `accepted-risk`, `withdrawn`, `superseded`. No other value is valid. `fixed-unverified` means the code changed but no browser evidence exists yet; `verified` means evidence is recorded; `shipped` means it is in a published release with that evidence.
 - **pri** — `high`, `medium`, `low`.
-- **target** — a v0.2.1 slice (`v0.2.1/s1` … `v0.2.1/s5`), a later version, `main` (lands on `main`, ships nothing), a named hardening slice, `later`, `ongoing`, or `trigger:<condition>` for work gated on a future state rather than a date.
+- **target** — a release (`v0.2.1` … `v0.2.4`, `v0.3.0`, `v0.4.0`; one slice each, see below), a later version, `main` (lands on `main`, ships nothing), a named hardening slice, `later`, `ongoing`, or `trigger:<condition>` for work gated on a future state rather than a date.
 - **prior** — earlier identifiers for the same defect, so nothing is tracked twice. `FINDING-0xx` resolves in `FINDINGS.md`; `HW-V6-*`, `HW-V7-*`, `R12`, `R14`, `R15` are review identifiers from the private planning ledger and are traceability tokens only.
 - **evidence** — `reproduced` (executed or read directly against `a269d8d` or the live listing), `source` (reachable code path), `chrome-docs`, `chromium-source`, `browser-needed`, `pending` (claimed but not yet independently confirmed), `design`.
 - **decision** — `—`, a recorded ruling, or `DECIDE:` naming a ruling that must precede the work.
 
 No `owner` column: single maintainer, so a constant-valued column is noise in a file meant to be scanned.
 
-## v0.2.1 is five vertical slices, not one bundle
+## Five vertical slices, each its own release
 
 AR-18 is the method, not a preceding phase. Every row below arrives through a failing behaviour test at the nearest useful boundary, and the popup gets thinner per slice. A large testability extraction ahead of the one-line queue fix is explicitly not the plan.
 
+**Ruled 2026-09-27: each slice ships as its own release, and s4 and s5 swap order.** Until then the five slices were one release, v0.2.1. See the decision record below.
+
 ```text
-s1  queue and action outcomes
-s2  canonical identity and stale writes
-s3  drafts
-s4  permission and platform result contract
-s5  compatibility and truth language
+v0.2.1  s1  queue and action outcomes
+v0.2.2  s2  canonical identity and stale writes
+v0.2.3  s3  drafts
+v0.2.4  s5  compatibility and truth language
+v0.3.0  s4  permission and platform result contract
 ```
 
 ## Rows
 
 ```text
 AR-18  | Test oracles are incomplete: no adversarial properties, no use-case tests, no fault injection, no browser-contract evidence | open | high | ongoing | R14, R15, HW-V6-20 | source | method for every slice
-AR-05  | Serial queue reports task failure as caller success; the suite's own await depends on the defect | verified | high | v0.2.1/s1 | HW-V6-12, HW-V6-14, FINDING-046 | reproduced | runThenAlways guards reconcileGrants at delete, save and import; browser-verified 2026-09-27 on the delete path only, render failure forced from DevTools with extension/ unchanged (Sitting I); wiring still unguarded
-AR-07a | No action control is ever disabled during an async mutation; two clicks give two overlapping read-modify-write transactions in one popup | verified | high | v0.2.1/s1 | FINDING-047 | reproduced | RULED 2026-09-24: refuse, not queue; one gate for all seven mutating controls; browser-verified 2026-09-27: busy state, one write per overlapping Save, chip refusal, chip first-click dialog (Sitting I); wiring still unguarded
-AR-01  | configRevision serialization is ambiguous; delimiters legal inside field values are unescaped | open | high | v0.2.1/s2 | — | reproduced | canonical FNV, stays a status hint
-AR-01b | Stale-edit and draft binding need a per-profile SHA-256 digest, not the configuration revision | open | high | v0.2.1/s2 | — | design | sha256:profile-v1 prefix
-AR-02  | Draft identity reuses DNR rule ids; no purge on delete, no rebase on import, no write ordering, no enum validation | open | high | v0.2.1/s3 | FINDING-042 | reproduced | —
-AR-04  | permissions.request() runs after unbounded storage, render, collision and permission work inside one user gesture | open | high | v0.2.1/s4 | HW-V6-10 | source, chrome-docs | DECIDED 2026-09-22: explicit Grant control
-AR-13a | permissions.remove() boolean result discarded at both call sites (popup.js:297, sw.js:431); no error surface | open | medium | v0.2.1/s4 | HW-V6-14 | reproduced | —
-AR-11  | Manifest floor 101 but storage.session requires 102; the test pins the obsolete number instead of deriving it | open | high | v0.2.1/s5 | — | reproduced | —
-DR-03  | Published listing states "Requires Chrome 101 or later"; storage.session needs 102, so the live claim is wrong today | shipped | high | v0.2.1/s5 | AR-11 | reproduced | copy fix shipped without a package; public listing reads "Requires Chrome 102 or later" on 2026-09-25; the manifest's 101 stays AR-11
-DR-01  | Listing heading says "What you see is what's applied" and the badge "always shows whether headers are currently being applied" | shipped | high | v0.2.1/s5 | — | reproduced | heading and badge sentence rewritten; public listing reads "What you see is what Chrome has registered" on 2026-09-25
-DR-01b | Listing sells export as "share a setup" while export can produce a file the same build refuses to import | open | medium | v0.2.1/s5 | AR-16 | reproduced | interim: "keep a setup in git", live on the public listing 2026-09-25; stays open until AR-16 is decided
-DR-02  | At a Chrome 102 floor, storage.session is 1 MB and storage.local 5 MB, not 10 MB; drafts write into the smaller area | open | medium | v0.2.1/s5 | — | chrome-docs | DECIDE: fixed product budgets independent of quota
-AR-17  | Privacy wording imprecise; SW/CacheStorage limitation and stale README status language undocumented | open | medium | v0.2.1/s5 | HW-V6-15, HW-V6-17, HW-V6-20 | chrome-docs | —
-HW-DESC| GitHub repository description field still says request headers only and predates v0.2.0 | open | medium | v0.2.1/s5 | FINDING-044 class | reproduced | —
-F-045  | Smoke fixture and procedure disagree; one response remove row was never observed | open | medium | v0.2.1/s5 | FINDING-045 | source | —
+AR-05  | Serial queue reports task failure as caller success; the suite's own await depends on the defect | verified | high | v0.2.1 | HW-V6-12, HW-V6-14, FINDING-046 | reproduced | runThenAlways guards reconcileGrants at delete, save and import; browser-verified 2026-09-27 on the delete path only, render failure forced from DevTools with extension/ unchanged (Sitting I); wiring still unguarded
+AR-07a | No action control is ever disabled during an async mutation; two clicks give two overlapping read-modify-write transactions in one popup | verified | high | v0.2.1 | FINDING-047 | reproduced | RULED 2026-09-24: refuse, not queue; one gate for all seven mutating controls; browser-verified 2026-09-27: busy state, one write per overlapping Save, chip refusal, chip first-click dialog (Sitting I); wiring still unguarded
+AR-01  | configRevision serialization is ambiguous; delimiters legal inside field values are unescaped | open | high | v0.2.2 | — | reproduced | canonical FNV, stays a status hint
+AR-01b | Stale-edit and draft binding need a per-profile SHA-256 digest, not the configuration revision | open | high | v0.2.2 | — | design | sha256:profile-v1 prefix
+AR-02  | Draft identity reuses DNR rule ids; no purge on delete, no rebase on import, no write ordering, no enum validation | open | high | v0.2.3 | FINDING-042 | reproduced | —
+AR-04  | permissions.request() runs after unbounded storage, render, collision and permission work inside one user gesture | open | high | v0.3.0 | HW-V6-10 | source, chrome-docs | DECIDED 2026-09-22: explicit Grant control
+AR-13a | permissions.remove() boolean result discarded at both call sites (popup.js:297, sw.js:431); no error surface | open | medium | v0.3.0 | HW-V6-14 | reproduced | —
+AR-11  | Manifest floor 101 but storage.session requires 102; the test pins the obsolete number instead of deriving it | open | high | v0.2.4 | — | reproduced | —
+DR-03  | Published listing states "Requires Chrome 101 or later"; storage.session needs 102, so the live claim is wrong today | shipped | high | v0.2.4 | AR-11 | reproduced | copy fix shipped without a package; public listing reads "Requires Chrome 102 or later" on 2026-09-25; the manifest's 101 stays AR-11
+DR-01  | Listing heading says "What you see is what's applied" and the badge "always shows whether headers are currently being applied" | shipped | high | v0.2.4 | — | reproduced | heading and badge sentence rewritten; public listing reads "What you see is what Chrome has registered" on 2026-09-25
+DR-01b | Listing sells export as "share a setup" while export can produce a file the same build refuses to import | open | medium | v0.2.4 | AR-16 | reproduced | interim: "keep a setup in git", live on the public listing 2026-09-25; stays open until AR-16 is decided
+DR-02  | At a Chrome 102 floor, storage.session is 1 MB and storage.local 5 MB, not 10 MB; drafts write into the smaller area | open | medium | v0.2.4 | — | chrome-docs | DECIDE: fixed product budgets independent of quota
+AR-17  | Privacy wording imprecise; SW/CacheStorage limitation and stale README status language undocumented | open | medium | v0.2.4 | HW-V6-15, HW-V6-17, HW-V6-20 | chrome-docs | —
+HW-DESC| GitHub repository description field still says request headers only and predates v0.2.0 | open | medium | v0.2.4 | FINDING-044 class | reproduced | —
+F-045  | Smoke fixture and procedure disagree; one response remove row was never observed | open | medium | v0.2.4 | FINDING-045 | source | —
 AR-03  | Collision analysis materializes every pair; 1,000 profiles yields 499,500 records and 61.6 MiB | open | high | slice:scale | HW-V6-03, HW-V7-03 | reproduced | —
 AR-08  | Grant resolution duplicated: sequential per profile in the worker, unbounded-parallel per domain in the popup | open | medium | slice:scale | R12, HW-V6-10 | source | —
 AR-09  | renderListNow composes a view from seven sequential reads; cards and footer can disagree | open | medium | slice:scale | — | source | —
@@ -79,7 +81,7 @@ UI-03  | Widen the editor's header-name field | open | low | slice:scope | NEXT 
 R15    | Popup-surface item: rule on it or park it | blocked | low | slice:scope | R15 | design | DECIDE: rule or park
 AR-22  | CI actions pinned to mutable tags; no tag-triggered packaging gate; ubuntu-latest is not reproducible | open | low | slice:release | — | source | —
 GATE-0 | Store CRX in a clean profile: store id and version, save/grant/apply, one readback line, one request and one response wire case, initiator negative control | open | high | v0.2.0 | release gate | browser-needed | —
-FEAT-1 | Target/initiator model with durable profileUid in schema v3 | open | high | v0.3.0 | decision 2026-09-13 | design | —
+FEAT-1 | Target/initiator model with durable profileUid in schema v3 | open | high | v0.4.0 | decision 2026-09-13 | design | —
 FEAT-2 | Response-side append | open | medium | later | SCOPE.md, ROADMAP.md | chrome-docs | DECIDE: version policy
 F-025  | originsForDomain requests exact and wildcard patterns redundantly | accepted-risk | low | later | FINDING-025 | source | retained for migration
 AR-07b | No mutation coordinator for concurrent writers | open | low | trigger:second-writing-surface | — | design | —
@@ -122,6 +124,30 @@ Rationale: explicit Grant is correct by construction, whereas reordered auto-pro
 
 Consequences recorded elsewhere in this file: AR-04 moves to `v0.2.1/s4`; AR-15's pre-request budget work narrows to the Grant handler's own scope resolution; the first profile for a new domain becomes two clicks, while edits, renames, toggles and domain removals stay one.
 
+## Decision record — release plan, 2026-09-27
+
+**Each slice ships as its own release. s5 ships before s4. s4 is v0.3.0. FEAT-1 moves to v0.4.0.**
+
+```text
+v0.2.1  s1  AR-05, AR-07a
+v0.2.2  s2  AR-01, AR-01b
+v0.2.3  s3  AR-02
+v0.2.4  s5  AR-11, DR-01b, DR-02, AR-17, HW-DESC, F-045 (DR-01, DR-03 already shipped as listing copy)
+v0.3.0  s4  AR-04, AR-13a
+v0.4.0      FEAT-1
+```
+
+Rationale: correctness fixes reach users as each slice is verified, not after all five. s4's explicit Grant control is a new control, so it takes a minor version as the release's one feature under the versioning rule in `README.md`, and needs no recorded patch-policy deviation. Nothing in s5 depends on s4, and nothing in s4 depends on s5.
+
+Response `append` (FEAT-2) and scoped matching carry no version number. Both come after v0.4.0. FEAT-2's `DECIDE: version policy` still stands.
+
+Consequences:
+
+- `SCOPE.md` no longer promises append in v0.2.1, and carries the plan above.
+- v0.2.4's listing and README wording describe the permission flow before the Grant control. v0.3.0 needs the dashboard edit AR-04 always implied.
+- DR-01b stays open until AR-16 is decided, and AR-16 is `slice:scope`. Before v0.2.4 is packaged, decide AR-16 or move DR-01b out of v0.2.4. DR-02's `DECIDE:` must be ruled before v0.2.4 becomes the next release, or validator check 4 fails.
+- GATE-0 stays open at `v0.2.0` and must be run or re-scoped before v0.2.1 is packaged.
+
 ## Store listing — confirmed state
 
 Read directly from the Developer Dashboard on 2026-09-22.
@@ -130,28 +156,28 @@ Accurate and needing no change: the package-derived Title and Summary, both perm
 
 Needing change, all of it dashboard-editable and shippable without a package: the Description field only — DR-01 (heading and badge sentence), DR-03 (Chrome 101), DR-01b (share-a-setup). Title and Summary are marked *from package* and cannot be changed without a release; fortunately neither needs to be.
 
-**2026-09-25:** the Description fix, submitted 2026-09-24, has published. Read on the public listing: the heading "What you see is what Chrome has registered", "keep a setup in git" with no "share", the grant scope "that domain and its subdomains only", and "Requires Chrome 102 or later". DR-01 and DR-03 are `shipped`; DR-01b's interim wording is live and the row stays open under AR-16. The permissions paragraph goes stale when AR-04 ships (`v0.2.1/s4`) and will need another dashboard edit.
+**2026-09-25:** the Description fix, submitted 2026-09-24, has published. Read on the public listing: the heading "What you see is what Chrome has registered", "keep a setup in git" with no "share", the grant scope "that domain and its subdomains only", and "Requires Chrome 102 or later". DR-01 and DR-03 are `shipped`; DR-01b's interim wording is live and the row stays open under AR-16. The permissions paragraph goes stale when AR-04 ships (`v0.3.0` since the 2026-09-27 release plan; it was `v0.2.1/s4` when this was written) and will need another dashboard edit.
 
 ## Target summary
 
 | Target | Count |
 | --- | ---: |
 | `v0.2.0` | 1 |
-| `v0.2.1/s1` | 2 |
-| `v0.2.1/s2` | 2 |
-| `v0.2.1/s3` | 1 |
-| `v0.2.1/s4` | 2 |
-| `v0.2.1/s5` | 8 |
+| `v0.2.1` | 2 |
+| `v0.2.2` | 2 |
+| `v0.2.3` | 1 |
+| `v0.2.4` | 8 |
+| `v0.3.0` | 2 |
+| `v0.4.0` | 1 |
 | `slice:scale` | 5 |
 | `slice:scope` | 16 |
 | `slice:release` | 1 |
-| `v0.3.0` | 1 |
 | `later` | 2 |
 | `trigger:*` | 1 |
 | `ongoing` | 2 |
 | **Total** | **44** |
 
-AR-03 is high priority and not in v0.2.1. That is deliberate: its remedy is bounded per-consumer APIs, which is scale work, and v0.2.1 is correctness only under the stated version policy.
+AR-03 is high priority and not in any v0.2.x release. That is deliberate: its remedy is bounded per-consumer APIs, which is scale work, and v0.2.x patches are correctness only under the stated version policy.
 
 `slice:scope` carries sixteen rows. That is too many for one sitting and is stated honestly rather than pre-split on guesswork.
 
