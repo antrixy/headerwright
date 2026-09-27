@@ -10,6 +10,177 @@ from.
 
 ---
 
+# Sitting I — v0.2.1/s1, AR-05 and AR-07a (2026-09-27)
+
+The first browser evidence for s1. Both rows were `fixed-unverified`. The
+predictions, and the two decisions made before them, were frozen in
+`test/RUNBOOK-2026-09-27-s1.md`, committed at `9443044` before Chrome opened.
+Its Outcomes section gives a verdict per prediction. This entry is what was
+observed.
+
+### Environment
+
+| | |
+|---|---|
+| Build | `944304481b4ec8dd7881e80c6e101e3eced6b9a1`, unpacked. `extension/` is byte-identical to `6b01119` and `e2f2905` |
+| Extension ID | `khjeofpciphjaclledledepfppaiicnf` (unpacked-dev, NOT the store ID) |
+| Card on `chrome://extensions` | `HeaderWright — Modify HTTP Headers`, `0.2.0`. The version is the store build's too, so it identifies nothing; see below |
+| Also installed | a DISABLED `0.1.7`, ID `nabejgoljpkiimpodnbejocdkdagpcch` |
+| Profile | `hw-test`, `Profile 15` |
+| Chrome | **153.0.8010.48** (Official Build) (arm64) |
+| OS | macOS 26.5.2 (25F84) |
+| Oracle, initiator | not used; `preflight.mjs` not run, as registered |
+| DevTools console | "Treat code evaluation as user action" ON; "Keep log" ON |
+
+**The loaded popup is s1's.** The manifest version did not move in s1, so the
+card cannot tell s1 from the store build. The popup's stylesheet was checked
+instead: a rule with selector `body.mutating button.domain` exists, and only
+`e2f2905` adds it. Reload was pressed before the check.
+
+**Method.** Every reading was taken in the POPUP's DevTools console, never the
+service worker's. Faults and counters were installed by replacing
+`chrome.storage.local.get` or `.set` on the popup page, and each was discarded
+by closing the popup. No file in `extension/` changed.
+
+### Starting state
+
+| id | name | domains |
+| --- | --- | --- |
+| 1 | `legacy` | `hw.test` |
+| 2 | `probe` | `hw.test` |
+| 3 | `api-staging` | `api.example.com` |
+
+Origins: `*://*.api.example.com/*`, `*://*.hw.test/*`, `*://api.example.com/*`,
+`*://hw.test/*`. Toggle ON. Footer `3 profiles · 2/2 domains granted ·
+applying 3`.
+
+### Row A — AR-05, a render failure forced during a delete
+
+A read of `hw:sync` was made to reject, and only that read. The check before
+the action returned `'HW-S1 forced render failure'` for `hw:sync` and
+`['hw:profiles']` for an ordinary read. Then `api-staging` was deleted with
+two mouse clicks.
+
+The console, in order:
+
+```text
+HeaderWright: popup render failed — Error: HW-S1 forced render failure     popup.js:462
+    at chrome.storage.local.get (<anonymous>:3:20)
+    at getSyncState (popup.js:178:45)
+    at renderListNow (popup.js:420:19)
+HeaderWright: popup render failed — Error: HW-S1 forced render failure     popup.js:462
+    (same stack)
+Uncaught (in promise) AggregateError: both steps failed                    queue.js:95
+    at runThenAlways (queue.js:95:11)
+    at async deleteProfile (popup.js:786:3)
+    at async confirmDelete (popup.js:775:3)
+HeaderWright: popup render failed — Error: HW-S1 forced render failure     popup.js:462
+    (same stack)
+HeaderWright: re-render after a storage change failed — Error: HW-S1 forced render failure   popup.js:1286
+    (same stack)
+```
+
+Read immediately afterwards, in the same popup:
+
+| reading | value |
+| --- | --- |
+| origins containing `api.example.com` | `[]` |
+| `api-staging` still stored | `false` |
+| gate reopened (six controls enabled, no `body.mutating`) | `true` |
+
+The list area was blank, and the footer still read `3 profiles · 2/2 domains
+granted · applying 3`. Every render failed at `getSyncState`, after clearing
+the list and before `updateStatusLine()`. The unpacked card on
+`chrome://extensions` gained an **Errors** button. After the popup was
+reopened without the fault, it read two cards and `2 profiles · 1/1 domain
+granted · applying 2`.
+
+**What this shows.** The revoke ran after a failed render, and a caller now
+sees the failure. The build before s1 would also have revoked, because its
+queue swallowed the error, but it would have printed no `Uncaught` line. The
+queue-fixed, wiring-reverted build would have printed the error and kept both
+`api.example.com` origins. **Only the delete path ran.** Save and import share
+the wiring and were not run under the fault.
+
+### Setup — `s1-chip` on `hw-s1-chip.net`
+
+Added through the form and saved with the mouse. The permission dialog opened
+and the popup closed:
+
+> "HeaderWright — Modify HTTP Headers" has requested additional permissions.
+> It could: Read and change your data on all hw-s1-chip.net sites and
+> hw-s1-chip.net
+
+It was denied. The card then showed a grey, dashed chip and "No rule
+registered for this profile". The footer read `3 profiles · 1/2 domains
+granted · applying 2 · 1 not applied`, and the toolbar badge showed an amber
+`!`.
+
+### Row B — a save held at two breakpoints
+
+The breakpoints were set on `popup.js:1131` (`await setProfiles(nextProfiles);`)
+and `:1142` (`await runThenAlways(renderList, () =>`), after both lines were
+read and matched. `legacy` was renamed `legacy s1` and saved with the mouse.
+
+**At 1131.** The call stack was `saveProfile` ← `run` (`queue.js:141`) ←
+`(anonymous)` (`popup.js:1342`). So the Save listener runs through the gate.
+
+| reading | value |
+| --- | --- |
+| `disabled` on `f-save`, `delete-proceed`, `import-replace`, `master-toggle`, `f-cancel`, `draft-revert` | all `true` |
+| `body.mutating` | `true` |
+| Save's computed opacity | `"0.45"` |
+
+**At 1142.** The list view was showing, with the pre-save cards.
+
+| reading | value |
+| --- | --- |
+| `hw-s1-chip.net` chip: opacity, pointer-events | `"0.45"`, `"none"` |
+| master toggle `disabled` | `true` |
+
+**Two seconds after resuming.** Gate reopened `true`. The rebuilt chip read
+`"1"`, `"auto"`. The card read `legacy s1`.
+
+**The pause overlay tints the whole page.** At both pauses, Add profile, Edit
+and Delete looked muted too, and none of them is gated. Save looked dimmed at
+1131, and the grant chip was clearly fainter than the `hw.test` chips at 1142,
+but only by comparison. The readings above are the evidence, not the
+screenshots.
+
+### Row D — overlapping clicks, counted by wrapping `chrome.storage.local.set`
+
+| row | action | `set()` calls |
+| --- | --- | --- |
+| D1 | `f-save.click()` twice in one task, editing `legacy s1` → `legacy` | `['hw:profiles']`, length 1 |
+| D2 | real mouse double-click on Save, `legacy` → `legacy s1` | `['hw:profiles']` |
+| D3 | `f-save.click()`, then the grant chip's `click()`, in one task, `legacy s1` → `legacy` | `['hw:profiles']`; no dialog, no gesture error, no `Uncaught` |
+| D4 | `delete-proceed.click()` twice in one task, on `s1-chip` | `['hw:profiles']`; the card was gone, no dialog |
+
+**D1 and D3 discriminate. D2 and D4 do not,** for the reasons the runbook
+gives. In D3, "Treat code evaluation as user action" was ON, so on the build
+before s1 the chip's click would have carried a gesture and opened the dialog.
+It opened nothing because the gate refused it.
+
+### Row C — the grant chip's first real click
+
+A real mouse click on the `hw-s1-chip.net` chip opened the dialog at once,
+with the same wording as the setup's. Denied; the chip stayed grey.
+
+### Closing state
+
+Profiles `1 legacy hw.test` and `2 probe hw.test`. Origins `*://*.hw.test/*`
+and `*://hw.test/*`. Footer `2 profiles · 1/1 domain granted · applying 2`.
+The demo profile, its grant and the setup profile are gone.
+
+### Not read
+
+The DevTools issues count rose 1 → 5 → 9 → 13 → 17 as the editor was opened
+within one DevTools session, and read 1 in a fresh one. The issues themselves
+were not opened. They are probably the form's own warnings; FINDING-012's
+unlabelled field is the obvious candidate, but that is unconfirmed.
+
+---
+
 # Sitting H — v0.2.0 candidate, `SMOKE.md` Parts 15 and 16 (2026-09-21)
 
 Part 15 is response-header behaviour on the wire and had been unverified since
