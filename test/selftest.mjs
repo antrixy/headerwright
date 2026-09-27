@@ -83,6 +83,10 @@ import {
 // FAIL lines a missing function should produce. That holds for the red run and
 // for any mutant that deletes the export. See test/PREDICTIONS-2026-09-27-s2.md.
 import * as statusLib from "../extension/lib/status.js";
+// Same reason, AR-01b: profileDigest, checkEditBase and describeEditRefusal
+// arrive in canonical.js in s2, and a missing one must read as FAIL lines.
+import * as canonicalLib from "../extension/lib/canonical.js";
+import { createHash } from "node:crypto";
 import {
   domainsOverlap,
   domainListsOverlap,
@@ -110,7 +114,7 @@ import {
 } from "../extension/lib/readback.js";
 import { readFileSync, readdirSync } from "node:fs";
 
-const EXPECTED_CHECKS = 525;
+const EXPECTED_CHECKS = 556;
 
 let passed = 0;
 let failed = 0;
@@ -3238,6 +3242,178 @@ async function actionGateChecks() {
 // Rate control for the popup's storage listener. renderList costs one
 // permissions.contains() per chip, so coalescing a burst is load-bearing.
 
+// ---- AR-01b. Checks 13–42 of test/PREDICTIONS-2026-09-27-s2.md, in order.
+//
+// A per-profile digest binds an edit to the version of the profile the user
+// was shown, so a save can tell "still the profile I opened" from "changed or
+// deleted since". configRevision cannot do this: it is a 32-bit status hint
+// over the WHOLE configuration.
+//
+// NO CHECK HERE MAY PASS ON TWO FAILURES. Every comparison first requires a
+// real "sha256:profile-v1:" digest or a real result object. Without that,
+// THREW === THREW would pass every equivalence check, and "rejects" would pass
+// vacuously, while the functions did not exist at all.
+async function profileDigestChecks() {
+  const lib = canonicalLib;
+  const hasDigest = typeof lib.profileDigest === "function";
+  const hasCheck = typeof lib.checkEditBase === "function";
+  const digestOf = async (profile) => {
+    if (!hasDigest) return THREW;
+    try { return await lib.profileDigest(profile); } catch { return THREW; }
+  };
+  const checkOf = async (profiles, id, base) => {
+    if (!hasCheck) return THREW;
+    try { return await lib.checkEditBase(profiles, id, base); } catch { return THREW; }
+  };
+  const isDigest = (d) =>
+    typeof d === "string" && /^sha256:profile-v1:[0-9a-f]{64}$/.test(d);
+  const clone = (v) => JSON.parse(JSON.stringify(v));
+
+  // The known answer from §0 of the predictions file, computed from the
+  // definition with pre-s2 code and cross-checked in Python before any of
+  // this existed. It is the frozen meaning of "profile-v1".
+  const kat = { id: 7, name: "Staging API", domains: ["api.example.com"],
+    headers: [{ name: "X-Env", operation: "set", value: "staging" },
+              { name: "Server", operation: "remove", side: "response" }] };
+  const ref = { id: 3, name: "r", domains: ["a.com", "b.com"],
+    headers: [{ name: "x-a", operation: "set", value: "v" },
+              { name: "x-b", operation: "remove" }] };
+  const variant = (edit) => { const c = clone(ref); edit(c); return c; };
+
+  // 13–15. Shape, an independent implementation, and the pinned answer.
+  const dKat = await digestOf(kat);
+  check("AR-01b: profileDigest returns sha256:profile-v1: and 64 lowercase hex",
+    isDigest(dKat));
+  const dRef = await digestOf(ref);
+  const independent = "sha256:profile-v1:" + createHash("sha256")
+    .update(stableStringify(canonicalizeProfiles([ref])[0]), "utf8").digest("hex");
+  check("AR-01b: profileDigest equals node:crypto SHA-256 of the canonical text",
+    isDigest(dRef) && dRef === independent);
+  check("AR-01b: profileDigest matches the pinned profile-v1 known answer",
+    dKat === "sha256:profile-v1:" +
+      "01dda2ccd1c1d721b1d2efdd37e7d5996906e66b864a9a6cbf30cfe9fbfc82b9");
+
+  // 16–17. Lossless differences are the same profile.
+  const dCased = await digestOf(variant((p) => { p.domains = ["B.com", "a.com", "a.com"]; }));
+  check("AR-01b: domain case, order and duplicates give the same digest",
+    isDigest(dRef) && dCased === dRef);
+  const dExplicit = await digestOf(variant((p) => { p.headers[0].side = "request"; }));
+  check("AR-01b: an explicit request side gives the same digest as an absent one",
+    isDigest(dRef) && dExplicit === dRef);
+
+  // 18–25. Every meaningful field changes the digest.
+  const differs = async (label, edit) => {
+    const d = await digestOf(variant(edit));
+    check(`AR-01b: the digest changes when ${label} changes`,
+      isDigest(dRef) && isDigest(d) && d !== dRef);
+  };
+  await differs("the id", (p) => { p.id = 4; });
+  await differs("the name", (p) => { p.name = "s"; });
+  await differs("a domain", (p) => { p.domains[1] = "c.com"; });
+  await differs("a header name", (p) => { p.headers[0].name = "x-c"; });
+  await differs("an operation", (p) => { p.headers[0] = { name: "x-a", operation: "remove" }; });
+  await differs("a value", (p) => { p.headers[0].value = "w"; });
+  await differs("a side", (p) => { p.headers[1].side = "response"; });
+  await differs("header order", (p) => { p.headers.reverse(); });
+
+  // 26–27. Invalid input rejects; valid input is left alone.
+  check("AR-01b: profileDigest rejects an invalid profile",
+    hasDigest && (await digestOf(variant((p) => { p.id = 0; }))) === THREW);
+  const untouched = variant((p) => { p.domains = ["B.com", "a.com"]; });
+  const before = JSON.stringify(untouched);
+  const dUntouched = await digestOf(untouched);
+  check("AR-01b: profileDigest does not mutate its input",
+    isDigest(dUntouched) && JSON.stringify(untouched) === before);
+
+  // 28–35. checkEditBase. The TARGET IS SECOND in every fixture, so an
+  // implementation that compares profiles[0] fails rather than passing by luck.
+  const other = { id: 1, name: "o", domains: ["o.com"],
+    headers: [{ name: "x-o", operation: "set", value: "o" }] };
+  const target = clone(ref);
+  const base = await digestOf(target);
+  const okResult = (r) => r !== THREW && r !== null && typeof r === "object" &&
+    r.ok === true;
+  const refused = (r, reason) => r !== THREW && r !== null &&
+    typeof r === "object" && r.ok === false && r.reason === reason;
+  check("AR-01b: an unchanged target passes the edit base check",
+    isDigest(base) && okResult(await checkOf([clone(other), clone(target)], 3, base)));
+  check("AR-01b: a changed target is refused as changed",
+    isDigest(base) && refused(await checkOf(
+      [clone(other), variant((p) => { p.headers[0].value = "w"; })], 3, base), "changed"));
+  check("AR-01b: a deleted target is refused as vanished",
+    isDigest(base) && refused(await checkOf([clone(other)], 3, base), "vanished"));
+  check("AR-01b: a change to a different profile does not refuse the edit",
+    isDigest(base) && okResult(await checkOf(
+      [{ ...clone(other), name: "o2" }, clone(target)], 3, base)));
+  check("AR-01b: a change in storage order does not refuse the edit",
+    isDigest(base) && okResult(await checkOf([clone(target), clone(other)], 3, base)));
+  check("AR-01b: a lossless difference in the stored target does not refuse the edit",
+    isDigest(base) && okResult(await checkOf(
+      [clone(other), variant((p) => { p.domains = ["B.com", "A.com"]; })], 3, base)));
+  check("AR-01b: an edit with no base digest is refused as changed",
+    refused(await checkOf([clone(other), clone(target)], 3, null), "changed"));
+  check("AR-01b: an invalid stored target is refused as changed, not thrown",
+    isDigest(base) && refused(await checkOf(
+      [clone(other), variant((p) => { p.headers = []; })], 3, base), "changed"));
+
+  // 36–37. The refusal says what happened and where the way back is.
+  const describe = (reason) => typeof lib.describeEditRefusal === "function"
+    ? attempt(() => lib.describeEditRefusal(reason)) : THREW;
+  const changedMsg = describe("changed");
+  check("AR-01b: the changed refusal says Not saved and names Revert to saved",
+    typeof changedMsg === "string" && changedMsg.startsWith("Not saved:") &&
+    changedMsg.includes("Revert to saved"));
+  const vanishedMsg = describe("vanished");
+  check("AR-01b: the vanished refusal says Not saved and that the profile was deleted",
+    typeof vanishedMsg === "string" && vanishedMsg.startsWith("Not saved:") &&
+    vanishedMsg.includes("deleted"));
+
+  // 38–42. The wiring. popup.js calls chrome.* at module scope and cannot be
+  // imported, so these are source scans on the comment-stripped text, the
+  // same method as the HW-V7-04 worker scans. Each function body is cut at its
+  // closing brace in column 0.
+  const bodyOf = (name) => {
+    const start = popupJs.indexOf(`async function ${name}(`);
+    if (start < 0) return "";
+    const end = popupJs.indexOf("\n}\n", start);
+    return end < 0 ? "" : popupJs.slice(start, end + 2);
+  };
+  const canonicalImports = [...popupJs.matchAll(
+    /import\s*\{([^}]*)\}\s*from\s*"\.\.\/lib\/canonical\.js"/g)]
+    .map((m) => m[1]).join(",");
+  check("AR-01b: popup.js imports profileDigest, checkEditBase and describeEditRefusal",
+    ["profileDigest", "checkEditBase", "describeEditRefusal"].every((n) =>
+      new RegExp(`\\b${n}\\b`).test(canonicalImports)));
+  const capture = /editingBaseDigest = profile \? await profileDigest\(profile\) : null;/;
+  const openBody = bodyOf("openEditor");
+  const openCapture = openBody.search(capture);
+  check("AR-01b: openEditor captures the base digest before the form is shown",
+    openCapture >= 0 && openCapture < openBody.indexOf('showView("edit")'));
+  const revertBody = bodyOf("revertToSaved");
+  const revertCapture = revertBody.search(capture);
+  check("AR-01b: revertToSaved recaptures the base from the profile it re-read",
+    revertCapture >= 0 &&
+    revertBody.indexOf("const profile = profiles.find(") >= 0 &&
+    revertBody.indexOf("const profile = profiles.find(") < revertCapture);
+  const saveBody = bodyOf("saveProfile");
+  const baseCall = saveBody.search(
+    /const base = await checkEditBase\(previousProfiles, editingProfileId, editingBaseDigest\);/);
+  const refusal = (saveBody.match(/if \(!base\.ok\) \{[^{}]*\}/) || [""])[0];
+  check("AR-01b: saveProfile checks the edit base before any write, and a refusal returns",
+    baseCall >= 0 &&
+    baseCall < saveBody.indexOf("nextProfiles = previousProfiles.map(") &&
+    baseCall < saveBody.indexOf("await setProfiles(nextProfiles)") &&
+    refusal.includes("showFormError(describeEditRefusal(base.reason));") &&
+    /return;\s*\}$/.test(refusal));
+  check("AR-01b: a changed refusal shows the notice that holds Revert to saved",
+    refusal.includes('if (base.reason === "changed") setRestoredNotice(true);'));
+  // 43. NOT PREDICTED: added during the build. Once a refusal routinely sends
+  // the user to Revert to saved, a revert that leaves the refusal on screen is
+  // a message telling them to do what they just did.
+  check("AR-01b: revertToSaved clears the form error",
+    /\n\s*hideFormError\(\);\n/.test(revertBody));
+}
+
 async function debounceChecks() {
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
@@ -3306,6 +3482,7 @@ await queueChecks();
 await runThenAlwaysChecks();
 await actionGateChecks();
 await debounceChecks();
+await profileDigestChecks();
 
 // -------------------------------------------------------------- result
 

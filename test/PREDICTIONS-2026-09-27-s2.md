@@ -197,6 +197,20 @@ line (failures exit before the count check).
 **Red run (on top of green AR-01): `selftest: 30 of 555 checks FAILED`.** No
 crash.
 
+> **Outcome (AR-01b red, 2026-09-27): as predicted, `selftest: 30 of 555
+> checks FAILED`, checks 13–42, no crash.** Every fixture was run through
+> `validateProfile` before the red run was trusted. All were storable except
+> the two meant to be invalid (id 0; no headers).
+>
+> **Addition, not predicted: check 43**, "revertToSaved clears the form
+> error". It was found while reading the green wiring. After a "changed"
+> refusal, Revert to saved loaded the current version but left the refusal on
+> screen, still telling the user to use Revert to saved. `revertToSaved` never
+> cleared form errors. That mattered little before s2, and now it is the
+> refusal's normal path. The fix and the check were written together, NOT
+> check-first. Red was confirmed afterwards by removing the one line:
+> `1 of 556`, check 43. The count is now 556.
+
 **Other gates on each red tree.** Run once per row with `verify.mjs`:
 - selftest FAILS.
 - mutate-scans FAILS, because its exact-count rows see the baseline failures
@@ -224,6 +238,20 @@ crash.
 - After AR-01b: 555/555, 7 gates.
 - No mutate-scans row changes its expected count.
 - No existing check changes.
+
+> **Outcome (green, both rows).** After AR-01: 525/525, as predicted. After
+> AR-01b: **556/556** (555 predicted, plus check 43), `verify.mjs` all 7 gates,
+> 131 mutation scenarios. **mutate-scans: WRONG.** "the comment stripper also
+> eats string literals" went from 16 to 19. Checks 38, 39 and 42 match inside
+> string literals (`"../lib/canonical.js"`, `showView("edit")`, `"changed"`).
+> They were read by name, and the row's expect was updated with a dated note.
+> The comment above that row already describes this exact error shape. No
+> existing check changed.
+>
+> **AR-01b red tree, all gates:** the same four failed as for AR-01, and for
+> the same reasons (selftest; mutate-collisions from unanchored s2 mutants;
+> mutate-grants and mutate-scans from exact counts). selftest read
+> `31 of 556`, because check 43 existed by then.
 
 ## 4. Mutants, added to `test/mutate-collisions.py`, predicted fail counts
 
@@ -253,6 +281,25 @@ No mutant crashes.
 > **Outcome, M1–M3: as predicted, counts and checks exactly.** M1 fails checks
 > 1–4, M2 fails checks 4 and 10, M3 fails checks 4 and 11. Each was read by
 > name, not only counted.
+
+> **Outcome, M4–M14, plus M15 (added with check 43).** All 15 s2 mutants
+> applied, each failed at least one check, and none crashed. Every failing
+> check was read by name.
+>
+> - **M4: WRONG, 21, not 3.** Every AR-01b check requires a `profile-v1`
+>   digest before it compares anything (the §1 guard against THREW ===
+>   THREW). A `profile-v2` prefix therefore fails 13–25, 27 and 28–33 and 35,
+>   not only the three format checks. The guard was designed in this file and
+>   then not counted.
+> - **M5: WRONG, 6, not 5.** It also fails check 26: raw `JSON.stringify`
+>   never validates, so an invalid profile no longer rejects.
+> - **M8: 4, within the "≥3" prediction.** Checks 28, 30, 31 and 33.
+>   `[other]` makes `profiles[0]` exist, so vanished is missed too.
+> - **Exact, as predicted:** M6 (29, 34, 35), M7 (30), M9 (35), M10 (41),
+>   M11 (41), M12 (40), M13 (39), M14 (42).
+> - **M15:** revert leaves the refusal on screen → check 43.
+>
+> Mutation scenarios: 116 → 119 → **131** (130 predicted, plus M15).
 
 ## 5. Outcomes
 

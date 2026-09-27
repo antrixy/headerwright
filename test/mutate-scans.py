@@ -93,7 +93,12 @@ MUTATIONS = [
     # are THREE harnesses and no single command runs them all; until there is,
     # "the tree is green" means "the harness someone remembered is green".
     # (`node test/verify.mjs` is now that command, added 2026-09-13.)
-    ("the comment stripper also eats string literals", TEST, 16,
+    # 16 -> 19 on 2026-09-27 (s2, AR-01b). Three new wiring scans match inside
+    # string literals: the "../lib/canonical.js" import, showView("edit") in
+    # openEditor, and the "changed" refusal's setRestoredNotice(true). The
+    # predictions file said no row here would move; that was wrong, for the
+    # reason the paragraph above already gives. Read by name before changing.
+    ("the comment stripper also eats string literals", TEST, 19,
      "const popupJs = stripJsComments(popupJsRaw);",
      'const popupJs = stripJsComments(popupJsRaw).replace(/"[^"]*"/g, \'""\');'),
 

@@ -210,6 +210,101 @@ export function serializeProfiles(profiles) {
   return stableStringify(doc) + "\n";
 }
 
+// ------------------------------------------------ per-profile digest (AR-01b)
+//
+// WHY A DIGEST, AND WHY NOT configRevision. An edit needs to know whether the
+// profile it is about to overwrite is still the one the user was shown. That
+// is an exact-identity question about ONE profile. configRevision answers a
+// different one: it is a 32-bit status hint over the WHOLE configuration,
+// where a collision costs a status line lagging one sync. Here a collision
+// would be an overwrite nobody chose. Holding the base profile's full text
+// would also answer the question, but drafts will carry this binding (AR-02),
+// and DR-02's 1 MB session quota at the Chrome 102 floor rules out a copy of
+// every profile in every draft. The LEDGER amendment "AR-01 split by role"
+// records the reasoning. It is not a security measure: this is a local,
+// single-user tool.
+//
+// THE CANONICAL TEXT IS THE EXPORT FORMAT'S, deliberately. Two profiles bind
+// as equal exactly when they would export identically. That is a definition
+// this file already freezes and already tests for byte stability, so the
+// digest inherits it rather than inventing a second notion of "same profile".
+// Lossless differences (domain case, order, duplicates; an explicit request
+// side) are the same profile, and every field that changes meaning changes the
+// digest.
+//
+// THE PREFIX LABELS THE OUTPUT and is not part of the hashed input. If the
+// canonical text ever changes meaning, the label changes with it, and a stored
+// "profile-v1" binding can never be compared against a v2 digest as if they
+// were the same kind of value.
+export const PROFILE_DIGEST_PREFIX = "sha256:profile-v1:";
+
+/**
+ * SHA-256 of a profile's canonical export text, labelled. Async because
+ * crypto.subtle is. REJECTS on an invalid profile, because the canonicalizer
+ * refuses one: there is no canonical text to bind to.
+ */
+export async function profileDigest(profile) {
+  const text = stableStringify(canonicalizeProfiles([profile])[0]);
+  const bytes = new TextEncoder().encode(text);
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  let hex = "";
+  for (const byte of hash) hex += byte.toString(16).padStart(2, "0");
+  return PROFILE_DIGEST_PREFIX + hex;
+}
+
+/**
+ * Is the stored profile `id` still the one whose digest was `baseDigest`?
+ *
+ *   { ok: true }
+ *   { ok: false, reason: "vanished" }   no stored profile has that id
+ *   { ok: false, reason: "changed" }    anything else that is not a match
+ *
+ * SCOPED TO THE TARGET, the same scoping as FINDING-021's save refusal. A
+ * change to another profile, or to storage order, is not a reason to refuse
+ * this edit; refusing it would trap the user behind a conflict the edit has
+ * nothing to do with.
+ *
+ * FAILS CLOSED. A missing base, or a stored target that cannot be digested,
+ * is "changed", never a pass and never a throw. An edit that cannot prove its
+ * base is exactly the edit this exists to stop, and a throw would surface as
+ * a save that silently did nothing.
+ */
+export async function checkEditBase(profiles, id, baseDigest) {
+  const stored = (profiles ?? []).find((profile) => profile && profile.id === id);
+  if (!stored) return { ok: false, reason: "vanished" };
+  if (typeof baseDigest !== "string") return { ok: false, reason: "changed" };
+  let current;
+  try {
+    current = await profileDigest(stored);
+  } catch {
+    return { ok: false, reason: "changed" };
+  }
+  return current === baseDigest ? { ok: true } : { ok: false, reason: "changed" };
+}
+
+/**
+ * The form error for a refused edit. Full sentences, the convention
+ * describeSaveRefusal() follows on the same surface.
+ *
+ * Both say the edits are still in the form, because they are, and that is the
+ * first thing someone whose save just failed needs to know. The changed case
+ * names Revert to saved, the one way to the current version that keeps the
+ * user in the editor. The vanished case says plainly that there is nothing
+ * left to save into, and what Cancel will do.
+ */
+export function describeEditRefusal(reason) {
+  if (reason === "vanished") {
+    return (
+      "Not saved: this profile was deleted after you opened it. Your edits " +
+      "are still in the form; Cancel discards them and returns to the list."
+    );
+  }
+  return (
+    "Not saved: this profile was changed after you opened it. Your edits are " +
+    "still in the form. Use Revert to saved to load the current version."
+  );
+}
+
 /**
  * Parse and validate an export file. Returns canonicalized profiles, or
  * throws an Error whose message names the first problem found. Every

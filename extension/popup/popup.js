@@ -16,7 +16,13 @@ import {
   normalizeDomains,
   MAX_UNSAFE_DYNAMIC_RULES,
 } from "../lib/rules.js";
-import { serializeProfiles, parseProfilesFile } from "../lib/canonical.js";
+import {
+  serializeProfiles,
+  parseProfilesFile,
+  profileDigest,
+  checkEditBase,
+  describeEditRefusal,
+} from "../lib/canonical.js";
 import {
   diffDomainGrants,
   referencedDomains,
@@ -69,6 +75,10 @@ const STORAGE_KEY_DRAFTS = "hw:drafts";
 const $ = (id) => document.getElementById(id);
 
 let editingProfileId = null; // null = creating a new profile
+// AR-01b. The digest of the profile the editor was opened on: what the user
+// was SHOWN, not whatever storage holds by the time they press Save. null for
+// a new profile, which has no base to compare against.
+let editingBaseDigest = null;
 
 // ---------------------------------------------------------------- storage
 
@@ -890,6 +900,13 @@ async function openEditor(profile = null) {
   }
   hideFormError();
   setRestoredNotice(Boolean(restored));
+  // AR-01b. CAPTURED BEFORE THE FORM IS SHOWN, so there is no moment at which
+  // Save can run without a base. The base is the profile this card rendered.
+  // KNOWN LIMIT until AR-02 (s3): a RESTORED draft is bound to the stored
+  // profile as it is now, not to the version the draft was written against,
+  // because drafts do not carry the digest yet. A draft that outlived an
+  // import or another edit can still overwrite it.
+  editingBaseDigest = profile ? await profileDigest(profile) : null;
   showView("edit");
   $("f-name").focus();
 }
@@ -906,12 +923,21 @@ async function revertToSaved() {
   await dropDraft(key);
   const profiles = await getProfiles();
   const profile = profiles.find((p) => p.id === editingProfileId) || null;
+  // AR-01b. The form now shows the stored profile, so the base moves with it.
+  // Without this, one "changed" refusal would refuse every later save: Revert
+  // would load the current version and Save would still compare it against
+  // the version the editor was first opened on.
+  editingBaseDigest = profile ? await profileDigest(profile) : null;
   const shape = profileToFormShape(profile, sideOf);
   $("f-name").value = shape.name;
   $("f-domains").value = shape.domains;
   $("header-rows").textContent = "";
   for (const row of shape.rows) addHeaderRow(row);
   setRestoredNotice(false);
+  // The form now shows the saved version, so an error about the form as it
+  // was no longer describes anything on screen. After an AR-01b refusal it
+  // would still be telling the user to use Revert to saved.
+  hideFormError();
   await renderList();
 }
 
@@ -1083,6 +1109,22 @@ async function saveProfile() {
     nextProfiles = [...previousProfiles, { id: nextId, ...data }];
     savedId = nextId;
   } else {
+    // AR-01b. The interim mutation contract's "target profile base digest must
+    // still match for edits" and "no silent success when the target vanished".
+    // Checked against the storage snapshot just read, before anything is built
+    // from it. Before this, an edit overwrote whatever was stored, and an edit
+    // of a deleted profile mapped over nothing, wrote the unchanged set back
+    // and returned to the list as if it had saved.
+    //
+    // A refusal writes nothing, keeps the draft, and leaves the form as typed.
+    // "changed" also shows the draft notice, because Revert to saved lives in
+    // it and is otherwise hidden.
+    const base = await checkEditBase(previousProfiles, editingProfileId, editingBaseDigest);
+    if (!base.ok) {
+      showFormError(describeEditRefusal(base.reason));
+      if (base.reason === "changed") setRestoredNotice(true);
+      return;
+    }
     nextProfiles = previousProfiles.map((p) =>
       p.id === editingProfileId ? { id: editingProfileId, ...data } : p
     );
