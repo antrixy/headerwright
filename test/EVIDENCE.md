@@ -10,6 +10,77 @@ from.
 
 ---
 
+# GATE-0 — the published v0.2.1 in a clean profile (2026-09-27)
+
+The release gate for v0.2.1, re-scoped the same day to run on the published
+store install. The predictions were frozen in
+`test/RUNBOOK-2026-09-27-gate0.md`, committed at `5ecdd3d` before Chrome
+opened. Its Outcomes section gives a verdict per prediction, and the three
+rulings made at the S-P4 stop. This entry is what was observed.
+
+### Environment
+
+| | |
+|---|---|
+| Build | the Chrome Web Store's v0.2.1, installed from the public listing. Its 13 non-image files are byte-identical to tag `v0.2.1` = `bd4e5df`, and its 4 icons pixel-identical (below) |
+| Extension ID | `ooapgilielelobkkcdlnkenkflbnnmhi` (the STORE ID) |
+| Card on `chrome://extensions` | `HeaderWright — Modify HTTP Headers`, `0.2.1` |
+| Also installed | nothing. Google Docs Offline, Chrome's default, was removed before install |
+| Profile | `hw-gate0-v021`, `Profile 16`, new for this sitting, signed out |
+| Chrome | **153.0.8010.48** (Official Build) (arm64) |
+| OS | macOS 26.5.2 (25F84) |
+| Instruments | oracle pid 63946, build `bbf78ddbddf8`; initiator pid 63950, build `1e6dc8fd662c`; both started from `5ecdd3d`; PREFLIGHT PASSES |
+| Tree | `5ecdd3d`, `tree: 556 checks, 131 mutation scenarios, 7 gates` |
+| Developer mode | ON, for inspecting only |
+
+### Build identity: what Chrome actually runs
+
+Every file was fetched from inside the popup (`chrome.runtime.getURL`) and
+hashed with `crypto.subtle`.
+
+- **All 13 non-image files matched the tag byte for byte:** the worker, the
+  ten `lib/` files, `popup.html` and `popup.js`.
+- **The four icons did not match byte for byte, and are pixel-identical.**
+  Chrome's install-time image sanitizer decodes each image and re-encodes it
+  as PNG in place (`extensions/browser/image_sanitizer.cc`). A pixel
+  comparison against the tag's icons, fetched from GitHub at `bd4e5df` with
+  their bytes hash-checked, found **0 differing pixels** in all four.
+- **The worker's own sync record confirms the build independently.** On first
+  install `hw:sync` carried revision `ab3a8a0a`, which is v0.2.1's
+  `configRevision` for no profiles with the toggle off. Main's s2 encoding
+  would give `69709b56`.
+
+### Starting state
+
+Only `hw:sync` in storage, `state 'paused'`. No origins, no rules. **A fresh
+install's master toggle is OFF**, as the v0.2.1 source says. Footer
+`0 profiles · 0/0 domains granted · paused`; badge `OFF`.
+
+### The row
+
+| step | observed |
+| --- | --- |
+| Save `probe` on `hw.test`: request `X-HW-Probe` set `present`, response `X-HW-Oracle` set `rewritten` | the permission dialog named `hw.test` (*Read and change your data on all hw.test sites and hw.test*). Allowed |
+| Card, toggle OFF | `Off — nothing registered`, green chip; `1 profile · 1/1 domain granted · paused` |
+| Toggle ON | `req · set · X-HW-Probe → "present"`, `res · set · X-HW-Oracle → "rewritten"`; `applying 1`; badge `ON` |
+| `getDynamicRules()` | one rule, id 1, priority 1, `requestDomains ["hw.test"]`, 15 resource types, `modifyHeaders`, exactly those two entries. **Agrees with the card** |
+| Grants | `*://*.hw.test/*`, `*://hw.test/*` |
+| Request wire, same-origin `http://hw.test:8790/` | `SAME-ORIGIN`; **`x-hw-probe: "present"`** |
+| Response wire, `http://hw.test:8787/` plain case, no service worker registered | **`MODIFIED — 1 changed, 0 removed, 0 added`**; `x-hw-oracle` `baseline` → `rewritten`; `x-hw-removable` and `x-hw-second` unchanged |
+| Initiator negative control, `http://nothw.test:8790/` | fetch succeeded (`servedBy` `hw.test`); `CROSS-ORIGIN`, initiator `http://nothw.test:8790`; **`x-hw-probe` ABSENT**, not in `allReceivedNames` |
+| Close-out | the same rule and grants: nothing in the wire rows wrote anything |
+
+**The first wire evidence taken on a store install.** Both the request and the
+response side apply, and the initiator requirement (HW-V6-01) behaves on the
+store build exactly as it did unpacked on 2026-09-19.
+
+### Not read
+
+- The popup's DevTools Issues count read 9, and the oracle tab showed 1
+  error and 6 warnings. Neither was opened.
+
+---
+
 # Sitting I — v0.2.1/s1, AR-05 and AR-07a (2026-09-27)
 
 The first browser evidence for s1. Both rows were `fixed-unverified`. The

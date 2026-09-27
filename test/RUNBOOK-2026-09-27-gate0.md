@@ -333,3 +333,167 @@ A-P1, A-P5, A-P7, A-P8, A-P9, B-P1, C-P1, C-P2, D-P1, D-P3.
 
 *Recorded here during the sitting, one entry per prediction id. Nothing above
 this heading is edited after commit.*
+
+Recorded 2026-09-27, 16:10–18:35 CT. Sections above are unedited from
+`5ecdd3d`. The full observations are in `test/EVIDENCE.md`, *GATE-0 — the
+published v0.2.1 in a clean profile*.
+
+**One counted prediction was wrong, and it was the prediction, not the
+build: S-P4.** Two uncounted ones missed on wording. Everything else held.
+The sitting stopped at S-P4 as the runbook required. Three rulings (E1–E3,
+below) were made before it continued.
+
+### Before Chrome
+
+- 16:10: `origin/main` = `5ecdd3d`, parent `176faf4`, `HEAD` = `origin/main`.
+- 16:20: `tree: 556 checks, 131 mutation scenarios, 7 gates`, ALL AUTOMATED
+  GATES PASS. The first run was piped through `tail -4`, which cut the
+  `tree:` line; it was rerun with `grep`.
+- 16:22: nothing was listening on 8787 or 8790.
+- 16:24: oracle from `~/headerwright` at `5ecdd3d`, pid 63946, build
+  `bbf78ddbddf8`. The first attempt ran from `~` and failed with
+  `MODULE_NOT_FOUND`; nothing started.
+- 16:25: initiator, pid 63950, build `1e6dc8fd662c`.
+- 16:27: **PREFLIGHT PASSES.** Oracle 13/13, initiator 12/12; `hw.test:8787`,
+  `hw.test:8790` and `nothw.test:8790` resolve to those processes.
+
+### In Chrome, before any row
+
+- **S-1.** Chrome `153.0.8010.48` (Official Build) (arm64), macOS 26.5.2
+  (25F84), Profile Path `…/Google/Chrome/Profile 16`.
+- **PC1 — HELD.** `hw-gate0-v021`, not signed in.
+- **PC2 — FAILED AS WRITTEN.** The list was not empty: **Google Docs
+  Offline**, enabled, which Chrome installs by default in a new profile. This
+  runbook was wrong to expect an empty list. Stopped. Ash ruled: remove it.
+  Removed at 17:12; the list was then empty, and PC2 held.
+- **S-2.** The listing read Version `0.2.1`, Updated September 27, 2026, Size
+  `85.97KiB` (= 88,037 bytes, the v0.2.1 draft CRX's recorded size).
+  The install dialog, verbatim: `Add "HeaderWright — Modify HTTP Headers"?`,
+  with no permission warnings.
+- **S-P1 — CORRECT.** `ooapgilielelobkkcdlnkenkflbnnmhi`.
+- **S-P2 — CORRECT.** `HeaderWright — Modify HTTP Headers`.
+- **S-P3 — CORRECT.** `0.2.1`.
+- **S-P5 — CORRECT.** Site access read *This extension can read and change
+  your data on sites. You can control which sites the extension can access.*,
+  with *Automatically allow access on the following sites* ON and no sites
+  listed. Chrome 153 shows a switch and a list here, not the dropdown
+  `SMOKE.md` describes. "On all sites" appears nowhere.
+- **S-P4 — WRONG.** `['ooapgilielelobkkcdlnkenkflbnnmhi', '0.2.1', 17,
+  Array(4), true]`. The four mismatches were exactly the manifest's icons.
+  Installed sha256:
+  - `icons/icon16.png` `3a45f832fa7d7a27fd60b54697e84334dcbb4d8f0e154650a28fb227b2acc4a0`
+  - `icons/icon32.png` `3c64e1070e35fb450467d4df28e236d21575ed293daf6eeefd2f403f428d725e`
+  - `icons/icon48.png` `5006045f769e0122c1835ee2f39e2f81a0522bd0cfb9c93d6b4e0c87460fc5c3`
+  - `icons/icon128.png` `5a1c583c089e9e08d26a0a6517d0e5cdc8235cd0821e1e52ec8ee6a978216610`
+
+  All 13 other files matched the tag byte for byte. **Cause:** Chrome's
+  install-time image sanitizer decodes every image and re-encodes it with
+  `gfx::PNGCodec::EncodeBGRASkBitmap`, writing it back to the same path
+  (`extensions/browser/image_sanitizer.cc`, reached from
+  `sandboxed_unpacker.cc`). Unpacked loads skip it, which is why no earlier
+  sitting saw this. The tag's icons are 8-bit RGBA with a `bKGD` chunk,
+  which a re-encode drops. v0.2.1's release check had already found the icons
+  byte-identical to the tag inside the draft CRX. **No correct store install
+  could have produced `Array(0)`.**
+- **S-P4b — CORRECT.** `true`.
+
+### The stop at S-P4, and three rulings
+
+Ash ruled E1–E3 "as recommended" at 17:50.
+
+- **E1.** Continue. S-P4 is recorded wrong, with its cause.
+- **E2.** Add one unplanned observation first: a pixel comparison of the four
+  icons against the tag's, fetched from
+  `raw.githubusercontent.com/antrixy/headerwright/bd4e5df…/extension/`. The
+  prediction was stated before the snippet was written: equal sizes and 0
+  differing pixels (medium confidence); any difference at most 1 per channel,
+  and only on partly transparent pixels (high confidence).
+  **Result, 17:52: all four `200, true`** (GitHub served the tag's exact
+  bytes), **equal sizes, `0, 0, 0`.** Pixel-identical. The prediction held,
+  including the medium half.
+- **E3.** For GATE-0's verdict, S-P4 is replaced by: ID, version, the 13
+  non-image files byte-identical, and the icons pixel-identical under E2.
+  **Met.** This is a deviation from the frozen criterion, and it is stated
+  as one. **Future GATE-0 runbooks compare manifest images by pixels, not by
+  bytes.**
+
+- **S-5.** Storage held only `hw:sync`: `state 'paused'`, `activeRuleCount
+  0`, both revisions `'ab3a8a0a'`. **`ab3a8a0a` is v0.2.1's `configRevision`
+  for no profiles with the toggle off.** Main's s2 encoding gives `69709b56`.
+  So the running worker uses v0.2.1's encoding: an independent confirmation
+  of the build, not predicted.
+- **S-P6 — CORRECT.**
+- **S-P7 — CORRECT.** `[]`.
+- **S-P8 — CORRECT.** `[]`.
+- **S-P9 — CORRECT, on wording.** No cards; footer `0 profiles · 0/0 domains
+  granted · paused`; badge `OFF`. The label renders `OFF`, where `Off` was
+  written. An empty-list text, *No profiles yet. Add one to start setting
+  headers on a site.*, was not predicted.
+
+### Row A
+
+- **A-1.** The field clips both header names, so the form was read from the
+  console before Save: `['X-HW-Probe','request','set','present']`,
+  `['X-HW-Oracle','response','set','rewritten']`. The editor showed
+  *Showing unsaved changes. Revert to saved.*: the popup had been closed and
+  reopened while opening DevTools, and **Add profile** restored the draft
+  (FINDING-042, as designed).
+- **A-P1 — CORRECT.** *"HeaderWright — Modify HTTP Headers" has requested
+  additional permissions. It could: Read and change your data on all hw.test
+  sites and hw.test*. The popup closed. Allowed.
+- **A-P2 — CORRECT.** `probe`, `2 headers`, `Off — nothing registered`, a
+  green `hw.test` chip, no lines.
+- **A-P3 — CORRECT.** `1 profile · 1/1 domain granted · paused`; badge `OFF`.
+- **A-P4 — CORRECT, on wording.** The label renders `ON`, and the badge reads `ON`.
+- **A-P5 — CORRECT.** `req · set · X-HW-Probe → "present"`, then
+  `res · set · X-HW-Oracle → "rewritten"`, without reopening the popup.
+- **A-P6 — CORRECT.** `1 profile · 1/1 domain granted · applying 1`.
+- **A-P7 — CORRECT.** One rule: `id` 1, `priority` 1, condition keys
+  `requestDomains` and `resourceTypes` (15 types), `requestDomains
+  ["hw.test"]`, `modifyHeaders`, request `[{X-HW-Probe, set, present}]`,
+  response `[{X-HW-Oracle, set, rewritten}]`. The first read was cut off in
+  the console, and a clipboard copy failed to paste. The fields were
+  read with a narrower expression instead.
+- **A-P8 — CORRECT.** `['*://*.hw.test/*', '*://hw.test/*']`.
+- **A-P9 — CORRECT.** The card and the registered rule agree entry for entry.
+
+### Row B
+
+- **B-P1 — CORRECT.** `SAME-ORIGIN — page on hw.test:8790, target hw.test,
+  initiator origin (none sent — same origin).` `x-hw-probe: "present"`;
+  `servedBy` `hw.test`.
+- **B-P2 — CORRECT.** `x-hw-second` and `authorization` ABSENT.
+
+### Row C
+
+- Precondition: no service worker registered for `hw.test:8787`. Checked.
+- **C-P1 — CORRECT.** `MODIFIED — 1 changed, 0 removed, 0 added.`
+- **C-P2 — CORRECT.** `x-hw-oracle` `baseline` → `rewritten`;
+  `x-hw-removable` `present` → `present`; `x-hw-second` `two` → `two`.
+
+### Row D
+
+- **D-1.** Origins `['*://*.hw.test/*', '*://hw.test/*']`. No `nothw.test`,
+  no `*://*/*`.
+- **D-P1 — CORRECT.** The fetch succeeded; `servedBy` `hw.test`.
+- **D-P2 — CORRECT.** `CROSS-ORIGIN — page on nothw.test:8790, target
+  hw.test, initiator origin http://nothw.test:8790.`
+- **D-P3 — CORRECT.** `x-hw-probe` ABSENT. `allReceivedNames` lists
+  `accept, accept-encoding, accept-language, cache-control, connection, host,
+  origin, pragma, referer, user-agent`, with no `x-hw-probe`.
+
+### Close-out
+
+- **Z-P1 — CORRECT.** The same one rule and the same two origins.
+
+### Ledger
+
+**GATE-0 → `verified`.** Every counted prediction held except S-P4, which
+was replaced under E3, and whose replacement was met.
+
+- **Not closed by this sitting:**
+  - GATE-0 for v0.2.2, which needs its own post-publish pass.
+  - Deleting `hw-gate0-v021` (decision G5), which happens after this
+    commit.
+  - The DevTools Issues counts (9 in the popup; 1 error and 6 warnings on
+    the oracle tab), which were not read.
