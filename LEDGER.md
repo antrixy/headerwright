@@ -1,7 +1,7 @@
 # HeaderWright ledger — authoritative current state
 
 **Seeded:** 2026-09-22 UTC
-**Last amended:** 2026-09-28 UTC (GATE-0b VERIFIED on the published v0.2.2 in a clean profile; earlier, GATE-0b added for the published v0.2.2, a new row rather than a retarget; earlier, v0.2.2 published: AR-01 and AR-01b shipped; earlier, v0.2.2 submitted, pending review; earlier, version bumped to 0.2.2 for packaging s2; earlier, Sitting J verified AR-01b; earlier, GATE-0 verified on the published v0.2.1 in a clean profile; earlier, s2: AR-01 verified on lib-level evidence, ruled sufficient; earlier, AR-01b fixed-unverified, edits bind to a per-profile digest, the draft half moved to AR-02; earlier, AR-01 fixed-unverified, the configRevision input is now unambiguous; earlier, v0.2.1 published: AR-05 and AR-07a shipped, GATE-0 rationale corrected; earlier, GATE-0 re-scoped to v0.2.1 and version bumped to 0.2.1 for packaging; earlier, the release plan: each slice ships as its own release, s4 and s5 swapped, s4 is v0.3.0, FEAT-1 to v0.4.0; earlier the same day, Sitting I verified AR-05 and AR-07a)
+**Last amended:** 2026-09-28 UTC (UI-04 raised: the popup status line says "registered", not "applying", target v0.2.4; earlier, GATE-0b VERIFIED on the published v0.2.2 in a clean profile; earlier, GATE-0b added for the published v0.2.2, a new row rather than a retarget; earlier, v0.2.2 published: AR-01 and AR-01b shipped; earlier, v0.2.2 submitted, pending review; earlier, version bumped to 0.2.2 for packaging s2; earlier, Sitting J verified AR-01b; earlier, GATE-0 verified on the published v0.2.1 in a clean profile; earlier, s2: AR-01 verified on lib-level evidence, ruled sufficient; earlier, AR-01b fixed-unverified, edits bind to a per-profile digest, the draft half moved to AR-02; earlier, AR-01 fixed-unverified, the configRevision input is now unambiguous; earlier, v0.2.1 published: AR-05 and AR-07a shipped, GATE-0 rationale corrected; earlier, GATE-0 re-scoped to v0.2.1 and version bumped to 0.2.1 for packaging; earlier, the release plan: each slice ships as its own release, s4 and s5 swapped, s4 is v0.3.0, FEAT-1 to v0.4.0; earlier the same day, Sitting I verified AR-05 and AR-07a)
 **Release state:** v0.2.1 (s1) published to the Chrome Web Store 2026-09-27, read on the dashboard and the public listing (Version 0.2.1, Updated September 27, 2026); clean-profile store verification (GATE-0) VERIFIED on the published v0.2.1 the same day. v0.2.2 (s2: AR-01, AR-01b) submitted 2026-09-27 CT (2026-09-28 UTC) from tag v0.2.2 = 2ee97ae, auto-publish on, review not skipped; draft CRX checked against the tag first (17 files byte-identical, manifest plus update_url, 18/18 signed content hashes match); PUBLISHED 2026-09-28 UTC (2026-09-27 CT), read on the dashboard (Published column Version 0.2.2, permissions unchanged) and on the public listing in a private window in CT (Version 0.2.2, Updated September 27, 2026; a fetch from a UTC vantage the same day read Updated September 28, 2026, taken to be the listing rendering the date in the viewer's time zone, an inference); clean-profile store verification (GATE-0b) VERIFIED on the published v0.2.2 2026-09-28
 
 This file is the only present-tense answer to "what is open" in HeaderWright. `FINDINGS.md` stays the immutable narrative history — symptom, cause, evidence, decision, regression lesson — and is not a status index. Roadmap projections, release-gate counts and the current-work block in the planning handoff are generated from the rows here, not written by hand. When a row's status changes, this file changes in the same commit as the code.
@@ -78,6 +78,7 @@ F-030  | Transient messages and the add bar render inside the scrolling region |
 UI-01  | Readback becomes a side/op/name/value layout | open | low | slice:scope | NEXT v0.2.1 list | design | compact grid, not a 4-col table
 UI-02  | Focus the new header name field after "+ Add header" | open | low | slice:scope | NEXT v0.2.1 list | design | —
 UI-03  | Widen the editor's header-name field | open | low | slice:scope | NEXT v0.2.1 list, FINDING-043 | design | —
+UI-04  | Popup status line says "applying N" for a count of REGISTERED rules; it reads "applying" when nothing applies (two profiles colliding, a cross-site initiator) | open | medium | v0.2.4 | — | source | RULED 2026-09-28 (R1-R3): "registered", as the listing already says since DR-01; lib/status.js:167-172: "applying N" -> "registered N", "applying N · M not applied" -> "registered N · M not registered", "nothing to apply" -> "nothing registered"; "sync failed — previous rules may still be applying", "paused" and "checking — …" unchanged; the badge unchanged; the selftest pin "applying 1" and the README paragraph change in the same commit as the code; related: DR-01 (the same correction on the listing), AR-17 (README status language)
 R15    | Popup-surface item: rule on it or park it | blocked | low | slice:scope | R15 | design | DECIDE: rule or park
 AR-22  | CI actions pinned to mutable tags; no tag-triggered packaging gate; ubuntu-latest is not reproducible | open | low | slice:release | — | source | —
 GATE-0 | Store CRX in a clean profile: store id and version, save/grant/apply, one readback line, one request and one response wire case, initiator negative control | verified | high | v0.2.1 | release gate | reproduced | RE-SCOPED 2026-09-27: runs on the published v0.2.1 store install, row content unchanged; the 2026-09-24 store-profile pass on v0.2.0 is partial evidence only; VERIFIED 2026-09-27 on the published v0.2.1 (test/RUNBOOK-2026-09-27-gate0.md, test/EVIDENCE.md), Chrome 153.0.8010.48, profile hw-gate0-v021: every row held; identity by 13 byte-identical files plus 4 pixel-identical icons, because Chrome re-encodes icons at install (ruled E3, a stated deviation from the frozen byte check); v0.2.2 needs its own post-publish pass
@@ -186,7 +187,7 @@ Needing change, all of it dashboard-editable and shippable without a package: th
 | `v0.2.1` | 3 |
 | `v0.2.2` | 3 |
 | `v0.2.3` | 1 |
-| `v0.2.4` | 8 |
+| `v0.2.4` | 9 |
 | `v0.3.0` | 2 |
 | `v0.4.0` | 1 |
 | `slice:scale` | 5 |
@@ -195,7 +196,7 @@ Needing change, all of it dashboard-editable and shippable without a package: th
 | `later` | 2 |
 | `trigger:*` | 1 |
 | `ongoing` | 2 |
-| **Total** | **45** |
+| **Total** | **46** |
 
 AR-03 is high priority and not in any v0.2.x release. That is deliberate: its remedy is bounded per-consumer APIs, which is scale work, and v0.2.x patches are correctness only under the stated version policy.
 
