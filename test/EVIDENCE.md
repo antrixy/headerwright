@@ -10,6 +10,85 @@ from.
 
 ---
 
+# GATE-0b — the published v0.2.2 in a clean profile (2026-09-28)
+
+The release gate for v0.2.2, a new row rather than a retarget of GATE-0
+(ruled 2026-09-28). The predictions were frozen in
+`test/RUNBOOK-2026-09-28-gate0-v022.md`, committed at `8b48a7c` before
+Chrome opened. Its Outcomes section gives a verdict per prediction, and the
+two rulings made at A-P1. This entry is what was observed.
+
+### Environment
+
+| | |
+|---|---|
+| Build | the Chrome Web Store's v0.2.2, installed from the public listing. Its 13 non-image files are byte-identical to tag `v0.2.2` = `2ee97ae`, and its 4 icons pixel-identical (below) |
+| Extension ID | `ooapgilielelobkkcdlnkenkflbnnmhi` (the STORE ID) |
+| Card on `chrome://extensions` | `HeaderWright — Modify HTTP Headers`, `0.2.2` |
+| Also installed | nothing. Google Docs Offline, Chrome's default, was removed before install |
+| Profile | `hw-gate0-v022`, `Profile 17`, new for this sitting, signed out |
+| Chrome | **153.0.8010.48** (Official Build) (arm64). An update was pending and not applied |
+| OS | macOS 26.5.2 (25F84) |
+| Instruments | oracle pid 72989, build `bbf78ddbddf8`; initiator pid 72992, build `1e6dc8fd662c`; both started from `8b48a7c`, in the background from one terminal (a stated deviation); PREFLIGHT PASSES |
+| Tree | `8b48a7c`, `tree: 556 checks, 131 mutation scenarios, 7 gates` |
+| Developer mode | ON, for inspecting only |
+
+### Build identity: what Chrome actually runs
+
+Every file was fetched from inside the popup (`chrome.runtime.getURL`) and
+hashed with `crypto.subtle`. Identity is the E3 rule, planned from the start.
+
+- **All 13 non-image files matched the tag byte for byte:** the worker, the
+  ten `lib/` files, `popup.html` and `popup.js`.
+- **All 4 icons are pixel-identical to the tag's, and none byte-identical.**
+  The tag's icons were fetched from GitHub at `2ee97ae`, status 200, with
+  their bytes hash-checked. 0 differing pixels in all four, equal sizes.
+  Chrome re-encodes icons at install, as it did for v0.2.1.
+- **The worker's own sync record confirms the build independently, as
+  predicted this time.** On first install `hw:sync` carried revision
+  `69709b56` for both desired and applied: s2's `configRevision` for no
+  profiles with the toggle off. v0.2.1 wrote `ab3a8a0a`.
+
+### Starting state
+
+Only `hw:sync` in storage, `state 'paused'`, `activeRuleCount 0`. No
+origins, no rules. **A fresh install's master toggle is OFF.** *No profiles
+yet. Add one to start setting headers on a site.*; footer `0 profiles · 0/0
+domains granted · paused`; label and badge `OFF`.
+
+### The row
+
+| step | observed |
+| --- | --- |
+| Save `probe` on `hw.test`: request `X-HW-Probe` set `present`, response `X-HW-Oracle` set `rewritten` | form checked from the console first. The permission dialog named `hw.test` (*Read and change your data on all hw.test sites and hw.test*). **The popup stayed open**, with DevTools attached (see below). Allowed |
+| Card before Allow | `Off — nothing registered`, GREY chip, `1 profile · 0/1 domain granted · paused` |
+| Card after Allow, then reopened without DevTools | GREEN chip; `1 profile · 1/1 domain granted · paused`; badge `OFF` |
+| Toggle ON | `req · set · X-HW-Probe → "present"`, `res · set · X-HW-Oracle → "rewritten"`; `applying 1`; badge `ON` |
+| `getDynamicRules()` | one rule, id 1, priority 1, `requestDomains ["hw.test"]`, 15 resource types, `modifyHeaders`, exactly those two entries. **Agrees with the card** |
+| Grants | `*://*.hw.test/*`, `*://hw.test/*` |
+| Request wire, same-origin `http://hw.test:8790/` | `SAME-ORIGIN`; **`x-hw-probe: "present"`** |
+| Response wire, `http://hw.test:8787/` plain case, no service worker registered | **`MODIFIED — 1 changed, 0 removed, 0 added`**; `x-hw-oracle` `baseline` → `rewritten`; `x-hw-removable` and `x-hw-second` unchanged |
+| Initiator negative control, `http://nothw.test:8790/` | fetch succeeded (`servedBy` `hw.test`); `CROSS-ORIGIN`, initiator `http://nothw.test:8790`; **`x-hw-probe` ABSENT**, not in `allReceivedNames` |
+| Close-out | the same rule and grants: nothing in the wire rows wrote anything |
+
+**The popup did not close on the permission dialog.** It was predicted to,
+as it did on v0.2.1. DevTools, opened on the popup for the form check, was
+still attached; Chrome keeps an inspected popup open. That cause is an
+inference and was not tested further. Ruled W1 and W2 before Allow: the
+sitting continued, and A-P1 counted on its dialog half only. Nothing about
+the build turns on it.
+
+**The second store release with wire evidence.** Both sides apply, and the
+initiator requirement (HW-V6-01) behaves on the v0.2.2 store build exactly
+as on v0.2.1's.
+
+### Not read
+
+- The popup's DevTools Issues count read 1, then 9 after the editor opened;
+  the oracle tab showed 1 error. Neither was opened.
+
+---
+
 # Sitting J — v0.2.2/s2, AR-01b (2026-09-27)
 
 The first browser evidence for s2. AR-01b was `fixed-unverified`, and AR-01
