@@ -10,6 +10,61 @@ from.
 
 ---
 
+# Sitting J — v0.2.2/s2, AR-01b (2026-09-27)
+
+The first browser evidence for s2. AR-01b was `fixed-unverified`, and AR-01
+is `verified` on lib-level evidence, so it has no row here. The predictions
+were frozen in `test/RUNBOOK-2026-09-27-s2.md`, committed at `4f6fe81` before
+Chrome opened. Its Outcomes section gives a verdict per prediction. This
+entry is what was observed.
+
+### Environment
+
+| | |
+|---|---|
+| Build | `4f6fe81`, unpacked. `extension/` is byte-identical to `dec61a3`; all 18 files hashed in the popup matched |
+| Extension ID | `khjeofpciphjaclledledepfppaiicnf` (unpacked-dev, NOT the store ID) |
+| Card on `chrome://extensions` | `HeaderWright — Modify HTTP Headers`, `0.2.0` before Reload (FINDING-041), `0.2.1` after |
+| Also installed | a DISABLED `0.1.7`, ID `nabejgoljpkiimpodnbejocdkdagpcch` |
+| Profile | `hw-test`, `Profile 15` |
+| Chrome | 153.0.8010.48 (arm64), as read at 17:10 the same evening; not re-read in this profile |
+| OS | macOS 26.5.2 (25F84) |
+| Oracle, initiator | not used; `preflight.mjs` not run, as registered |
+
+**Method.** A second writer was simulated from the popup's own DevTools
+console. It rewrote `hw:profiles` in `chrome.storage.local` while the editor
+was open, through the saved original of `set()`. A wrapper around
+`chrome.storage.local.set` counted only the popup's writes. No file in
+`extension/` changed. A storage change re-rendered the hidden list, and the
+footer's count visibly moved, while the open editor was left exactly as it
+was.
+
+### Rows
+
+| row | the other writer, while the editor was open | Save | written | on screen |
+| --- | --- | --- | --- | --- |
+| N | changed a DIFFERENT profile (`s2-v` → `vee2`) | saved | `['hw:profiles']` | back to the list; both changes kept |
+| V | deleted the target (`s2-v`) | refused | `[]` | `Not saved: this profile was deleted after you opened it. Your edits are still in the form; Cancel discards them and returns to the list.` No notice |
+| C | changed the target (`s2-c` → `two`) | refused | `[]` | `Not saved: this profile was changed after you opened it. Your edits are still in the form. Use Revert to saved to load the current version.` Draft notice shown; form kept `s2-c s2` / `uno` |
+| C, after Revert to saved | — | — | — | error and notice gone; form `s2-c` / `two` |
+| C, edited and saved again | — | saved | `['hw:profiles']` | `s2-c s2` with `two`: the other writer's change kept |
+
+**On v0.2.1, rows V and C would have written.** V's Save would have written
+the unchanged set and returned to the list as if it had saved. C's would have
+overwritten `two` with `uno`. Neither would have said anything.
+
+### Closing state
+
+Profiles `1 legacy`, `2 probe`, as before the sitting. Origins
+`*://*.hw.test/*`, `*://hw.test/*`. No permission dialog opened at any point.
+
+### Not read
+
+- The popup's DevTools Issues count rose `1 → 29` over the sitting, about 4
+  per editor open, as in Sitting I.
+
+---
+
 # GATE-0 — the published v0.2.1 in a clean profile (2026-09-27)
 
 The release gate for v0.2.1, re-scoped the same day to run on the published
