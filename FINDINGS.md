@@ -2323,3 +2323,104 @@ s1**: a mouse double-click on Save, because a normal save finishes inside the
 double-click gap, and a double click on Delete's confirm, because
 `confirmDelete` already cleared `pendingDeleteId` synchronously. Both were
 run, both passed, and neither is counted. The wiring stays unguarded.
+
+**FINDING-048 — FINDING-042's drafts were keyed by reusable rule ids, never
+purged or re-checked, written without ordering, and accepted any side or
+operation.** Raised 2026-09-22 by the architecture review as AR-02
+(`LEDGER.md`). Reproduced and fixed 2026-09-29 in v0.2.3/s3.
+
+**Symptom.** Not reported by a user. A draft left by a deleted profile
+marked the card of the next profile to take its id, painted itself into that
+profile's editor, and could be saved over it. An import did the same to every
+id it reused. Two draft writes issued close together could lose one of them,
+and a keystroke typed while Cancel, Revert to saved or Save was dropping a
+draft could write it back. A draft row with an operation the form does not
+offer was restored as `set`.
+
+**Cause.** The draft key was the profile id, and a profile's id is its DNR
+rule id: reused lowest-free, and rewritten by every import. `rules.js` states
+the scope in so many words — ids are "identity within one profile set and one
+export file, nothing wider" — and drafts, in session storage, outlive both.
+Nothing dropped a draft when its profile was deleted or replaced. `openEditor`
+bound a restored draft to whatever profile was stored at that moment, the gap
+AR-01b recorded when it was split, so the digest check could not tell the
+draft's profile from its successor. `putDraft` and `dropDraft` each read and
+rewrote the whole map with nothing ordering them, and `persistDraft` issued
+them from input events without waiting. `isValidDraft` asked whether a row's
+side and operation were strings, not whether the form could show them.
+
+**Reproduced 2026-09-29** against `4b7d9b1`, before any code, and recorded in
+§0 of `test/PREDICTIONS-2026-09-29-s3.md`:
+- `nextRuleId([{id: 1}, {id: 3}])` returned 2, the id of a deleted profile.
+- For a draft written against one profile 2 and a new, different profile 2,
+  `checkEditBase([new2], 2, digest(new2))` returned `{ ok: true }`: Save would
+  have written the old draft over the new profile.
+- `popup.js`'s own draft functions, run unchanged against a fake session
+  store, kept only one of two overlapping puts, and wrote a dropped draft
+  back.
+- `isValidDraft` accepted side `sideways` and operation `delete`.
+
+**Ruled 2026-09-29 (S3-D1–D6),** `antrixy/project-planning` `decisions.md`,
+"HeaderWright v0.2.3 — s3, drafts". The predictions were frozen at
+`4324111`, before the first check was written.
+
+**Fix.** In `lib/draft.js`:
+- `DRAFT_VERSION` 2. A draft stores `baseDigest`, the base its editor was
+  bound to when the draft was written. `isValidDraft` requires one for a saved
+  profile and none for a new profile, and accepts a row only if its side and
+  operation are in `rules.js`'s own sets, which are exported now rather than
+  copied.
+- `draftKeyFor` moved here from `popup.js`. `draftFor` returns a draft only if
+  it is valid and names the same profile as its key.
+- `baseForEditor`: a restored draft binds the editor to its own base, so
+  `checkEditBase` refuses a stale one at Save as `changed`, through s2's D4
+  path, with Revert to saved already on screen.
+- `retainDraftsFor`: Replace keeps the new-profile draft and the drafts whose
+  profile the import holds unchanged. It fails closed.
+- `createDraftStore`: every read and write goes through one
+  `createSerialQueue`. A failed read fails the call and writes nothing; the
+  old write path treated it as an empty map and would have written that back,
+  erasing every other draft.
+- `createDraftSession`: Save, Cancel and Revert to saved end the session
+  synchronously before issuing the drop, so a write that arrives later is
+  refused, and every write issued earlier is already queued ahead of it.
+
+`popup.js` builds one store on `chrome.storage.session` and one session on
+that store. Delete purges the deleted profile's draft, and Replace re-checks
+the drafts, each after the profile write and before grant reconciliation; a
+failure there is logged, not thrown.
+
+**Evidence.** `selftest.mjs`: fifty `AR-02:` checks, `EXPECTED_CHECKS`
+556 → 606. Four existing checks changed, for stated reasons: s2's check 39
+follows the new binding line, and the F042 round-trip checks gained null
+guards so that an unrestorable draft fails them instead of crashing the suite.
+Red first, against the unchanged product: 50 of 606, the predicted checks
+exactly. Green: 606 of 606, all 7 gates, 171 mutation scenarios.
+`mutate-collisions.py`: 40 new mutants, each failing exactly the predicted
+checks, none crashing. One prediction was wrong, about the red tree only: two
+mutants that insert a draft call ahead of an existing profile write applied
+before s3 existed. No browser evidence yet, so AR-02 is `fixed-unverified`.
+
+**Guarded, partly.** The lib rules are exercised by behaviour, the queue
+included, against a fake storage that interleaves whatever is not
+serialized. The popup wiring is pinned by source scans and their mutants, not
+by a browser harness: the scans prove the calls are there and in order, not
+that Chrome runs them as read.
+
+**Not changed, and stated.** If a draft drop fails after Save, Cancel or
+Revert to saved, the error still propagates as it did before s3: the view does
+not switch, and after Save grant reconciliation is skipped. That is
+FINDING-046's class, and it predates s3. Raised as `AR-05b` (low,
+`slice:scope`), ruled 2026-09-29, and not fixed in s3.
+
+**Known limits.** Keystrokes typed while a Save is writing are not kept. A
+draft orphaned by a delete made outside the popup is not purged; if its id is
+reused, the draft restores into the new profile's editor and Save refuses it.
+FEAT-1's durable profileUid is what closes that. The popup can close between
+a profile write and the draft cleanup that follows it; the binding catches the
+leftover draft.
+
+**The lesson.** An identifier's scope is part of its meaning. `rules.js`
+wrote the scope down, and a store that outlived that scope borrowed the
+identifier anyway. The repair was not a better key but carrying what the key
+never promised: the version the draft was written against.

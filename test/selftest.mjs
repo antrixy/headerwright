@@ -86,6 +86,12 @@ import * as statusLib from "../extension/lib/status.js";
 // Same reason, AR-01b: profileDigest, checkEditBase and describeEditRefusal
 // arrive in canonical.js in s2, and a missing one must read as FAIL lines.
 import * as canonicalLib from "../extension/lib/canonical.js";
+// Same reason, AR-02 (s3): draftKeyFor, draftFor, baseForEditor,
+// retainDraftsFor, createDraftStore and createDraftSession arrive in draft.js,
+// and VALID_SIDES and VALID_OPERATIONS become exports of rules.js. See
+// test/PREDICTIONS-2026-09-29-s3.md.
+import * as draftLib from "../extension/lib/draft.js";
+import * as rulesLib from "../extension/lib/rules.js";
 import { createHash } from "node:crypto";
 import {
   domainsOverlap,
@@ -114,7 +120,7 @@ import {
 } from "../extension/lib/readback.js";
 import { readFileSync, readdirSync } from "node:fs";
 
-const EXPECTED_CHECKS = 556;
+const EXPECTED_CHECKS = 606;
 
 let passed = 0;
 let failed = 0;
@@ -532,8 +538,12 @@ check("manifest still requests declarativeNetRequestWithHostAccess",
 // readForm() lowercases and sorts domains and drops blank rows because it
 // produces something fit to save. Restoring that would rewrite the user's
 // typing mid-edit, which is a quieter version of the defect being fixed.
+// s3 (AR-02): a draft for a saved profile is valid only with the base it was
+// written against. A well-formed stand-in, not a real digest.
+const F042_BASE = "sha256:profile-v1:" + "f".repeat(64);
 const rawForm = {
   editingProfileId: 2,
+  baseDigest: F042_BASE,
   name: "  probe  ",
   domains: "EXAMPLE.com,   api.Example.com , ",
   rows: [
@@ -544,17 +554,21 @@ const rawForm = {
 };
 const roundTripped = draftToForm(formToDraft(rawForm));
 
+// NULL-GUARDED since s3. An unrestorable draft made roundTripped null and the
+// next line threw at top level, which crashes the suite instead of failing a
+// check (the standing rule: a check must FAIL, never THROW). s3's mutants
+// reach that state on purpose.
 check("F042: a draft round-trips the raw name, untrimmed",
-  roundTripped.name === "  probe  ");
+  roundTripped !== null && roundTripped.name === "  probe  ");
 check("F042: a draft round-trips the raw domains string, unnormalized",
-  roundTripped.domains === "EXAMPLE.com,   api.Example.com , ");
+  roundTripped !== null && roundTripped.domains === "EXAMPLE.com,   api.Example.com , ");
 check("F042: a draft keeps blank rows",
-  roundTripped.rows.length === 3 && roundTripped.rows[1].name === "");
+  roundTripped !== null && roundTripped.rows.length === 3 && roundTripped.rows[1].name === "");
 check("F042: a draft keeps the side and operation of each row",
-  roundTripped.rows[2].side === "response" &&
+  roundTripped !== null && roundTripped.rows[2].side === "response" &&
     roundTripped.rows[2].operation === "remove");
 check("F042: a draft carries which profile was being edited",
-  roundTripped.editingProfileId === 2);
+  roundTripped !== null && roundTripped.editingProfileId === 2);
 check("F042: a new-profile draft carries a null id",
   formToDraft({ ...rawForm, editingProfileId: null }).editingProfileId === null);
 
@@ -581,12 +595,18 @@ const savedProfile = {
     { name: "X-HW-Oracle", side: "response", operation: "set", value: "rewritten" },
   ],
 };
-const untouched = formToDraft(profileToFormShape(savedProfile, sideOf));
+const untouched = formToDraft({
+  ...profileToFormShape(savedProfile, sideOf),
+  baseDigest: F042_BASE,
+});
+// The validity guard is s3's: an INVALID draft is never marked either, so
+// without it this check passes for the wrong reason.
 check("F042: a draft matching the saved profile is not marked unsaved",
-  !draftDiffersFromProfile(untouched, savedProfile, sideOf));
+  isValidDraft(untouched) && !draftDiffersFromProfile(untouched, savedProfile, sideOf));
 
 const edited = formToDraft({
   ...profileToFormShape(savedProfile, sideOf),
+  baseDigest: F042_BASE,
   rows: [
     { name: "X-HW-Probe", side: "request", operation: "set", value: "CHANGED" },
     { name: "X-HW-Oracle", side: "response", operation: "set", value: "rewritten" },
@@ -3386,7 +3406,11 @@ async function profileDigestChecks() {
       new RegExp(`\\b${n}\\b`).test(canonicalImports)));
   const capture = /editingBaseDigest = profile \? await profileDigest\(profile\) : null;/;
   const openBody = bodyOf("openEditor");
-  const openCapture = openBody.search(capture);
+  // CHANGED IN s3 (AR-02): openEditor takes its base from baseForEditor, which
+  // returns a restored draft's own base and otherwise the profile's digest.
+  // Still required before the form is shown.
+  const openCapture = openBody.search(
+    /editingBaseDigest = await baseForEditor\(restored, profile, profileDigest\);/);
   check("AR-01b: openEditor captures the base digest before the form is shown",
     openCapture >= 0 && openCapture < openBody.indexOf('showView("edit")'));
   const revertBody = bodyOf("revertToSaved");
@@ -3412,6 +3436,354 @@ async function profileDigestChecks() {
   // a message telling them to do what they just did.
   check("AR-01b: revertToSaved clears the form error",
     /\n\s*hideFormError\(\);\n/.test(revertBody));
+}
+
+// ---- AR-02 (s3). Checks 1–50 of test/PREDICTIONS-2026-09-29-s3.md, in order.
+//
+// A draft carries the base it was written against (AR-01b's draft half), is
+// used only by the editor its key and its own id agree on, and every draft
+// read and write goes through one queue. The pure rules are exercised
+// directly, the queue included, against a fake storage that interleaves
+// whatever is not serialized. popup.js is scanned, as for AR-01b.
+//
+// NO CHECK HERE MAY PASS ON TWO FAILURES. The new symbols come through the
+// draftLib and rulesLib namespaces, so a missing export reads as FAIL lines,
+// and every negative check first requires its positive control.
+async function ar02Checks() {
+  const d = draftLib;
+  const has = (name) => typeof d[name] === "function";
+  const call = async (fn) => {
+    try { return await fn(); } catch { return THREW; }
+  };
+  // Calls a method NOW, not a microtask later: the ordering checks below
+  // depend on the order in which calls are issued.
+  const invoke = (target, method, ...args) => {
+    try {
+      return target !== null && typeof target === "object" &&
+        typeof target[method] === "function"
+        ? Promise.resolve(target[method](...args))
+        : Promise.reject(new Error(`no ${method}`));
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  };
+  const settle = (p) => Promise.resolve(p).then(() => "fulfilled", () => "rejected");
+  const isObj = (v) => v !== null && typeof v === "object";
+  const keysOf = (v) => (isObj(v) ? Object.keys(v).sort().join(",") : "");
+  const B = (c) => "sha256:profile-v1:" + c.repeat(64);
+  const row = (side, operation) => ({ name: "X-A", side, operation, value: "1" });
+  const draftOf = (id, base, rows = [row("request", "set")]) =>
+    formToDraft({ editingProfileId: id, baseDigest: base, name: "p", domains: "a.com", rows });
+  const valid = (x) => attempt(() => isValidDraft(x)) === true;
+  const refused = (x) => attempt(() => isValidDraft(x)) === false;
+
+  const d3 = draftOf(3, B("3"));
+  const d5 = draftOf(5, B("5"));
+  const dNew = formToDraft({ editingProfileId: null, name: "", domains: "",
+    rows: [row("request", "set")] });
+
+  // 1–9. Format and validity.
+  check("AR-02: DRAFT_VERSION is 2", DRAFT_VERSION === 2);
+  const f3 = attempt(() => draftToForm(d3));
+  check("AR-02: a profile draft carries its base through draftToForm",
+    isObj(f3) && f3.baseDigest === B("3"));
+  check("AR-02: a new-profile draft records a null base and is valid",
+    dNew.baseDigest === null && valid(dNew));
+  check("AR-02: a profile draft with no base is refused",
+    valid(d3) && refused({ ...d3, baseDigest: null }));
+  check("AR-02: a new-profile draft carrying a base is refused",
+    valid(dNew) && refused({ ...dNew, baseDigest: B("n") }));
+  check("AR-02: a version 1 draft is refused",
+    valid(d3) && refused({ ...d3, version: 1 }));
+  check("AR-02: a row whose side is not request or response is refused",
+    valid(d3) && refused({ ...d3, rows: [row("sideways", "set")] }));
+  check("AR-02: a row whose operation is not set, append or remove is refused",
+    valid(d3) && refused({ ...d3, rows: [row("request", "delete")] }));
+  check("AR-02: every side and operation the form offers is accepted",
+    valid(draftOf(3, B("3"), ["request", "response"].flatMap((side) =>
+      ["set", "append", "remove"].map((operation) => row(side, operation))))));
+
+  // 10–14. Identity: the key is a slot, and the draft must name the profile.
+  check("AR-02: draftKeyFor keys a new profile \"new\" and a profile by its id",
+    has("draftKeyFor") && attempt(() => d.draftKeyFor(null)) === "new" &&
+    attempt(() => d.draftKeyFor(undefined)) === "new" &&
+    attempt(() => d.draftKeyFor(3)) === "3");
+  const findDraft = (map, id) => (has("draftFor") ? attempt(() => d.draftFor(map, id)) : THREW);
+  check("AR-02: draftFor finds a profile's draft, and nothing for a profile without one",
+    findDraft({ 3: d3 }, 3) === d3 && findDraft({ 3: d3 }, 4) === null);
+  check("AR-02: draftFor refuses a draft that names a different profile than its key",
+    findDraft({ 5: d5 }, 5) === d5 && findDraft({ 3: d5 }, 3) === null);
+  check("AR-02: draftFor refuses an invalid draft under the right key",
+    findDraft({ 3: d3 }, 3) === d3 && findDraft({ 3: { ...d3, version: 1 } }, 3) === null);
+  check("AR-02: draftFor finds the new-profile draft",
+    findDraft({ new: dNew }, null) === dNew);
+
+  // 15–18. Binding. Real profile-v1 digests from here on.
+  const digest = canonicalLib.profileDigest;
+  const isDigest = (v) => typeof v === "string" && /^sha256:profile-v1:[0-9a-f]{64}$/.test(v);
+  const old2 = { id: 2, name: "staging", domains: ["a.com"],
+    headers: [{ name: "X-Env", operation: "set", value: "staging" }] };
+  const new2 = { id: 2, name: "prod", domains: ["b.com"],
+    headers: [{ name: "X-Env", operation: "set", value: "prod" }] };
+  const dOld2 = await call(() => digest(old2));
+  const dNew2 = await call(() => digest(new2));
+  const stale = formToDraft({ editingProfileId: 2, baseDigest: dOld2, name: "staging",
+    domains: "a.com",
+    rows: [{ name: "X-Env", side: "request", operation: "set", value: "staging-EDITED" }] });
+  const baseFor = (restored, profile) => (has("baseForEditor")
+    ? call(() => d.baseForEditor(restored, profile, digest)) : THREW);
+  const staleBase = await baseFor(attempt(() => draftToForm(stale)), new2);
+  check("AR-02: a restored draft binds to its own base, not to the profile shown",
+    isDigest(dOld2) && isDigest(dNew2) && dOld2 !== dNew2 && staleBase === dOld2);
+  const staleCheck = await call(() => canonicalLib.checkEditBase([new2], 2, staleBase));
+  check("AR-02: a stale restored draft is refused at Save as changed",
+    isDigest(staleBase) && isObj(staleCheck) && staleCheck.ok === false &&
+    staleCheck.reason === "changed");
+  check("AR-02: an editor opened without a draft binds to the profile shown",
+    isDigest(dNew2) && (await baseFor(null, new2)) === dNew2);
+  check("AR-02: a new profile's editor has no base, with or without a draft",
+    (await baseFor(null, null)) === null &&
+    (await baseFor(attempt(() => draftToForm(dNew)), null)) === null);
+
+  // 19–25. Rebase on import. Every fixture profile is storable (§0).
+  const P2 = { id: 2, name: "two", domains: ["two.com"],
+    headers: [{ name: "X-Two", operation: "set", value: "2" }] };
+  const P4old = { id: 4, name: "four", domains: ["four.com"],
+    headers: [{ name: "X-Four", operation: "set", value: "old" }] };
+  const P4new = { id: 4, name: "four", domains: ["four.com"],
+    headers: [{ name: "X-Four", operation: "set", value: "new" }] };
+  const P6 = { id: 6, name: "six", domains: ["six.com"],
+    headers: [{ name: "X-Six", operation: "remove" }] };
+  const P7 = { id: 7, name: "seven", domains: ["seven.com"],
+    headers: [{ name: "X-Seven", side: "response", operation: "set", value: "7" }] };
+  const [dP2, dP4old, dP4new, dP6, dP7] = await Promise.all(
+    [P2, P4old, P4new, P6, P7].map((p) => call(() => digest(p))));
+  const drafts = {
+    2: draftOf(2, dP2),
+    4: draftOf(4, dP4old),
+    6: draftOf(6, dP6),
+    new: dNew,
+    7: draftOf(7, dP7, [row("response", "delete")]),
+    8: draftOf(2, dP2),
+  };
+  const before = JSON.stringify(drafts);
+  const retain = (map, profiles, digestOf = digest) => (has("retainDraftsFor")
+    ? call(() => d.retainDraftsFor(map, profiles, digestOf)) : THREW);
+  const kept = await retain(drafts, [P2, P4new, P7]);
+  check("AR-02: rebase keeps a draft whose profile the import holds unchanged",
+    isObj(kept) && kept["2"] === drafts["2"]);
+  check("AR-02: rebase drops a draft whose profile the import changed",
+    isObj(kept) && "2" in kept && !("4" in kept));
+  check("AR-02: rebase drops a draft whose profile the import lacks",
+    isObj(kept) && "2" in kept && !("6" in kept));
+  check("AR-02: rebase keeps the new-profile draft",
+    isObj(kept) && kept.new === dNew);
+  check("AR-02: rebase drops an invalid draft and one stored under another profile's key",
+    isObj(kept) && "2" in kept && !("7" in kept) && !("8" in kept));
+  const failing = (p) => (p.id === 2 ? Promise.reject(new Error("no digest")) : digest(p));
+  const kept2 = await retain({ 2: draftOf(2, dP2), 4: draftOf(4, dP4new) }, [P2, P4new], failing);
+  check("AR-02: rebase drops a draft whose profile cannot be digested, and does not throw",
+    isObj(kept2) && "4" in kept2 && !("2" in kept2));
+  check("AR-02: rebase does not mutate the drafts it is given",
+    isObj(kept) && JSON.stringify(drafts) === before);
+
+  // 26–32. The store. The fake takes its snapshot when a read is CALLED and
+  // answers after that call's delay, so a store that does not serialize its
+  // read-modify-writes interleaves them, as chrome.storage would allow.
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+  const fakeStorage = ({ initial, readDelays = [], failRead = false, failWrite = false } = {}) => {
+    const fake = { data: clone(initial), reads: 0, writes: 0 };
+    fake.read = async () => {
+      const i = fake.reads++;
+      const snapshot = clone(fake.data);
+      await sleep(readDelays[i] ?? 0);
+      if (failRead && i === 0) throw new Error("read failed");
+      return snapshot;
+    };
+    fake.write = async (value) => {
+      const i = fake.writes++;
+      await sleep(0);
+      if (failWrite && i === 0) throw new Error("write failed");
+      fake.data = clone(value);
+    };
+    return fake;
+  };
+  const storeOn = (fake) => (has("createDraftStore")
+    ? attempt(() => d.createDraftStore({ read: fake.read, write: fake.write })) : THREW);
+  {
+    const fake = fakeStorage({ readDelays: [10, 0] });
+    const store = storeOn(fake);
+    await Promise.all([settle(invoke(store, "put", "3", d3)),
+      settle(invoke(store, "put", "new", dNew))]);
+    check("AR-02: two overlapping puts for different keys both land",
+      isObj(store) && keysOf(fake.data) === "3,new");
+  }
+  {
+    const fake = fakeStorage({ readDelays: [10, 0] });
+    const store = storeOn(fake);
+    await Promise.all([settle(invoke(store, "put", "3", d3)), settle(invoke(store, "drop", "3"))]);
+    check("AR-02: a put issued before a drop lands before it",
+      isObj(store) && fake.writes > 0 && isObj(fake.data) && !("3" in fake.data));
+  }
+  {
+    const fake = fakeStorage({ readDelays: [10, 0] });
+    const store = storeOn(fake);
+    const [, seen] = await Promise.all([settle(invoke(store, "put", "3", d3)),
+      call(() => invoke(store, "read"))]);
+    check("AR-02: a read issued after a put sees it",
+      isObj(store) && isObj(seen) && "3" in seen);
+  }
+  {
+    const fake = fakeStorage({ failWrite: true });
+    const store = storeOn(fake);
+    const first = await settle(invoke(store, "put", "3", d3));
+    const second = await settle(invoke(store, "put", "new", dNew));
+    check("AR-02: a failed write rejects its own call and does not block the next",
+      isObj(store) && first === "rejected" && second === "fulfilled" &&
+      keysOf(fake.data) === "new");
+  }
+  {
+    const fake = fakeStorage({ initial: { 2: draftOf(2, dP2) }, failRead: true });
+    const store = storeOn(fake);
+    const result = await settle(invoke(store, "put", "3", d3));
+    check("AR-02: a failed read writes nothing, so other drafts survive",
+      isObj(store) && result === "rejected" && fake.writes === 0 && keysOf(fake.data) === "2");
+  }
+  {
+    const fake = fakeStorage({ initial: { 2: draftOf(2, dP2) } });
+    const store = storeOn(fake);
+    const result = await settle(invoke(store, "drop", "3"));
+    check("AR-02: dropping an absent key writes nothing",
+      isObj(store) && result === "fulfilled" && fake.writes === 0);
+  }
+  {
+    const fake = fakeStorage({ initial: { 2: draftOf(2, dP2), 4: draftOf(4, dP4old) } });
+    const store = storeOn(fake);
+    const removed = await call(() => invoke(store, "rebase", [P2, P4new], digest));
+    check("AR-02: store rebase removes the dropped drafts from storage and names them",
+      Array.isArray(removed) && removed.join(",") === "4" && keysOf(fake.data) === "2");
+  }
+
+  // 33–36. The session: a write after it ends is not made, and the end is
+  // ordered after every write issued before it.
+  const sessionOn = (store) => (has("createDraftSession") && isObj(store)
+    ? attempt(() => d.createDraftSession(store)) : THREW);
+  {
+    const fake = fakeStorage();
+    const session = sessionOn(storeOn(fake));
+    attempt(() => session.open(3));
+    const wrote = await call(() => invoke(session, "put", d3));
+    check("AR-02: an open session writes under its profile's key",
+      isObj(session) && wrote === true && keysOf(fake.data) === "3");
+  }
+  {
+    const fake = fakeStorage();
+    const session = sessionOn(storeOn(fake));
+    attempt(() => session.open(null));
+    await settle(invoke(session, "put", dNew));
+    check("AR-02: a new profile's session writes under \"new\"",
+      isObj(session) && keysOf(fake.data) === "new");
+  }
+  {
+    const fake = fakeStorage();
+    const session = sessionOn(storeOn(fake));
+    attempt(() => session.open(3));
+    const ended = settle(invoke(session, "end"));
+    const wrote = call(() => invoke(session, "put", d3));
+    const [, result] = await Promise.all([ended, wrote]);
+    check("AR-02: a write after the session ends is not made",
+      isObj(session) && result === false && !(isObj(fake.data) && "3" in fake.data));
+  }
+  {
+    const fake = fakeStorage();
+    const session = sessionOn(storeOn(fake));
+    attempt(() => session.open(3));
+    const wrote = settle(invoke(session, "put", d3));
+    const ended = settle(invoke(session, "end"));
+    await Promise.all([wrote, ended]);
+    check("AR-02: a write issued before the session ends lands, then its drop removes it",
+      isObj(session) && fake.writes === 2 && isObj(fake.data) && !("3" in fake.data));
+  }
+
+  // 37–38. One definition of the sets.
+  const sides = rulesLib.VALID_SIDES;
+  const operations = rulesLib.VALID_OPERATIONS;
+  check("AR-02: rules.js exports the side and operation sets",
+    sides instanceof Set && [...sides].sort().join(",") === "request,response" &&
+    operations instanceof Set && [...operations].sort().join(",") === "append,remove,set");
+  const draftJs = stripJsComments(
+    readFileSync(new URL("../extension/lib/draft.js", import.meta.url), "utf8"));
+  const fromRules = (name) => new RegExp(
+    `import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*"\\./rules\\.js"`).test(draftJs);
+  check("AR-02: draft.js takes both sets from rules.js and declares neither",
+    fromRules("VALID_SIDES") && fromRules("VALID_OPERATIONS") &&
+    !/\b(?:const|let|var)\s+VALID_(?:SIDES|OPERATIONS)\b/.test(draftJs));
+
+  // 39–50. The wiring, on comment-stripped popup.js. No pattern here reads
+  // inside a double-quoted string, so mutate-scans.py's string-blanking row
+  // does not move. Each function body is cut at its closing brace in column 0.
+  const bodyOf = (signature) => {
+    const start = popupJs.indexOf(signature);
+    if (start < 0) return "";
+    const end = popupJs.indexOf("\n}\n", start);
+    return end < 0 ? "" : popupJs.slice(start, end + 2);
+  };
+  const draftImports = [...popupJs.matchAll(/import\s*\{([^}]*)\}/g)]
+    .map((m) => m[1]).find((names) => /\bformToDraft\b/.test(names)) || "";
+  check("AR-02: popup.js imports draftKeyFor, draftFor, baseForEditor, createDraftStore and createDraftSession",
+    ["draftKeyFor", "draftFor", "baseForEditor", "createDraftStore", "createDraftSession"]
+      .every((name) => new RegExp(`\\b${name}\\b`).test(draftImports)));
+  const openBody = bodyOf("async function openEditor(");
+  check("AR-02: openEditor restores only through draftFor",
+    openBody.includes("const restored = draftToForm(draftFor(drafts, editingProfileId));"));
+  const opened = openBody.indexOf("draftSession.open(editingProfileId);");
+  check("AR-02: openEditor opens the draft session before the form is shown",
+    opened >= 0 && opened < openBody.indexOf("showView("));
+  check("AR-02: persistDraft writes through the session, with the editor's base",
+    bodyOf("async function persistDraft(").includes(
+      "await draftSession.put(formToDraft({ ...readFormRaw(), baseDigest: editingBaseDigest }));"));
+  const saveBody = bodyOf("async function saveProfile(");
+  const saveWrite = saveBody.indexOf("await setProfiles(nextProfiles)");
+  const saveEnd = saveBody.indexOf("await draftSession.end();");
+  check("AR-02: saveProfile ends the session after the profile write, before leaving the editor",
+    saveWrite >= 0 && saveWrite < saveEnd && saveEnd < saveBody.indexOf("showView("));
+  check("AR-02: Cancel ends the draft session",
+    /await draftSession\.end\(\);\s*setRestoredNotice\(false\);\s*showView\(/.test(popupJs));
+  const revertBody = bodyOf("async function revertToSaved(");
+  const revertEnd = revertBody.indexOf("await draftSession.end();");
+  const revertFind = revertBody.indexOf("const profile = profiles.find(");
+  const revertCapture = revertBody.search(
+    /editingBaseDigest = profile \? await profileDigest\(profile\) : null;/);
+  const revertOpen = revertBody.indexOf("draftSession.open(editingProfileId);");
+  check("AR-02: revertToSaved ends the session before re-reading, and reopens it on the new base",
+    revertEnd >= 0 && revertEnd < revertFind && revertFind < revertCapture &&
+    revertCapture < revertOpen);
+  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // The statement alone in a try whose catch only logs; it comes after the
+  // profile write and before reconciliation; and it is the only such call.
+  const guardedCall = (body, statement, method) => {
+    const block = body.match(new RegExp("try \\{\\s*" + escapeRe(statement) +
+      "\\s*\\} catch \\(err\\) \\{\\s*console\\.error\\([^;]*\\);\\s*\\}"));
+    const write = body.indexOf("await setProfiles(nextProfiles);");
+    const calls = body.split(`draftStore.${method}(`).length - 1;
+    return block !== null && calls === 1 && write >= 0 && write < block.index &&
+      block.index < body.indexOf("await runThenAlways(");
+  };
+  check("AR-02: deleteProfile purges the deleted profile's draft after the write, and a failed purge is logged, not thrown",
+    guardedCall(bodyOf("async function deleteProfile("),
+      "await draftStore.drop(draftKeyFor(id));", "drop"));
+  check("AR-02: applyImport re-checks drafts against the import after the write, and a failed re-check is logged, not thrown",
+    guardedCall(bodyOf("async function applyImport("),
+      "await draftStore.rebase(nextProfiles, profileDigest);", "rebase"));
+  const cardBody = (popupJs.match(/function renderProfileCard\([^)]*\) \{[\s\S]*?\n\}\n/) || [""])[0];
+  check("AR-02: the card finds its draft through draftFor",
+    cardBody.includes("const draft = draftFor(drafts, profile.id);"));
+  check("AR-02: getDrafts reads through the draft store",
+    bodyOf("async function getDrafts(").includes("return await draftStore.read();"));
+  check("AR-02: the session and every other draft call share one store",
+    (popupJs.match(/\bcreateDraftStore\(/g) || []).length === 1 &&
+    popupJs.includes("const draftSession = createDraftSession(draftStore);"));
 }
 
 async function debounceChecks() {
@@ -3483,6 +3855,7 @@ await runThenAlwaysChecks();
 await actionGateChecks();
 await debounceChecks();
 await profileDigestChecks();
+await ar02Checks();
 
 // -------------------------------------------------------------- result
 

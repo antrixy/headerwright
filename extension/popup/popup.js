@@ -49,6 +49,11 @@ import {
   draftToForm,
   draftDiffersFromProfile,
   profileToFormShape,
+  draftKeyFor,
+  draftFor,
+  baseForEditor,
+  createDraftStore,
+  createDraftSession,
 } from "../lib/draft.js";
 import {
   createSerialQueue,
@@ -126,27 +131,26 @@ async function setProfiles(profiles) {
 
 // ------------------------------------------------------------ drafts (F042)
 //
-// KEYED BY PROFILE, NOT ONE AT A TIME. The first design here kept a single
-// draft and prompted when the user opened a different profile — which makes
-// the popup ask a question in order to throw work away, which is the defect
-// wearing a hat. A map has no destructive case at all, costs a few bytes of
-// session storage, and removes the prompt rather than writing one.
+// KEYED BY PROFILE, and the key is lib/draft.js's: the profile's id, or "new"
+// for a profile not saved yet. Why a map and not a single draft, and why a
+// "new" draft has no card marker, is written there.
 //
-// The key is the profile id, or "new" for an unsaved profile. A "new" draft
-// gets no card marker because there is no card yet; it is restored when the
-// user next presses Add profile. Stated as a known limit rather than solved:
-// a marker for a profile that does not exist would have to live in the list
-// header, and that is a bigger change than this defect warrants.
-
-function draftKeyFor(profileId) {
-  return profileId === null || profileId === undefined ? "new" : String(profileId);
-}
+// AR-02 (s3). ONE STORE, ONE QUEUE. Every read and write of hw:drafts goes
+// through the store below, so no read-modify-write overlaps another and each
+// sees the ones before it. The editor writes through a SESSION on that same
+// store. Save, Cancel and Revert to saved end the session before its draft is
+// dropped, so a keystroke that arrives while the drop is in flight cannot
+// write the draft back.
+const draftStore = createDraftStore({
+  read: async () =>
+    (await chrome.storage.session.get(STORAGE_KEY_DRAFTS))?.[STORAGE_KEY_DRAFTS],
+  write: (drafts) => chrome.storage.session.set({ [STORAGE_KEY_DRAFTS]: drafts }),
+});
+const draftSession = createDraftSession(draftStore);
 
 async function getDrafts() {
   try {
-    const stored = await chrome.storage.session.get(STORAGE_KEY_DRAFTS);
-    const drafts = stored?.[STORAGE_KEY_DRAFTS];
-    return drafts && typeof drafts === "object" ? drafts : {};
+    return await draftStore.read();
   } catch (err) {
     // A draft store that cannot be read is not worth failing the popup over.
     // The user sees their saved profiles, which is where they were before this
@@ -154,19 +158,6 @@ async function getDrafts() {
     console.error("HeaderWright: could not read drafts —", err);
     return {};
   }
-}
-
-async function putDraft(key, draft) {
-  const drafts = await getDrafts();
-  drafts[key] = draft;
-  await chrome.storage.session.set({ [STORAGE_KEY_DRAFTS]: drafts });
-}
-
-async function dropDraft(key) {
-  const drafts = await getDrafts();
-  if (!(key in drafts)) return;
-  delete drafts[key];
-  await chrome.storage.session.set({ [STORAGE_KEY_DRAFTS]: drafts });
 }
 
 async function getEnabled() {
@@ -632,7 +623,8 @@ function renderProfileCard(profile, grants, collisions, nameById, drafts, regist
   // profile — opening the editor and closing it again leaves a draft that
   // matches storage, and nagging about that would teach the user to ignore
   // the marker, which is the one thing it cannot afford.
-  const draft = drafts ? drafts[draftKeyFor(profile.id)] : null;
+  // AR-02: only a valid draft that names this profile. draftFor decides.
+  const draft = draftFor(drafts, profile.id);
   if (draft && draftDiffersFromProfile(draft, profile, sideOf)) {
     const unsaved = document.createElement("div");
     unsaved.className = "unsaved";
@@ -792,6 +784,15 @@ async function deleteProfile(id) {
   // while the confirmation sat open.
   if (nextProfiles.length === previousProfiles.length) return;
   await setProfiles(nextProfiles);
+  // AR-02 (s3), ruled S3-D2. The deleted profile's draft goes with it: after
+  // the profile write, and only that one draft. A failure is logged and does
+  // not fail the delete. A leftover draft stays bound to its own base, so it
+  // can never be saved over a profile that later reuses this id.
+  try {
+    await draftStore.drop(draftKeyFor(id));
+  } catch (err) {
+    console.error("HeaderWright: could not discard the deleted profile's draft —", err);
+  }
   // FINDING-046: a failed render must not skip the revoke.
   await runThenAlways(renderList, () =>
     reconcileGrants(previousProfiles, nextProfiles));
@@ -882,9 +883,10 @@ async function openEditor(profile = null) {
   // FINDING-042. A draft for THIS profile wins over the stored profile, and
   // says so on screen. Restoring silently would mean the form disagrees with
   // the saved configuration for reasons the user cannot see — a quieter
-  // version of the same defect.
+  // version of the same defect. AR-02: only a valid draft that names this
+  // profile under this profile's key.
   const drafts = await getDrafts();
-  const restored = draftToForm(drafts[draftKeyFor(editingProfileId)]);
+  const restored = draftToForm(draftFor(drafts, editingProfileId));
   const shape = restored || profileToFormShape(profile, sideOf);
 
   $("f-name").value = shape.name;
@@ -901,12 +903,14 @@ async function openEditor(profile = null) {
   hideFormError();
   setRestoredNotice(Boolean(restored));
   // AR-01b. CAPTURED BEFORE THE FORM IS SHOWN, so there is no moment at which
-  // Save can run without a base. The base is the profile this card rendered.
-  // KNOWN LIMIT until AR-02 (s3): a RESTORED draft is bound to the stored
-  // profile as it is now, not to the version the draft was written against,
-  // because drafts do not carry the digest yet. A draft that outlived an
-  // import or another edit can still overwrite it.
-  editingBaseDigest = profile ? await profileDigest(profile) : null;
+  // Save can run without a base. AR-02 closed the known limit this comment
+  // used to carry: a RESTORED draft brings its own base, the version it was
+  // written against, so a draft that outlived an import or another writer's
+  // edit is refused at Save instead of overwriting it. With no draft, the base
+  // is the profile this card rendered. The draft session opens on the same
+  // key the restore used, before the form is shown.
+  editingBaseDigest = await baseForEditor(restored, profile, profileDigest);
+  draftSession.open(editingProfileId);
   showView("edit");
   $("f-name").focus();
 }
@@ -919,8 +923,10 @@ function setRestoredNotice(visible) {
 // saved configuration once a draft exists, which is why it is a visible
 // button rather than an inferred behaviour.
 async function revertToSaved() {
-  const key = draftKeyFor(editingProfileId);
-  await dropDraft(key);
+  // AR-02 (s3). The session ends before its draft is dropped, and reopens on
+  // the base re-read below, so a keystroke typed into the form being replaced
+  // cannot write the old draft back.
+  await draftSession.end();
   const profiles = await getProfiles();
   const profile = profiles.find((p) => p.id === editingProfileId) || null;
   // AR-01b. The form now shows the stored profile, so the base moves with it.
@@ -938,6 +944,7 @@ async function revertToSaved() {
   // was no longer describes anything on screen. After an AR-01b refusal it
   // would still be telling the user to use Revert to saved.
   hideFormError();
+  draftSession.open(editingProfileId);
   await renderList();
 }
 
@@ -1016,10 +1023,15 @@ function readFormRaw() {
 // last keystroke or two can still be lost. Writing per event makes that window
 // as small as it goes; closing it entirely needs a synchronous storage API,
 // which MV3 does not have.
+//
+// AR-02 (s3). The draft carries the base the editor is bound to, and the
+// session decides whether it is written at all: once Save, Cancel or Revert
+// to saved has ended it, nothing is. That replaces the edit-view check this
+// function used to make. Known limit: keystrokes typed while a Save is
+// writing are not kept.
 async function persistDraft() {
-  if ($("edit-view").classList.contains("hidden")) return;
   try {
-    await putDraft(draftKeyFor(editingProfileId), formToDraft(readFormRaw()));
+    await draftSession.put(formToDraft({ ...readFormRaw(), baseDigest: editingBaseDigest }));
   } catch (err) {
     console.error("HeaderWright: could not persist the draft —", err);
   }
@@ -1174,8 +1186,10 @@ async function saveProfile() {
 
   // FINDING-042: the draft has become the saved state, so it is no longer
   // unsaved work. Dropped AFTER setProfiles succeeds — clearing it first
-  // would throw the edit away on a save that then failed.
-  await dropDraft(draftKeyFor(editingProfileId));
+  // would throw the edit away on a save that then failed. AR-02 (s3): ending
+  // the session drops it, and closes the session first, synchronously, so a
+  // keystroke that arrives while the drop is in flight is not written back.
+  await draftSession.end();
 
   // Popup UI state, in case we survive the request (already granted, or
   // denied without a dialog). Set BEFORE the request for the same reason.
@@ -1291,6 +1305,15 @@ async function applyImport() {
 
   // Persist FIRST — same lesson as saveProfile.
   await setProfiles(nextProfiles);
+  // AR-02 (s3), ruled S3-D3. Replace keeps only the new-profile draft and the
+  // drafts whose profile it imported unchanged; the rest were written against
+  // profiles that no longer exist as they were. A failure is logged and does
+  // not fail the import.
+  try {
+    await draftStore.rebase(nextProfiles, profileDigest);
+  } catch (err) {
+    console.error("HeaderWright: could not re-check drafts against the import —", err);
+  }
   hideIoUi();
   // FINDING-046: a failed render must not skip reconciliation.
   await runThenAlways(renderList, () =>
@@ -1365,7 +1388,7 @@ $("add-header-row").addEventListener("click", () => {
 // without the user choosing it; pressing Cancel IS choosing it. Keeping the
 // draft here would mean the button no longer does what it says.
 $("f-cancel").addEventListener("click", () => runMutation(async () => {
-  await dropDraft(draftKeyFor(editingProfileId));
+  await draftSession.end();
   setRestoredNotice(false);
   showView("list");
   await renderList();

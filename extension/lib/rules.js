@@ -46,8 +46,11 @@ export const APPENDABLE_REQUEST_HEADERS = new Set([
   "user-agent", "via", "want-digest", "x-forwarded-for",
 ]);
 
-const VALID_OPERATIONS = new Set(["set", "append", "remove"]);
-const VALID_SIDES = new Set(["request", "response"]);
+// Exported for lib/draft.js (AR-02, s3), which refuses a draft row outside
+// these sets. One definition: a second copy there could drift from the one
+// the validator uses.
+export const VALID_OPERATIONS = new Set(["set", "append", "remove"]);
+export const VALID_SIDES = new Set(["request", "response"]);
 
 /**
  * HTTP field-name token characters, RFC 9110 section 5.6.2 (the "token"

@@ -448,6 +448,23 @@ None of checks 39–50 depends on the contents of a double-quoted string in
 
 module-syntax, oracle-selfcheck and initiator-selfcheck pass.
 
+> **Outcome (red, 2026-09-29): as predicted, `selftest: 50 of 606 checks
+> FAILED`.** The failures were checks 1–8 and 10–50, plus s2 check 39, each
+> read by name. Check 9 passed. No crash.
+>
+> **Outcome (red tree, all gates): 4 of 7 failed, as predicted, and for the
+> predicted reasons.** selftest (`checks FAILED`); mutate-collisions
+> (`PATCH DID NOT APPLY`); mutate-grants and mutate-scans (`MUTANTS NOT
+> MATCHING EXPECT`). module-syntax (24 files), oracle-selfcheck and
+> initiator-selfcheck passed.
+>
+> **WRONG in one clause:** "PATCH DID NOT APPLY for every s3 mutant". 38 of
+> the 40 did not apply, and neither did s2 M13's rewritten anchor, but **M33
+> and M39 did.** Each anchors on a profile write that exists before s3
+> (`saveProfile`'s and `applyImport`'s) and inserts a draft call ahead of it,
+> so its anchor was never s3 code. On the red tree both failed checks, like
+> every other mutant, because of the red baseline.
+
 ## 4. Green, predicted
 
 - `selftest: 606/606 checks passed`. `verify.mjs`: all 7 gates, 606 checks,
@@ -457,6 +474,13 @@ module-syntax, oracle-selfcheck and initiator-selfcheck pass.
   string. "the comment strip is removed" stays at 0.
 - **mutate-grants: no row moves.**
 - No existing check changes beyond §3's list.
+
+> **Outcome (green, 2026-09-29): as predicted.** `selftest: 606/606 checks
+> passed`. `verify.mjs`: all 7 gates pass, `tree: 606 checks, 171 mutation
+> scenarios, 7 gates`. mutate-scans: all 8 rows matched their pinned
+> expects; "the comment stripper also eats string literals" read 19, and
+> "the comment strip is removed" read 0. mutate-grants: all 7 rows
+> unchanged. No existing check changed beyond §3's list.
 
 ## 5. Mutants, added to `test/mutate-collisions.py`, with predicted fails
 
@@ -518,6 +542,13 @@ Its anchor is rewritten to the new capture line, and it still moves the
 capture after `showView("edit")`. Predicted: 1 (s2 check 39), as in s2.
 
 No mutant crashes.
+
+> **Outcome (mutants, 2026-09-29): every prediction held, counts and checks
+> exactly.** All 40 s3 mutants and s2 M13 applied, each failed at least one
+> check, and none crashed. Every failing check was read by name: a scratch
+> runner applied each mutant to a throwaway copy and printed its failures by
+> check number. M2's seven F042 failures are the five round-trip checks and
+> the two marker checks. Mutation scenarios: 131 → 171.
 
 ## 6. Outcomes
 
