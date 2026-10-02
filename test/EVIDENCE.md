@@ -10,6 +10,87 @@ from.
 
 ---
 
+# Sitting K — v0.2.3/s3, AR-02 (2026-09-30 to 2026-10-02)
+
+The first browser evidence for s3. AR-02 was `fixed-unverified`. The
+predictions were frozen in `test/RUNBOOK-2026-09-29-s3.md`, committed at
+`d4965b7` before Chrome opened. Its Outcomes section gives a verdict per
+prediction, the one ruling made in the sitting (K5), and every departure
+from the file. This entry is what was observed.
+
+### Environment
+
+| | |
+|---|---|
+| Build | `d4965b7`, unpacked. `extension/` is byte-identical to `6764f19`; all 18 files hashed in the popup matched |
+| Extension ID | `khjeofpciphjaclledledepfppaiicnf` (unpacked-dev, NOT the store ID) |
+| Card on `chrome://extensions` | `HeaderWright — Modify HTTP Headers`, `0.2.2` before Reload and after. s3 bumps no version, so only the hashes tell it from v0.2.2 |
+| Also installed | a DISABLED `0.1.7`, ID `nabejgoljpkiimpodnbejocdkdagpcch`; Google Docs Offline 1.110.1, Chrome's default, enabled |
+| Profile | `hw-test`, `Profile 15` |
+| Chrome | **154.0.8037.58** (Official Build) (arm64), revision `a654841425914cbb703a2931e07b70a83aedbafd-refs/branch-heads/8037@{#1294}`, read on `chrome://version` in this profile before any row. Chrome was not restarted during the sitting: draft storage and the popup page's load time were read across each pause |
+| OS | macOS 26.5.2 (25F84) |
+| Oracle, initiator | not used; `preflight.mjs` not run, as registered |
+| When | 2026-09-30 08:08 CT (13:08 UTC) to 2026-10-02 14:59 CT (19:59 UTC), with three pauses |
+
+**Method.** No file in `extension/` changed. Drafts were left the way a user
+leaves them, by typing in the editor and closing the popup, and read from
+`chrome.storage.session` in the popup's own DevTools console. The other
+writer was that console: it rewrote `hw:profiles` through the saved original
+of `chrome.storage.local.set`, while a wrapper around `set` counted only the
+popup's writes, and for Row E it changed one field of a stored draft. Row
+I's file was built in the console from what was stored, with the product's
+own `serializeProfiles`, checked against the drafts' bases, and set on the
+real `#import-file` input; Replace was clicked in the popup. Bases and
+digests are shown as their first 8 hex digits, computed by the product's own
+`profileDigest`. Two throwaway profiles on `hw.test` were the fixtures:
+`s3-a` (`X-HW-S3A`) and `s3-b` (saved with header `X-HW-C3B`, see K5 in the
+runbook).
+
+### Rows
+
+| row | set up | action | drafts afterwards | on screen |
+| --- | --- | --- | --- | --- |
+| S | a draft on `s3-a` (`a2`, base `3f083916`), popup closed; the console then set the stored value to `a9` (digest `29c2bfe4`) | Edit, then Save | unchanged; **written: `[]`** | the draft restored with *Showing unsaved changes.*; Save refused with `Not saved: this profile was changed after you opened it. Your edits are still in the form. Use Revert to saved to load the current version.` Storage kept `a9` |
+| S, Revert to saved | — | Revert to saved | `{}` | error and notice gone; form `a9` |
+| S, typing after Revert | — | value → `a8` | `3: [2, 3, '29c2bfe4', 's3-a', …:set:a8]` | the session had reopened, on the new base |
+| I | drafts on `s3-a` (`a8`, base `29c2bfe4`) and `s3-b` (`b2`, base `0e36d489`); a file holding `s3-a` unchanged (`29c2bfe4`) and `s3-b` changed to `b9` (`f8be23b3`) | Replace | **`s3-a`'s only**; written: `['hw:profiles']` | `Replace your 4 profiles with 4 profiles from "s3-import.json"?`; afterwards the marker on `s3-a` only |
+| D | drafts on `s3-a` (`a8`) and `s3-b` (`b3`, base `f8be23b3`) | Delete `s3-a`, confirmed | **`s3-b`'s only** | `Delete "s3-a" and its 1 domain? This cannot be undone.`; afterwards the marker on `s3-b` only |
+| D, the id reused | — | Add profile `s3-n`, Save | `s3-b`'s only | `s3-n` took id 3, the deleted profile's, and its card had **no marker** |
+| E | `s3-b`'s typed draft (`b3`) marked its card; the console changed only its operation, `set` → `delete` | reopen, then Edit | still stored, with the `delete` row | **no marker**; Edit showed the saved profile, `X-HW-C3B` / `request` / `set` / `b9`, with no notice |
+| R, uncounted | a valid draft on `s3-b` (`b4`, base `f8be23b3`) | Reload on `chrome://extensions` | `{}` | no marker |
+
+**On v0.2.2, every row would have gone the other way.** S's Save would have
+written `a2` over the other writer's `a9` and returned to the list. I's
+Replace would have kept both drafts and both markers. D's Delete would have
+left `s3-a`'s draft, which would then have marked `s3-n`. E's draft would
+have kept its marker, and Edit would have painted `delete` as `set` with
+`b3`. The runbook's console blocks were run against v0.2.2 in the container
+before the sitting, and failed there in those ways.
+
+### Closing state
+
+Profiles `1 legacy`, `2 probe`, as before the sitting. Drafts `{}`. Origins
+`*://*.hw.test/*`, `*://hw.test/*`. Footer `2 profiles · 1/1 domain granted ·
+applying 2`. No permission dialog opened at any point.
+
+### Observed, and not predicted
+
+- **On Chrome 154, closing the popup's DevTools did not close the popup.**
+  The runbook's Reopen procedure, and L1 for the gate runbooks, say it does.
+  The operator closed the popup by clicking on the page outside it. Each
+  reopened popup that a reading depended on was a new page: it came back on
+  the list after an editor had been left open, or its load time was read.
+- The editor's header-name field shows about eight characters, and a slip
+  in `s3-b`'s header name went unseen there (FINDING-043, UI-03). The card's
+  readback line showed it in full.
+
+### Not read
+
+- The popup's DevTools Issues count: 1 in a newly opened DevTools, and up to
+  13 in one window, about 4 per editor open, as in Sittings I and J.
+
+---
+
 # GATE-0b — the published v0.2.2 in a clean profile (2026-09-28)
 
 The release gate for v0.2.2, a new row rather than a retarget of GATE-0

@@ -2407,6 +2407,27 @@ serialized. The popup wiring is pinned by source scans and their mutants, not
 by a browser harness: the scans prove the calls are there and in order, not
 that Chrome runs them as read.
 
+**Browser evidence, 2026-09-30 to 2026-10-02 (Sitting K, `test/EVIDENCE.md`).**
+On Chrome 154.0.8037.58, with `extension/` unchanged and the other writer
+simulated from the popup's DevTools console. A draft left on a profile was
+restored after that profile had been changed, and Save refused it as
+`changed` with nothing written; Revert to saved loaded the current version,
+dropped the draft and reopened the session on the new base. Replace kept the
+draft of the profile its file held unchanged and dropped the draft of the
+one it changed. A confirmed Delete dropped that profile's draft and left
+another profile's, and a new profile that took the deleted id showed no
+marker. A stored draft whose operation was changed to `delete` lost its card
+marker, and Edit opened the saved profile with no notice. A reload of the
+extension cleared the drafts, which is the premise for refusing version 1
+drafts. The predictions were frozen in `test/RUNBOOK-2026-09-29-s3.md`
+before Chrome opened, and all fourteen counted ones held. AR-02 is
+`verified`. **Two things were not exercised in the browser:** the store's
+write ordering, because nothing there overlapped two draft writes or typed
+during a drop, and the refusal of a draft stored under another profile's
+key. Both rest on the lib-level checks, the ordering under adversarial
+timing, and on their mutants (ruled K6). The known limits below were not
+tested either, and the "guarded, partly" note above still stands.
+
 **Not changed, and stated.** If a draft drop fails after Save, Cancel or
 Revert to saved, the error still propagates as it did before s3: the view does
 not switch, and after Save grant reconciliation is skipped. That is
