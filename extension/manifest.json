@@ -23,7 +23,7 @@
     "service_worker": "background/sw.js",
     "type": "module"
   },
-  "minimum_chrome_version": "101",
+  "minimum_chrome_version": "116",
   "permissions": [
     "declarativeNetRequestWithHostAccess",
     "storage"

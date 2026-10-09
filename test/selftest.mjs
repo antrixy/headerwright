@@ -118,9 +118,13 @@ import {
   describeReadback,
   formatReadbackLine,
 } from "../extension/lib/readback.js";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+// The registry of what the extension asks of Chrome (AR-11, AR-23). A
+// namespace import, for the reason given above: a missing export must read
+// as FAIL lines, not kill the suite at link time.
+import * as platformFloor from "./platform-floor.mjs";
 
-const EXPECTED_CHECKS = 606;
+const EXPECTED_CHECKS = 619;
 
 let passed = 0;
 let failed = 0;
@@ -512,18 +516,20 @@ for (const [name, src] of harnesses) {
 
 // ------------------------------------------------------- manifest (R6, 0.2.0)
 //
-// NOTHING IN THIS SUITE READ THE MANIFEST BEFORE v0.2.0. requestDomains is
-// Chrome 101+, and the emitted rule shape depends on it, so an install on an
-// older Chrome gets an extension that cannot execute what it builds.
+// NOTHING IN THIS SUITE READ THE MANIFEST BEFORE v0.2.0. The emitted rule
+// shape depends on what Chrome accepts, so an install on an older Chrome gets
+// an extension that cannot execute what it builds.
 const manifest = JSON.parse(
   readFileSync(new URL("../extension/manifest.json", import.meta.url), "utf8")
 );
 check("manifest declares minimum_chrome_version",
   typeof manifest.minimum_chrome_version === "string");
-// Pinned to the version requestDomains actually requires. Raising this is a
-// deliberate act — it drops users — so it should fail here when it moves.
-check("manifest minimum_chrome_version is 101 (requestDomains)",
-  manifest.minimum_chrome_version === "101");
+// THE FLOOR IS NO LONGER PINNED HERE. It was pinned to "101", the version of
+// requestDomains alone, and so it never noticed optional_host_permissions
+// (102) or a request append (108). It is now DERIVED from
+// test/platform-floor.mjs in the platform-floor section below (AR-11).
+// Moving it is still a deliberate act that fails the suite until the
+// manifest and README follow.
 check("manifest still requests declarativeNetRequestWithHostAccess",
   (manifest.permissions || []).includes("declarativeNetRequestWithHostAccess"));
 
@@ -2545,6 +2551,172 @@ check("HW-V7-01: validation is defined once, not re-declared per consumer", (() 
 
 check("F002: the chip's click handler requests THAT DOMAIN only",
   /permissions\.request\(\{\s*origins: originsForDomain\(domain\),?\s*\}\)/.test(popupJs));
+
+// ------------------------------------------- platform floor (AR-11, AR-23)
+//
+// THE FLOOR NAMED ONE CAPABILITY, AND THE EXTENSION USED MORE. The manifest
+// said "101" because requestDomains is Chrome 101. Nothing compared that with
+// optional_host_permissions (102) or with a request append, which registers
+// on no Chrome below 108 and, until 143, only under its allowlist's lowercase
+// spelling: one append typed "X-Forwarded-For" failed the whole sync and kept
+// every later change from registering (FINDING-049). The floor is now
+// DERIVED. Everything the extension asks of Chrome must be in
+// test/platform-floor.mjs with the version that provides it, and the manifest
+// must EQUAL the highest of them. Checks 1–14 of
+// test/PREDICTIONS-2026-10-09-s5.md, in order.
+//
+// THE API SCAN READS THE FILES ITSELF: every .js under extension/, comments
+// stripped, so a chrome.* call added anywhere is collected, not only in the
+// files the scans above happen to read. A hand walk rather than readdirSync's
+// `recursive` option, which Node releases before 18.17 ignore silently.
+const extensionJsFiles = [];
+const walkExtension = (dir) => {
+  for (const entry of readdirSync(new URL(`../extension/${dir}`, import.meta.url))) {
+    const rel = `${dir}${entry}`;
+    if (statSync(new URL(`../extension/${rel}`, import.meta.url)).isDirectory()) {
+      walkExtension(`${rel}/`);
+    } else if (rel.endsWith(".js")) {
+      extensionJsFiles.push(rel);
+    }
+  }
+};
+walkExtension("");
+const apisInUse = [
+  ...new Set(
+    extensionJsFiles.flatMap((rel) =>
+      platformFloor.apiPaths?.(
+        stripJsComments(readFileSync(new URL(`../extension/${rel}`, import.meta.url), "utf8"))
+      ) ?? []
+    )
+  ),
+].sort();
+const isRegistered = (kind, name) => Boolean(platformFloor.requirementFor?.(kind, name));
+// A probe with every operation the product can emit, on both sides.
+const floorProbeRule = profileToRule({
+  id: 1, name: "probe", domains: ["example.com"],
+  headers: [
+    { name: "X-Probe-Set", operation: "set", value: "1" },
+    { name: "x-forwarded-for", operation: "append", value: "203.0.113.7" },
+    { name: "X-Probe-Remove", operation: "remove" },
+    { name: "X-Probe-Response", operation: "set", value: "1", side: "response" },
+    { name: "Server", operation: "remove", side: "response" },
+  ],
+}, ["example.com"]);
+const manifestKeysInUse = platformFloor.manifestKeys?.(manifest) ?? [];
+const permissionsInUse = platformFloor.manifestPermissions?.(manifest) ?? [];
+const rulePartsInUse = platformFloor.ruleParts?.(floorProbeRule) ?? [];
+const derivedFloor = platformFloor.floorOf?.([
+  ...apisInUse.map((name) => ({ kind: "api", name })),
+  ...manifestKeysInUse.map((name) => ({ kind: "manifest", name })),
+  ...permissionsInUse.map((name) => ({ kind: "permission", name })),
+  ...rulePartsInUse.map((name) => ({ kind: "rule", name })),
+  ...[...APPENDABLE_REQUEST_HEADERS].map((name) => ({ kind: "append", name })),
+]) ?? { floor: 0, setBy: [], unregistered: [] };
+
+// 1
+check("AR-11: every platform requirement has a kind, a unique name, a Chrome version, a basis and a source", (() => {
+  const requirements = platformFloor.REQUIREMENTS;
+  if (!Array.isArray(requirements) || requirements.length === 0) return false;
+  const seen = new Set();
+  for (const r of requirements) {
+    if (!platformFloor.KINDS?.has(r?.kind) || !platformFloor.BASES?.has(r?.basis)) return false;
+    if (typeof r.name !== "string" || r.name === "") return false;
+    if (!Number.isInteger(r.chrome) || r.chrome < 1) return false;
+    if (typeof r.source !== "string" || !/^(chromium-source|chrome-docs): \S/.test(r.source)) return false;
+    if (seen.has(`${r.kind} ${r.name}`)) return false;
+    seen.add(`${r.kind} ${r.name}`);
+  }
+  return true;
+})());
+// 2. The scan's positive control: without it, checks 3 and 8 could pass on a
+// scan that found nothing.
+check("AR-11: the scan finds the chrome.* APIs the extension calls: at least twelve, including chrome.storage.session and chrome.declarativeNetRequest.updateDynamicRules",
+  apisInUse.length >= 12 &&
+  apisInUse.includes("chrome.storage.session") &&
+  apisInUse.includes("chrome.declarativeNetRequest.updateDynamicRules"));
+// 3–7. A capability the table lacks cannot raise the derived floor, so each
+// kind is required to be registered in full.
+check("AR-11: every chrome.* API the extension calls is registered",
+  apisInUse.length > 0 && apisInUse.every((name) => isRegistered("api", name)));
+check("AR-11: every manifest key is registered",
+  manifestKeysInUse.length > 0 && manifestKeysInUse.every((name) => isRegistered("manifest", name)));
+check("AR-11: every permission the manifest requests is registered",
+  permissionsInUse.length > 0 && permissionsInUse.every((name) => isRegistered("permission", name)));
+check("AR-11: every part of the rule the builder emits is registered (request set, append and remove; response set and remove)",
+  floorProbeRule?.action?.requestHeaders?.length === 3 &&
+  floorProbeRule?.action?.responseHeaders?.length === 2 &&
+  rulePartsInUse.length > 0 &&
+  rulePartsInUse.every((name) => isRegistered("rule", name)));
+check("AR-23: every header name a request may append is registered",
+  APPENDABLE_REQUEST_HEADERS.size > 0 &&
+  [...APPENDABLE_REQUEST_HEADERS].every((name) => isRegistered("append", name)));
+// 8. EQUALITY, NOT "AT LEAST". Below the derived floor the extension installs
+// where it cannot work; above it, it refuses users it could serve. Both are a
+// wrong number, and either way the fix is a deliberate edit.
+check("AR-11: manifest.minimum_chrome_version equals the highest requirement in use",
+  derivedFloor.floor > 0 &&
+  manifest.minimum_chrome_version === String(derivedFloor.floor));
+// 9. The README is where a user reads the floor before installing.
+check("AR-11: README's Install section reads `Requires Chrome N or later.`, with N the manifest's floor", (() => {
+  const install = readmeText.match(/^## Install\n([\s\S]*?)(?=^## )/m)?.[1] ?? "";
+  const stated = install.match(/Requires Chrome (\d+) or later\./);
+  return typeof manifest.minimum_chrome_version === "string" &&
+    stated !== null && stated[1] === manifest.minimum_chrome_version;
+})());
+// 10–13. AR-23: what reaches Chrome is the allowlist's spelling for an append,
+// and the typed name for everything else.
+const typedAppendRule = profileToRule({
+  id: 7, name: "append typed", domains: ["example.com"],
+  headers: [{ name: "X-Forwarded-For", operation: "append", value: "v" }],
+}, ["example.com"]);
+check("AR-23: an append typed X-Forwarded-For is registered as x-forwarded-for",
+  typedAppendRule?.action?.requestHeaders?.length === 1 &&
+  typedAppendRule.action.requestHeaders[0].operation === "append" &&
+  typedAppendRule.action.requestHeaders[0].header === "x-forwarded-for");
+check("AR-23: each of the 21 appendable names, typed in capitals, is registered in its allowlist spelling", (() => {
+  const names = [...APPENDABLE_REQUEST_HEADERS];
+  return names.length > 0 && names.every((name) => {
+    const built = profileToRule({
+      id: 8, name: "capitals", domains: ["example.com"],
+      headers: [{ name: name.toUpperCase(), operation: "append", value: "v" }],
+    }, ["example.com"]);
+    return built?.action?.requestHeaders?.[0]?.header === name;
+  });
+})());
+const typedOtherRule = profileToRule({
+  id: 9, name: "typed", domains: ["example.com"],
+  headers: [
+    { name: "X-Debug", operation: "set", value: "1" },
+    { name: "X-Strip", operation: "remove" },
+    { name: "X-Resp", operation: "set", value: "1", side: "response" },
+    { name: "Server", operation: "remove", side: "response" },
+  ],
+}, ["example.com"]);
+check("AR-23: a set and a remove, on either side, keep their names as typed",
+  JSON.stringify(typedOtherRule?.action?.requestHeaders?.map((h) => h.header)) ===
+    JSON.stringify(["X-Debug", "X-Strip"]) &&
+  JSON.stringify(typedOtherRule?.action?.responseHeaders?.map((h) => h.header)) ===
+    JSON.stringify(["X-Resp", "Server"]));
+// The card renders what Chrome registered, so the lowercase name is what it
+// shows; a set still reads as typed (check 12).
+check("AR-23: the card reads that append back as `req · append · x-forwarded-for → \"v\"`", (() => {
+  const readback = describeReadback({ syncState: "applied", rule: typedAppendRule });
+  return readback.kind === "entries" && readback.lines.length === 1 &&
+    formatReadbackLine(readback.lines[0]) === 'req · append · x-forwarded-for → "v"';
+})());
+// 14. ONLY WHAT IS SENT CHANGES. The stored form keeps the name as typed, so
+// no stored profile, export, profileDigest or configRevision moves.
+check("AR-23: the stored form keeps the typed name: the export and configRevisionText keep X-Forwarded-For, and the entry is valid", (() => {
+  const profile = {
+    id: 14, name: "p14", domains: ["example.com"],
+    headers: [{ name: "X-Forwarded-For", operation: "append", value: "v" }],
+  };
+  let exported = "";
+  try { exported = serializeProfiles([profile]); } catch { return false; }
+  return validateHeaderEntry(profile.headers[0]).valid === true &&
+    exported.includes('"name": "X-Forwarded-For"') &&
+    (statusLib.configRevisionText?.([profile], true) ?? "").includes('"X-Forwarded-For"');
+})());
 
 // ------------------------------------------------ popup side control (0.2.0)
 //

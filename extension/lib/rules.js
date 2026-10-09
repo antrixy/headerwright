@@ -36,8 +36,13 @@ import { sideOf } from "./collisions.js";
 
 // The "append" operation is only supported for this specific set of
 // request headers (Chrome's declarativeNetRequest reference, "Header
-// modification" section, verified 2026-07-30). The allowlist is case
-// sensitive per a known Chrome bug (449152902); compare in lowercase.
+// modification" section, verified 2026-07-30). Chrome compares an appended
+// name with this list AS SPELLED until 143 (crbug 449152902; 143.0.7499.0
+// lowercases it first), and the list is lowercase, so on Chrome 108 to 142 an
+// append typed "X-Forwarded-For" failed the whole sync (FINDING-049). The
+// validator compares in lowercase, and headerEntryToModifyHeaderInfo() SENDS an
+// appended name in lowercase. Which Chrome accepts each name is recorded in
+// test/platform-floor.mjs.
 export const APPENDABLE_REQUEST_HEADERS = new Set([
   "accept", "accept-encoding", "accept-language",
   "access-control-request-headers", "cache-control", "connection",
@@ -290,9 +295,19 @@ export function validateHeaderEntry(entry) {
 /**
  * Convert one profile header entry to a DNR ModifyHeaderInfo object.
  * Assumes the entry has already passed validateHeaderEntry.
+ *
+ * AN APPENDED NAME IS SENT IN LOWERCASE, and only an appended one (AR-23,
+ * FINDING-049): Chrome before 143 registers a request append only when its
+ * name is spelled exactly as the lowercase allowlist spells it. Every other
+ * name reaches Chrome as typed. The stored profile keeps the name as typed in
+ * every case, so no export, profileDigest or configRevision moves; the card,
+ * which reads back what Chrome registered, shows the lowercase name.
  */
 export function headerEntryToModifyHeaderInfo(entry) {
-  const info = { header: entry.name, operation: entry.operation };
+  const info = {
+    header: entry.operation === "append" ? entry.name.toLowerCase() : entry.name,
+    operation: entry.operation,
+  };
   if (entry.operation !== "remove") {
     info.value = entry.value;
   }

@@ -48,6 +48,8 @@ If you want a specific final value, put the `set` first.
 
 [Install from the Chrome Web Store](https://chromewebstore.google.com/detail/headerwright/ooapgilielelobkkcdlnkenkflbnnmhi)
 
+Requires Chrome 116 or later.
+
 To run from source instead, see [Development](#development).
 
 ## Permissions

@@ -2445,3 +2445,86 @@ leftover draft.
 wrote the scope down, and a store that outlived that scope borrowed the
 identifier anyway. The repair was not a better key but carrying what the key
 never promised: the version the draft was written against.
+
+**FINDING-049 — the manifest floor named one API's version, and a request
+append failed on every Chrome before 143 unless its name was typed in
+lowercase.** Raised 2026-09-22 by the architecture review as AR-11
+(`LEDGER.md`), for `storage.session`. The append half was found 2026-10-06
+while measuring for s5, and raised as AR-23. Fixed 2026-10-09 in v0.2.4/s5.
+
+**Symptom.** Not reported by a user. An append typed the way the form's
+placeholder invites, `X-Forwarded-For`, made the footer read `sync failed —
+previous rules may still be applying` with the badge on `!`, and every later
+change to any profile failed to register as well, until the name was retyped
+in lowercase. The manifest let Chrome 101 install an extension that used
+capabilities from 102 and 108.
+
+**Cause.** `minimum_chrome_version` was `"101"` because `requestDomains` is
+Chrome 101, and a check pinned that number, so nothing compared it with the
+rest of what the extension asks of Chrome: `optional_host_permissions`
+arrived in Chrome 102, `storage.session` is documented from 102, and a request
+`append` registers on no Chrome below 108. Separately, `rules.js` validated an
+appended name in lowercase and then sent it as typed, while Chrome compares the
+name with its lowercase allowlist as spelled until 143 (crbug 449152902). One
+rule Chrome refuses fails the whole atomic update, so a single append took
+every later change down with it.
+
+**Reproduced** before any code, and recorded in §0 of
+`test/PREDICTIONS-2026-10-09-s5.md`:
+- From Chromium's source at release tags: `requestDomains` first at
+  101.0.4951.41; `optional_host_permissions` absent at 101.0.4951.74 and
+  102.0.4952.0, present at 102.0.5005.61; a request append refused for every
+  header at 107.0.5304.150 and 108.0.5359.40, a 20-name allowlist from
+  108.0.5359.50, `user-agent` added at 116.0.5845.0, and the name lowercased
+  before the comparison from 143.0.7499.0, not at 142.0.7444.273.
+- In headless Chromium 141.0.7390.37, on the unchanged product: a profile
+  setting `X-Debug` registered; a second profile appending `X-Forwarded-For`
+  failed the sync, with Chrome's error in the footer's hover text; a change to
+  the first profile then did not register either; retyping the append's name
+  in lowercase registered both.
+
+**Ruled 2026-10-06 (S5-D4, option B),** `antrixy/project-planning`
+`decisions.md`, "HeaderWright v0.2.4 — s5, compatibility and truth language".
+Option A, a floor of 143, was rejected: it drops Chrome 116–142. The
+predictions were frozen at `be458fa`, before the first check was written.
+
+**Fix.**
+- `extension/manifest.json`: `minimum_chrome_version` is 116.
+- `lib/rules.js`: `headerEntryToModifyHeaderInfo` sends an appended name in
+  lowercase and every other name as typed. What is stored, exported, digested
+  and fed to `configRevision` keeps the name as typed. The card shows what
+  Chrome registered, so an appended header reads in lowercase there.
+- `test/platform-floor.mjs`, new: 73 requirements, each with its Chrome
+  version, its basis and its source. The selftest collects what the extension
+  uses (every `chrome.*` API in its code, every manifest key and permission,
+  every part of a built rule, every appendable name), requires each one to be
+  registered, and requires the manifest to equal the highest. That is 116, set
+  by `append user-agent`.
+- README's Install section says `Requires Chrome 116 or later.`
+
+**Evidence.** `selftest.mjs`: fourteen `AR-11:` and `AR-23:` checks, the
+pinned floor check removed, `EXPECTED_CHECKS` 606 → 619. Red first, against
+the unchanged product: 5 of 619, the predicted checks exactly. Green: 619 of
+619, all 7 gates, 182 mutation scenarios. `mutate-collisions.py`: eleven new
+mutants and two rewritten, each failing exactly the predicted checks. In
+headless Chromium 141 (§6 of the predictions, C1–C5): the build loads with its
+manifest asking for 116; with `X-Debug` set and an append typed
+`X-Forwarded-For`, the footer read `2 profiles · 1/1 domain granted ·
+applying 2`, the card read `req · append · x-forwarded-for → "203.0.113.7"`,
+and the server received both headers; a set and then an append of
+`X-Forwarded-For`, both typed with capitals, reached the server as
+`x-forwarded-for: alpha, bravo`.
+
+**What rests on what.** The versions 101, 102, 108, 116 and 143 are reads of
+Chromium's source at release tags. Chromium 141 is the one version run. That
+Chrome 116 accepts each lowercase name rests on the source read.
+
+**Known limits.** The store listing still says "Requires Chrome 102 or later"
+until v0.2.4's release session (DR-03b). A user on Chrome 101 to 115 cannot
+run v0.2.4; what the store shows such a user who already has v0.2.3 was not
+checked.
+
+**The lesson.** A pinned number records one fact and then stops listening.
+The floor depends on everything the extension asks of Chrome, so it is now
+computed from a table of those asks, and the suite fails when the table misses
+one.

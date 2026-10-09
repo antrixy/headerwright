@@ -31,6 +31,7 @@ STO = ROOT / "extension/lib/stored.js"
 RBK = ROOT / "extension/lib/readback.js"
 PRO = ROOT / "extension/lib/profile.js"
 DRA = ROOT / "extension/lib/draft.js"
+PLF = ROOT / "test/platform-floor.mjs"
 
 MUTATIONS = [
     ("drop the leading dot (suffix-confusable guard removed)", COL,
@@ -386,11 +387,13 @@ MUTATIONS = [
     ("only the LATER duplicate is skipped (a winner is picked)", SW,
      '    [...idCounts].filter(([, count]) => count > 1).map(([id]) => id)',
      '    [...idCounts].filter(([, count]) => count > 2).map(([id]) => id)'),
+    # s5 R1 and R2: the anchors moved with the floor, 101 -> 116 (AR-11). The
+    # floor is derived now, so "below" means below the derived floor.
     ("minimum_chrome_version is dropped from the manifest", MAN,
-     '  "minimum_chrome_version": "101",\n',
+     '  "minimum_chrome_version": "116",\n',
      ''),
-    ("minimum_chrome_version drifts below requestDomains' floor", MAN,
-     '"minimum_chrome_version": "101"',
+    ("minimum_chrome_version drifts below the derived floor", MAN,
+     '"minimum_chrome_version": "116"',
      '"minimum_chrome_version": "88"'),
 
     # ---- FINDING-040 / FINDING-043 readback, M1-M8 of
@@ -599,6 +602,46 @@ MUTATIONS = [
     ("s3 M40 the card reads its draft by key, bypassing draftFor", POP,
      '  const draft = draftFor(drafts, profile.id);',
      '  const draft = drafts ? drafts[draftKeyFor(profile.id)] : null;'),
+
+    # ---- s5, AR-11 with AR-23: M1-M11 of test/PREDICTIONS-2026-10-09-s5.md
+    # (commit 2). The floor is derived from test/platform-floor.mjs, so each
+    # way it could drift from what the extension uses is a mutant: a floor
+    # above or below the derived one, something in use the table lacks, a
+    # table entry that is wrong, and AR-23's lowercase append undone or
+    # overdone.
+    ("s5 M1 minimum_chrome_version is raised above the derived floor", MAN,
+     '"minimum_chrome_version": "116"',
+     '"minimum_chrome_version": "120"'),
+    ("s5 M2 the worker calls a chrome.* API nobody registered", SW,
+     'chrome.runtime.onStartup.addListener(() => {',
+     'chrome.idle.onStateChanged.addListener(() => {});\nchrome.runtime.onStartup.addListener(() => {'),
+    ("s5 M3 the manifest gains a key nobody registered", MAN,
+     '"minimum_chrome_version": "116",',
+     '"minimum_chrome_version": "116",\n  "incognito": "split",'),
+    ("s5 M4 the manifest requests a permission nobody registered", MAN,
+     '    "storage"\n  ],',
+     '    "storage",\n    "alarms"\n  ],'),
+    ("s5 M5 the rule builder emits a resource type nobody registered", RUL,
+     '"webtransport", "webbundle", "other",\n];',
+     '"webtransport", "webbundle", "other", "speculative",\n];'),
+    ("s5 M6 the append allowlist gains a name nobody registered", RUL,
+     '"user-agent", "via", "want-digest", "x-forwarded-for",\n]);',
+     '"user-agent", "via", "want-digest", "x-forwarded-for", "x-real-ip",\n]);'),
+    ("s5 M7 an appended name is sent as typed again (AR-23 undone)", RUL,
+     'header: entry.operation === "append" ? entry.name.toLowerCase() : entry.name,',
+     'header: entry.name,'),
+    ("s5 M8 every header name is lowercased, not only an append's", RUL,
+     'header: entry.operation === "append" ? entry.name.toLowerCase() : entry.name,',
+     'header: entry.name.toLowerCase(),'),
+    ("s5 M9 the export lowercases an appended name", CAN,
+     'const out = { name: entry.name, operation: entry.operation };',
+     'const out = { name: entry.operation === "append" ? entry.name.toLowerCase() : entry.name, operation: entry.operation };'),
+    ("s5 M10 README states an older floor", RDM,
+     'Requires Chrome 116 or later.',
+     'Requires Chrome 102 or later.'),
+    ("s5 M11 the registry records append user-agent as 108", PLF,
+     'kind: "append", name: "user-agent", chrome: 116,',
+     'kind: "append", name: "user-agent", chrome: 108,'),
 ]
 
 backup = {}

@@ -563,6 +563,15 @@ evidence `reproduced, chromium-source`; DR-03b new, `open`, high, `v0.2.4`,
 prior `AR-11, DR-03`, evidence `reproduced`. Target summary: `v0.2.4`
 10 → 12, total 52 → 54.
 
+> **Outcome (built, 2026-10-09): as designed.** 73 requirements, all in
+> use; the derived floor is 116, set by `append user-agent`. Built
+> differently, and stated: the API scan walks `extension/` by hand, as
+> `verify.mjs` does, instead of using `readdirSync`'s `recursive` option,
+> which Node releases before 18.17 ignore silently; and check 1 also requires
+> each requirement's basis to be one of the three named. Check 14's "the
+> profile's name" is the appended header's name as the profile stores it, and
+> the check's name says so.
+
 ### Commit 3: UI-04 with AR-17
 
 **`extension/lib/status.js`:** the three strings, and the comments that
@@ -808,6 +817,19 @@ No crash.
 and mutate-scans (their pinned counts shift by the red baseline).
 module-syntax (25 files), oracle-selfcheck and initiator-selfcheck pass.
 
+> **Outcome (red, 2026-10-09): as predicted, `selftest: 5 of 619 checks
+> FAILED`.** The failures were checks 8, 9, 10, 11 and 13, each read by
+> name. No crash. The fixtures were checked first: the scan read 12 files and
+> found 15 APIs, the probe rule carried three request and two response
+> entries, and 73 items were in use, every one registered.
+>
+> **Outcome (red tree, all gates): 4 of 7 failed, as predicted, and for the
+> predicted reasons.** selftest (`checks FAILED`); mutate-collisions (`PATCH
+> DID NOT APPLY` for exactly R1, R2, M1, M3, M7, M8 and M10, read in a full
+> run of the harness); mutate-grants and mutate-scans (`MUTANTS NOT MATCHING
+> EXPECT`, every count 5 higher). module-syntax (25 files), oracle-selfcheck
+> and initiator-selfcheck passed.
+
 ### Commit 3, UI-04 and AR-17: checks 15–24, five changed
 
 `applied`, `zero`, `partial` and `failed` below are the records the status
@@ -982,6 +1004,13 @@ fixture.
   commit 7, against two today. Not counted.
 - No existing check changes beyond §3's lists.
 
+> **Outcome (commit 2, green, 2026-10-09): as predicted.** `selftest:
+> 619/619 checks passed`. `verify.mjs`: all 7 gates pass, `tree: 619 checks,
+> 182 mutation scenarios, 7 gates`, module-syntax over 25 files.
+> mutate-scans: all 8 rows matched their pinned expects, 19 and 0
+> unchanged; mutate-grants: all 7 rows unchanged. `configRevision([], false)`
+> is `69709b56`, and `lib/status.js` is unchanged.
+
 ## 5. Mutants, added to `test/mutate-collisions.py`, with predicted fails
 
 Each mutant must fail at least one check; that is the harness's verdict.
@@ -1006,6 +1035,14 @@ anchor.
 | M9 | the export lowercases an appended name (the stored form moves) | 1 (14) | applies |
 | M10 | README states an older floor (`Requires Chrome 102 or later.`) | 1 (9) | does not apply |
 | M11 | the registry records `append user-agent` as 108 | 1 (8) | applies |
+
+> **Outcome (mutants, 2026-10-09): every prediction held, counts and checks
+> exactly.** All thirteen applied on the green tree, each failed at least one
+> check, and none crashed. Every failing check was read by name: a scratch
+> runner applied each mutant to a throwaway copy and printed its failures.
+> The red column held too: R1, R2, M1, M3, M7, M8 and M10 did not apply
+> before the product change, and M2, M4, M5, M6, M9 and M11 did. Mutation
+> scenarios: 171 → 182.
 
 ### Commit 3: 13 added, 1 rewritten (182 → 195)
 
@@ -1132,6 +1169,17 @@ evidence; they do not replace the s5 sitting on Chrome 154.
 | C12 | 5 | a value of 140,000 characters in the editor | the notice shows, and the stored draft is the one before |
 | C13 | 5 | §0's session filler, then 412 characters | the notice shows: the browser's refusal is shown too |
 | C14 | 6 | two colliding profiles stored ("Alpha", "Beta"), then Export | `Export failed: "Alpha" and "Beta" both write header "x-h" on overlapping domains — refusing to export a set that cannot be re-imported. Change the header or the domains in one of them, then export.`, and no download |
+
+> **Outcome (commit 2, Chromium 141.0.7390.37, 2026-10-09): C1–C5 as
+> predicted.** C1: the copy loaded with `minimum_chrome_version` 116, and its
+> worker started. C2: `2 profiles · 1/1 domain granted · applying 2`, badge
+> `ON`, no hover text. C3: `req · append · x-forwarded-for →
+> "203.0.113.7"`, beside `req · set · X-Debug → "1"` on the other card. C4:
+> the server received `x-forwarded-for: 203.0.113.7` and `x-debug: 1`. C5:
+> `x-forwarded-for: alpha, bravo`, and the card read `req · set ·
+> X-Forwarded-For → "alpha"` and `req · append · x-forwarded-for →
+> "bravo"`. The stored profiles kept `X-Debug` and `X-Forwarded-For` as
+> typed. No page errors.
 
 ## 7. What s5 leaves for later
 
