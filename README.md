@@ -15,8 +15,8 @@ description.
 - Header profiles: set / append / remove request headers; set / remove
   response headers
 - Per-profile domain scoping (subdomains included)
-- Master on/off toggle with a badge showing that toggle's state, plus a
-  distinct state when Chrome rejects a rule registration
+- Master on/off toggle with a badge: ON or OFF for the toggle, and `!` when
+  Chrome rejected the last registration or some profiles were not registered
 - Deterministic JSON import/export — canonical key-sorted, byte-stable
   output, so configs can be shared and versioned in git
 
@@ -37,6 +37,25 @@ HeaderWright choice, and HeaderWright does not reorder your entries to work
 around it. Measured on Chrome 153; see `FINDINGS.md`, FINDING-036.
 
 If you want a specific final value, put the `set` first.
+
+## Pages with a service worker
+
+A site's service worker can answer a request itself. When it does, there is
+no network request for Chrome to apply a header rule to, so what a profile
+does on such a site depends on where the response comes from:
+
+| the response comes from | your headers |
+| --- | --- |
+| the network | apply |
+| the service worker passing the request on with `fetch()` | apply |
+| the service worker's cache | do not apply |
+| a response the service worker builds itself | do not apply |
+
+A response the worker cached while a profile was on keeps the headers it
+was stored with, even after the profile is turned off. To see which case a
+request is in, open DevTools, Network: the Size column says when a response
+came from the service worker. Measured on Chromium 141; see `FINDINGS.md`,
+FINDING-050.
 
 ## What it deliberately does not do (yet)
 
@@ -110,14 +129,13 @@ Why:
 
   **One exception, as of v0.1.5.** A green dot means the GRANT is held, which
   is not quite the same as the headers applying. If two profiles write the same
-  header on overlapping domains, neither applies — but the grant is still held,
-  so the dots stay green, the domains are still counted in the "domains
-  granted" total, the status line still reads "applying", and the badge still
-  reads ON. The per-profile collision marker on each card is the only surface
-  that reports it, and it is what to read. Closing the gap on the other four
-  means the status line and badge reporting how many profiles were skipped,
-  which is new signal rather than a corrected one, so it is queued rather than
-  patched (findings 21, 22 and 26).
+  header on overlapping domains, neither is registered, so neither applies — but
+  the grant is still held, so the dots stay green and the domains are still
+  counted in the "domains granted" total. Since v0.2.0 the status line and the
+  badge report it: with two such profiles and nothing else, the status line
+  ends `registered 0 · 2 not registered` and the badge shows `!`. The collision
+  marker on each card says which header and which other profile, and it is
+  what to read.
 
   One caveat, found while verifying this: the site list under
   `chrome://extensions` → Details is *not* a reliable view of what is

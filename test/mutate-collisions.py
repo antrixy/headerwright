@@ -32,6 +32,8 @@ RBK = ROOT / "extension/lib/readback.js"
 PRO = ROOT / "extension/lib/profile.js"
 DRA = ROOT / "extension/lib/draft.js"
 PLF = ROOT / "test/platform-floor.mjs"
+PRV = ROOT / "PRIVACY.md"
+SMK = ROOT / "test/SMOKE.md"
 
 MUTATIONS = [
     ("drop the leading dot (suffix-confusable guard removed)", COL,
@@ -355,9 +357,11 @@ MUTATIONS = [
     ("a failed sync claims rules are not applying", STA,
      'return "sync failed \\u2014 previous rules may still be applying";',
      'return "not applying \\u2014 last sync failed";'),
-    ("a zero-rule success claims to be applying", STA,
-     '  if ((r.activeRuleCount ?? 0) === 0) return "nothing to apply";',
-     '  if (false) return "nothing to apply";'),
+    # s5 Z1: the anchor moved with UI-04's words. Disabling the zero-rule
+    # line now prints a registered count of 0 instead of "nothing registered".
+    ("a zero-rule success prints a registered count", STA,
+     '  if ((r.activeRuleCount ?? 0) === 0) return "nothing registered";',
+     '  if (false) return "nothing registered";'),
     ("skipped profiles no longer make the result partial", STA,
      '  if ((r.skipped?.length ?? 0) > 0 || (r.dropped?.length ?? 0) > 0) {',
      '  if (false) {'),
@@ -642,6 +646,49 @@ MUTATIONS = [
     ("s5 M11 the registry records append user-agent as 108", PLF,
      'kind: "append", name: "user-agent", chrome: 116,',
      'kind: "append", name: "user-agent", chrome: 108,'),
+
+    # ---- s5, UI-04 with AR-17: N1-N13 of test/PREDICTIONS-2026-10-09-s5.md
+    # (commit 3). Each puts back a word or a claim the commit removed, or
+    # breaks a promise PRIVACY.md now makes about the manifest and the code.
+    ("s5 N1 the status line says applying N again (UI-04 undone)", STA,
+     '  return `registered ${r.activeRuleCount}`;',
+     '  return `applying ${r.activeRuleCount}`;'),
+    ("s5 N2 the partial line says not applied again", STA,
+     '${notRegistered} not registered`;',
+     '${notRegistered} not applied`;'),
+    ("s5 N3 the zero-rule line says nothing to apply again", STA,
+     '=== 0) return "nothing registered";',
+     '=== 0) return "nothing to apply";'),
+    ("s5 N4 the footer's hover text says Not applied again", POP,
+     '? `Not registered: ${notRegistered.join("; ")}`',
+     '? `Not applied: ${notRegistered.join("; ")}`'),
+    ("s5 N5 README's example goes back to applying 0 · 2 not applied", RDM,
+     'ends `registered 0 · 2 not registered`',
+     'ends `applying 0 · 2 not applied`'),
+    ("s5 N6 SMOKE.md expects the dead failure string again", SMK,
+     'Status line reads `sync failed —\n   previous rules may still be applying`',
+     'Status line reads "not applying —\n   last sync failed"'),
+    ("s5 N7 PRIVACY.md says no data leaves your device again", PRV,
+     'HeaderWright collects nothing.',
+     'HeaderWright collects nothing. No data leaves your device.'),
+    ("s5 N8 PRIVACY.md stops naming chrome.storage.session", PRV,
+     '  (`chrome.storage.session`), in memory, until you save or cancel them;',
+     '  in memory, until you save or cancel them;'),
+    ("s5 N9 PRIVACY.md says response headers are appended", PRV,
+     'you configure change what your browser receives;',
+     'you configure are appended to what your browser receives;'),
+    ("s5 N10 the popup makes a network request of its own", POP,
+     '(async function init() {\n',
+     '(async function init() {\n  fetch("https://example.com/");\n'),
+    ("s5 N11 the manifest requests webRequest", MAN,
+     '    "storage"\n  ],',
+     '    "storage",\n    "webRequest"\n  ],'),
+    ("s5 N12 README's service-worker section is renamed", RDM,
+     '## Pages with a service worker',
+     '## Service workers'),
+    ("s5 N13 README's badge bullet stops naming the ! badge", RDM,
+     'for the toggle, and `!` when',
+     'for the toggle, and a warning mark when'),
 ]
 
 backup = {}

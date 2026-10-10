@@ -2528,3 +2528,60 @@ checked.
 The floor depends on everything the extension asks of Chrome, so it is now
 computed from a table of those asks, and the suite fails when the table misses
 one.
+
+**FINDING-050 — a header rule does not apply to a response a page's service
+worker serves from its cache or builds itself.** Raised 2026-09-22 by the
+architecture review as part of AR-17 (`LEDGER.md`; HW-V6-15, HW-V6-17,
+HW-V6-20), as a limitation nothing documented. Measured 2026-10-09 while
+preparing s5, and documented in v0.2.4/s5.
+
+**Symptom.** Not reported by a user. On a site with a service worker, a
+profile's headers apply to some responses and not to others, and nothing in
+HeaderWright said why. A response the worker answers from its cache, or builds
+itself, never reaches the network. A response it cached while a profile was on
+keeps the changed header after the profile is turned off.
+
+**Cause.** Not a defect in the code. `declarativeNetRequest` rules act on
+network requests, and a worker's cache or its own `Response` involves none.
+The defect was that no user-facing document said so, and that `PRIVACY.md`
+described the extension as sending nothing at all.
+
+**Measured** in headless Chromium 141.0.7390.37, on the unchanged product,
+and recorded in §0 of `test/PREDICTIONS-2026-10-09-s5.md`. A page on
+`localhost` controlled by a service worker; one profile setting the request
+header `X-HW-Probe: present` and the response header `X-HW-Oracle: rewritten`;
+the server sending `X-HW-Oracle: baseline`:
+- from the network, the worker not answering: the request header reached the
+  server, and the page read `rewritten`;
+- from the worker passing the request on with `fetch()`: the same;
+- from the worker's cache, stored while the profile was off: no request, and
+  the page read `baseline`;
+- from a response the worker built itself: no request, and `baseline`;
+- from the worker's cache, stored while the profile was on: no request, and
+  `rewritten`, still `rewritten` after the profile was turned off.
+
+**Ruled 2026-10-06 (S5-D6),** `antrixy/project-planning` `decisions.md`,
+"HeaderWright v0.2.4 — s5, compatibility and truth language".
+
+**Fix.** Documentation. README's new section "Pages with a service worker"
+gives the cases above, and how to tell which one a request is in: DevTools,
+Network, the Size column. `PRIVACY.md` is replaced: it says what is stored
+and where, naming both storage areas, and what is sent and where, by side. It
+no longer says that no data leaves the device: the request headers a user
+configures are sent to the sites they are configured for. That is the
+extension's purpose.
+
+**Evidence.** `selftest.mjs`, checks 19–24 of the predictions: `PRIVACY.md`
+names every storage area the code uses, says what request headers do, says the
+manifest has no `webRequest` permission and no content scripts, which the
+manifest is read to confirm; no extension code makes a network call; README's
+section lists the cases and names this finding; README names every badge a
+user can see. `release-consistency.mjs` now holds `PRIVACY.md` to the same two
+facts as README. Each check has a mutant that fails it alone.
+
+**What rests on what.** The five cases are one measurement, on Chromium 141.
+Nothing in the suite re-runs them. Other browsers, and Chrome's handling of a
+navigation preload, were not measured.
+
+**The lesson.** A limit of the platform is still the product's to state. The
+user meets it as the product's behaviour.

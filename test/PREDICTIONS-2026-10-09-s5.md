@@ -612,6 +612,12 @@ response a page's service worker serves from its cache or builds itself"
 `reproduced`; AR-17 → `verified`, prior adds `FINDING-050`, evidence
 `reproduced, chrome-docs`.
 
+> **Outcome (built, 2026-10-09): as designed.** `status.js` also gains a
+> short "WHAT CHANGED IN v0.2.4" note beside the v0.2.0 one, which is left as
+> history. `PRIVACY.md`'s second rule splits sentences at a full stop or a
+> semicolon. Check 24 takes the visible badges from `status.js`'s exports,
+> leaving out `BADGE_STALE` for the reason §0 gives.
+
 ### Commit 4: UI-03
 
 **`extension/popup/popup.html`, CSS only.** The `.hrow` rule becomes S5-D3's
@@ -875,6 +881,18 @@ the five changed status checks, and R15. No crash.
 **Other gates on the red tree: 4 of 7 fail,** the same four as commit 2's;
 mutate-collisions has twelve mutants that do not apply (§5).
 
+> **Outcome (red, 2026-10-09): as predicted, `selftest: 15 of 629 checks
+> FAILED`.** The failures were checks 15–21, 23 and 24, the five changed
+> status checks, and R15, each read by name. Check 22 passed. No crash. The
+> fixtures were checked first: the scan found the storage areas `local` and
+> `session`, and on the unchanged product the two-colliding record classified
+> as partial and printed `applying 0 · 2 not applied`, with badge `!`.
+>
+> **Outcome (red tree, all gates): 4 of 7 failed, as predicted.** selftest;
+> mutate-collisions (`PATCH DID NOT APPLY` for exactly twelve: Z1, N1–N9, N12
+> and N13); mutate-grants and mutate-scans (every count 15 higher).
+> module-syntax (25 files), oracle-selfcheck and initiator-selfcheck passed.
+
 ### Commit 4, UI-03: checks 25–28
 
 | # | Check | Red |
@@ -1011,6 +1029,13 @@ fixture.
 > unchanged; mutate-grants: all 7 rows unchanged. `configRevision([], false)`
 > is `69709b56`, and `lib/status.js` is unchanged.
 
+> **Outcome (commit 3, green, 2026-10-09): as predicted.** `selftest:
+> 629/629 checks passed`. `verify.mjs`: all 7 gates pass, `tree: 629 checks,
+> 195 mutation scenarios, 7 gates`, module-syntax over 25 files.
+> mutate-scans: all 8 rows matched, 19 and 0 unchanged; mutate-grants: all 7
+> rows unchanged. `configRevision([], false)` is `69709b56`; `lib/status.js`'s
+> sha256 moved, `b1df6027…` → `9bf7540b…`.
+
 ## 5. Mutants, added to `test/mutate-collisions.py`, with predicted fails
 
 Each mutant must fail at least one check; that is the harness's verdict.
@@ -1067,6 +1092,16 @@ anchor.
 applying" fails 2 today and 3 from commit 3 (check 18 compares `SMOKE.md` with
 what `describeSync` returns). "Skipped profiles no longer make the result
 partial" gains check 17.
+
+> **Outcome (mutants, 2026-10-09): every prediction held, counts and checks
+> exactly.** All fourteen applied on the green tree, each failed at least one
+> check, and none crashed; every failing check was read by name. N1 failed
+> the `registered 1` pin, the failed-sync and stale controls, and 15. The two
+> existing mutants moved as predicted, read on both trees: "a failed sync
+> claims rules are not applying" 2 → 3 (check 18), and "skipped profiles no
+> longer make the result partial" 3 → 4 (check 17). The red column held:
+> N10 and N11 applied before the product change, the other twelve did not.
+> Mutation scenarios: 182 → 195.
 
 ### Commit 4: 5 added, 1 rewritten (195 → 200)
 
@@ -1180,6 +1215,14 @@ evidence; they do not replace the s5 sitting on Chrome 154.
 > X-Forwarded-For → "alpha"` and `req · append · x-forwarded-for →
 > "bravo"`. The stored profiles kept `X-Debug` and `X-Forwarded-For` as
 > typed. No page errors.
+
+> **Outcome (commit 3, Chromium 141.0.7390.37, 2026-10-09): C6–C8 as
+> predicted.** C6: `1 profile · 1/1 domain granted · registered 1`, badge
+> `ON`. C7: `2 profiles · 1/1 domain granted · registered 0 · 2 not
+> registered`, hover `Not registered: profile 1; profile 2`, badge `!`; each
+> card kept its `Not applying:` collision marker, unchanged on purpose. C8:
+> `0 profiles · 0/0 domains granted · nothing registered`, on two lines, 46.9
+> px high. No page errors.
 
 ## 7. What s5 leaves for later
 

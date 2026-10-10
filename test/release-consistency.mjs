@@ -215,9 +215,34 @@ export const ARTIFACTS = [
   },
   {
     path: "PRIVACY.md",
-    claims: false,
-    why: "states what is not collected; names no header-modification capability",
-    rules: [],
+    claims: true,
+    // AR-17 (s5, v0.2.4). Registered until then as making no capability
+    // claims, because it named none. It now says what configured headers do on
+    // each side, which is a capability claim, so it carries the same two facts
+    // as README. Both rules read whitespace-collapsed text: the file's
+    // sentences wrap across lines.
+    rules: [
+      {
+        fact: "emitsResponseHeaders",
+        why: "PRIVACY.md must say what configured response headers do",
+        test: (text) => /response headers/i.test(text.replace(/\s+/g, " ")),
+      },
+      {
+        fact: "appendRefusedOnResponse",
+        why:
+          "every sentence of PRIVACY.md that names append must name a request " +
+          "and no response",
+        // PER SENTENCE, NOT FILE-WIDE. The file names both sides, so a
+        // file-wide scan for a request near an append would pass a sentence
+        // that appends to responses.
+        test: (text) =>
+          text
+            .replace(/\s+/g, " ")
+            .split(/(?<=[.;])\s+/)
+            .filter((sentence) => /append/i.test(sentence))
+            .every((sentence) => /request/i.test(sentence) && !/response/i.test(sentence)),
+      },
+    ],
   },
   {
     path: "FINDINGS.md",

@@ -535,15 +535,15 @@ async function updateStatusLine(profiles, grants) {
   // profiles used to be computed and discarded, so this reason had nowhere to
   // appear at all.
   const syncState = classify({ enabled, desiredRevision: revision, record: sync });
-  const notApplied = [
+  const notRegistered = [
     ...sync.skipped.map((s) => `profile ${s.profileId}`),
     ...sync.dropped,
   ];
   line.title =
     syncState === "failed"
       ? `Chrome rejected the last rule registration: ${sync.error || "unknown error"}`
-      : notApplied.length > 0
-        ? `Not applied: ${notApplied.join("; ")}`
+      : notRegistered.length > 0
+        ? `Not registered: ${notRegistered.join("; ")}`
         : "";
   line.classList.toggle("sync-failed", syncState === "failed");
   line.classList.toggle("sync-partial", syncState === "partial");

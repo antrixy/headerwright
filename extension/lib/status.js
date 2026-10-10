@@ -32,6 +32,14 @@
 //
 // Five states is the smallest model that can make truthful claims. More signal
 // is the cost; being able to say what is actually true is what it buys.
+//
+// WHAT CHANGED IN v0.2.4 (UI-04, ruled 2026-09-28, R1-R3). The count on the
+// status line is activeRuleCount, the number of rules CHROME HAS REGISTERED.
+// The line called them "applying", which claims traffic is being modified, and
+// it is not whenever two profiles collide or a cross-site page makes the
+// request. So the line says "registered": "registered N", "registered N ·
+// M not registered" and "nothing registered". The failure line keeps "may
+// still be applying": it is about traffic, and it is already hedged.
 
 export const BADGE_ON = { text: "ON", color: "#1a7f37" };
 export const BADGE_OFF = { text: "OFF", color: "#6e7781" };
@@ -162,14 +170,14 @@ export function describeSync({ enabled, desiredRevision, record }) {
   }
   if (state === "paused") return "paused";
 
-  const notApplied = (r.skipped?.length ?? 0) + (r.dropped?.length ?? 0);
+  const notRegistered = (r.skipped?.length ?? 0) + (r.dropped?.length ?? 0);
   if (state === "partial") {
-    return `applying ${r.activeRuleCount ?? 0} \u00b7 ${notApplied} not applied`;
+    return `registered ${r.activeRuleCount ?? 0} \u00b7 ${notRegistered} not registered`;
   }
-  // A successful update with nothing to register is not "applying". There is
-  // nothing to apply, and saying otherwise is the overstatement review found.
-  if ((r.activeRuleCount ?? 0) === 0) return "nothing to apply";
-  return `applying ${r.activeRuleCount}`;
+  // A successful update that registered nothing says so. Claiming more than
+  // that is the overstatement review found.
+  if ((r.activeRuleCount ?? 0) === 0) return "nothing registered";
+  return `registered ${r.activeRuleCount}`;
 }
 
 /**

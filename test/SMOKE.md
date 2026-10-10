@@ -299,17 +299,18 @@ Live as of v0.1.1 (finding 4, narrow half). The pure suite covers the decision
 table in lib/status.js; this covers the wiring and the failure injection.
 
 1. **Truthful states.** Master toggle ON with a successful sync → badge ON,
-   status line third segment reads "applying". Toggle OFF → badge OFF,
-   "paused".
+   status line third segment reads `registered N`, N the number of rules
+   registered. Toggle OFF → badge OFF, "paused".
 2. **Inject a failure.** In the service worker console, register a rule by
    hand whose header value contains a CR — something the validator would now
    refuse but that reaches DNR if written straight to storage. Alternatively
    stub `chrome.declarativeNetRequest.updateDynamicRules` to reject. Then
    trigger a sync by toggling the master switch.
 
-   Expected: badge shows `!` in red, NOT ON. Status line reads "not applying —
-   last sync failed" and its tooltip names Chrome's rejection message. The
-   service worker console shows a handled error, not an unhandled rejection.
+   Expected: badge shows `!` in red, NOT ON. Status line reads `sync failed —
+   previous rules may still be applying`, and its tooltip names Chrome's
+   rejection message. The service worker console shows a handled error, not
+   an unhandled rejection.
 3. **Failure outranks the toggle.** With the failure still injected, switch
    the master toggle OFF. The badge must STILL show `!`, not OFF — the sync
    that just ran was the one clearing the rules, so OFF would assert a
@@ -559,19 +560,21 @@ view, visible without opening a console.
 ## Part 8 — Live state while the popup is open (finding 8, fixed in v0.1.2)
 
 At 0.1.1 the popup rendered once on open and never re-read storage: a failure
-arriving AFTER the render left the status line reading "applying" beside green
+arriving AFTER the render left the status line reporting success beside green
 dots while the toolbar badge was already RED. Reproduced in both directions on
 a genuine failure, 2026-08-05.
 
 The uncovered case is precisely **a change arriving after a render**, so the
 popup must stay open throughout. Closing and reopening it hides the bug.
 
-1. Open the popup. Confirm the status line reads "applying".
+1. Open the popup. Confirm the status line ends `registered N`.
 2. **Without closing it**, inject a sync failure from the service worker
    console (Part 3 step 2 describes how).
-3. Expected: within a moment, the status line updates IN PLACE to "not applying
-   — last sync failed", with the tooltip carrying Chrome's message. No reopen.
-4. Clear the failure. Expected: the status line returns to "applying" in place.
+3. Expected: within a moment, the status line updates IN PLACE to `sync failed
+   — previous rules may still be applying`, with the tooltip carrying Chrome's
+   message. No reopen.
+4. Clear the failure. Expected: the status line returns to `registered N` in
+   place.
 5. **Grant change from outside.** With the popup open, revoke a host via
    `chrome://extensions` → Site access. Expected: the chip's dot updates
    without a reopen.

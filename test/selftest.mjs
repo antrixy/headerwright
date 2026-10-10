@@ -124,7 +124,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 // as FAIL lines, not kill the suite at link time.
 import * as platformFloor from "./platform-floor.mjs";
 
-const EXPECTED_CHECKS = 619;
+const EXPECTED_CHECKS = 629;
 
 let passed = 0;
 let failed = 0;
@@ -2970,12 +2970,18 @@ check("every badge state carries a colour",
   [BADGE_ON, BADGE_OFF, BADGE_FAILED, BADGE_PARTIAL, BADGE_STALE]
     .every((b) => /^#[0-9a-f]{6}$/i.test(b.color)));
 
-check("status line says applying when enabled and synced",
-  describeSync(at(true, applied())) === "applying 1");
+// UI-04 (s5, ruled 2026-09-28, R1-R3): the count is of rules Chrome has
+// REGISTERED. "applying" claimed traffic was being modified, which two
+// colliding profiles or a cross-site initiator can make false.
+check("status line says registered when enabled and synced",
+  describeSync(at(true, applied())) === "registered 1");
 check("status line says paused when disabled and synced",
   describeSync(at(false, REC({ state: "paused" }))) === "paused");
-check("status line does not claim applying after a failed sync",
-  !describeSync(at(true, failedRec())).startsWith("applying"));
+// THE POSITIVE CONTROL IS PART OF THE CHECK. Testing only that the failed
+// line does not start with a word would pass vacuously on any wording change.
+check("status line does not claim registered after a failed sync",
+  describeSync(at(true, applied())).startsWith("registered") &&
+  !describeSync(at(true, failedRec())).startsWith("registered"));
 check("status line does not claim paused after a failed sync",
   describeSync(at(false, failedRec())) !== "paused");
 check("failed-sync text names the failure rather than a stale good state",
@@ -3000,14 +3006,14 @@ check("HW-V7-04: a failed sync says the previous rules may still be live",
 //    skipped profiles. buildRules() computed skippedProfileIds and runSync()
 //    discarded it, so every reason a profile did not apply was known and
 //    thrown away.
-check("HW-V7-04: a successful zero-rule sync does not claim to be applying",
-  describeSync(at(true, applied({ activeRuleCount: 0 }))) === "nothing to apply");
+check("HW-V7-04: a successful zero-rule sync reads nothing registered",
+  describeSync(at(true, applied({ activeRuleCount: 0 }))) === "nothing registered");
 check("HW-V7-04: skipped profiles produce partial, not applied",
   classify(at(true, applied({ skipped: [{ profileId: 9 }] }))) === "partial" &&
   computeBadge(at(true, applied({ skipped: [{ profileId: 9 }] }))) === BADGE_PARTIAL);
-check("HW-V7-04: partial says how many applied AND how many did not",
+check("HW-V7-04: partial says how many registered AND how many did not",
   describeSync(at(true, applied({ activeRuleCount: 2, skipped: [{ profileId: 9 }] })))
-    === "applying 2 \u00b7 1 not applied");
+    === "registered 2 \u00b7 1 not registered");
 // Dropped malformed records count too. They were persisted but invisible.
 check("HW-V7-04: dropped records also make the result partial",
   classify(at(true, applied({ dropped: ["profile 2 dropped: bad"] }))) === "partial");
@@ -3016,7 +3022,8 @@ check("HW-V7-04: dropped records also make the result partial",
 //    The popup can render from a storage change before the worker reconciles.
 check("HW-V7-04: a record for a different configuration reads as stale",
   classify({ enabled: true, desiredRevision: "new", record: applied() }) === "stale" &&
-  !/applying/.test(describeSync({ enabled: true, desiredRevision: "new", record: applied() })));
+  /registered/.test(describeSync(at(true, applied()))) &&
+  !/registered/.test(describeSync({ enabled: true, desiredRevision: "new", record: applied() })));
 // But a KNOWN FAILURE beats "we do not know" — it describes reality better.
 check("HW-V7-04: failure outranks staleness",
   classify({ enabled: true, desiredRevision: "new", record: failedRec() }) === "failed");
@@ -3155,6 +3162,95 @@ check("AR-01: configRevision changes when header order changes",
 check("AR-01: an absent side and side \"request\" give the same revision",
   configRevision(ar01Ref, true) ===
     configRevision(ar01With((p) => { p.headers[0].side = "request"; }), true));
+
+// ------------------------------ truth language (UI-04, AR-17; s5 commit 3)
+//
+// TWO SURFACES SAID MORE THAN THE PRODUCT KNOWS. The status line counted
+// rules Chrome had REGISTERED and called them "applying" (UI-04, ruled
+// 2026-09-28, R1-R3). PRIVACY.md said "No data leaves your device" while
+// the headers a user configures are sent to the sites they are configured
+// for, named one storage area of two, and left the service-worker limits to
+// nobody (AR-17). Checks 15–24 of test/PREDICTIONS-2026-10-09-s5.md.
+const collapse = (text) => text.replace(/\s+/g, " ");
+const privacyText = readFileSync(new URL("../PRIVACY.md", import.meta.url), "utf8");
+const smokeText = readFileSync(new URL("./SMOKE.md", import.meta.url), "utf8");
+const readmeSection = (heading) =>
+  readmeText.match(new RegExp(`^${heading}\\n([\\s\\S]*?)(?=^## |(?![\\s\\S]))`, "m"))?.[1] ?? "";
+const statusLines = {
+  applied: describeSync(at(true, applied())),
+  zero: describeSync(at(true, applied({ activeRuleCount: 0 }))),
+  partial: describeSync(at(true, applied({ activeRuleCount: 2, skipped: [{ profileId: 9 }] }))),
+};
+// 15
+check("UI-04: none of the applied, zero and partial lines says \"appl\", and each says \"registered\"",
+  Object.values(statusLines).every((line) => !/appl/i.test(line) && /registered/.test(line)));
+// 16. A template literal, so the scan does not read inside a quoted string.
+check("UI-04: the footer's hover text is `Not registered: ${`, and popup.js no longer holds \"Not applied:\"",
+  popupJs.includes("`Not registered: ${") && !popupJs.includes("Not applied:"));
+// 17. README quotes what the product PRINTS for its own example, derived
+// here rather than typed twice.
+const twoCollidingRecord = applied({
+  activeRuleCount: 0, skipped: [{ profileId: 1 }, { profileId: 2 }],
+});
+const twoCollidingLine = describeSync(at(true, twoCollidingRecord));
+const twoCollidingBadge = computeBadge(at(true, twoCollidingRecord)).text;
+check("UI-04: README shows, in backticks, the line the product prints for two colliding profiles and nothing else, that record's badge is `!`, and README no longer says the status line \"still reads \"applying\"\"",
+  readmeText.includes(`\`${twoCollidingLine}\``) &&
+  twoCollidingBadge === "!" &&
+  readmeText.includes(`the badge shows \`${twoCollidingBadge}\``) &&
+  !/still reads "applying"/.test(readmeText));
+// 18. SMOKE.md quoted a failure string dead since v0.2.0.
+const failedLine = describeSync(at(true, failedRec()));
+check("UI-04: SMOKE.md, whitespace collapsed, quotes the failed line exactly as describeSync returns it, and holds neither \"not applying — last sync failed\" nor a quoted \"applying\"",
+  collapse(smokeText).includes(failedLine) &&
+  !collapse(smokeText).includes("not applying — last sync failed") &&
+  !smokeText.includes('"applying"'));
+// 19. The storage areas come from the code, through commit 2's API scan.
+const storageAreasInUse = apisInUse
+  .map((name) => name.match(/^chrome\.storage\.(local|session|sync|managed)$/)?.[1])
+  .filter(Boolean);
+check("AR-17: PRIVACY.md names, as chrome.storage.<area>, every storage area the extension's code uses (at least two found)",
+  storageAreasInUse.length >= 2 &&
+  storageAreasInUse.every((area) => privacyText.includes(`chrome.storage.${area}`)));
+// 20
+check("AR-17: PRIVACY.md says request headers you configure are set, appended or removed by Chrome on requests to the domains you configured them for, and does not say no data leaves your device",
+  collapse(privacyText).includes(
+    "Request headers you configure are set, appended or removed by Chrome on requests to the domains you configured them for") &&
+  !/no data leaves your device/i.test(collapse(privacyText)));
+// 21. What PRIVACY.md calls "verifiable from the manifest" is verified here.
+check("AR-17: the manifest has no webRequest permission and no content_scripts, and PRIVACY.md says both",
+  ![...(manifest.permissions || []), ...(manifest.optional_permissions || [])]
+    .some((permission) => /^webRequest/.test(permission)) &&
+  manifest.content_scripts === undefined &&
+  collapse(privacyText).includes("does not request the `webRequest` permission") &&
+  collapse(privacyText).includes("has no content scripts"));
+// 22. "The extension's own code makes no network requests of any kind."
+const networkCalls = /\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b|\bEventSource\b|\bsendBeacon\b|\bimportScripts\b/;
+check("AR-17: no extension code calls fetch, XMLHttpRequest, WebSocket, EventSource, sendBeacon or importScripts, and popup.html loads nothing from http: or https:",
+  extensionJsFiles.length > 0 &&
+  extensionJsFiles.every((rel) => !networkCalls.test(
+    stripJsComments(readFileSync(new URL(`../extension/${rel}`, import.meta.url), "utf8")))) &&
+  !/(src|href)\s*=\s*["']?\s*https?:/i.test(popupHtml));
+// 23
+const serviceWorkerSection = readmeSection("## Pages with a service worker");
+const serviceWorkerRows = [...serviceWorkerSection.matchAll(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$/gm)]
+  .map((m) => [m[1], m[2]]);
+const serviceWorkerVerdict = (pattern) => serviceWorkerRows.find(([source]) => pattern.test(source))?.[1];
+check("AR-17: README's `## Pages with a service worker` lists the cache and the worker's own response under \"do not apply\" and the network under \"apply\", and names FINDING-050",
+  serviceWorkerVerdict(/^the network$/) === "apply" &&
+  serviceWorkerVerdict(/cache/) === "do not apply" &&
+  serviceWorkerVerdict(/builds itself/) === "do not apply" &&
+  /FINDING-050/.test(serviceWorkerSection));
+// 24. Every badge a user can see, from status.js. BADGE_STALE is left out on
+// purpose: the worker paints the badge with the record's own revision, so
+// classify() never returns "stale" there (s5 predictions, section 0).
+const visibleBadges = [...new Set([BADGE_ON, BADGE_OFF, BADGE_FAILED, BADGE_PARTIAL].map((b) => b.text))];
+const whatItDoes = readmeSection("## What it does");
+check("AR-17: README's `## What it does` names every badge a user can see: `ON`, `OFF` and `!`",
+  visibleBadges.length >= 3 &&
+  visibleBadges.every((text) => (/^\w+$/.test(text)
+    ? new RegExp(`\\b${text}\\b`).test(whatItDoes)
+    : whatItDoes.includes(`\`${text}\``))));
 
 // ------------------------------------------- serial queue (finding 5)
 // Async, so these run after the synchronous checks above and their results
