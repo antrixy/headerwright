@@ -54,7 +54,15 @@ import {
   baseForEditor,
   createDraftStore,
   createDraftSession,
+  DRAFT_NOT_KEPT,
 } from "../lib/draft.js";
+import {
+  checkProfilesBudget,
+  fitsDraftsBudget,
+  describeSaveBudgetRefusal,
+  describeImportBudgetRefusal,
+  DRAFT_NOT_KEPT_NOTICE,
+} from "../lib/budget.js";
 import {
   createSerialQueue,
   createDebounced,
@@ -141,10 +149,15 @@ async function setProfiles(profiles) {
 // store. Save, Cancel and Revert to saved end the session before its draft is
 // dropped, so a keystroke that arrives while the drop is in flight cannot
 // write the draft back.
+//
+// DR-02 (s5). The drafts map has a budget of its own (lib/budget.js); a draft
+// that would take the map over it is not written, and persistDraft says so on
+// screen.
 const draftStore = createDraftStore({
   read: async () =>
     (await chrome.storage.session.get(STORAGE_KEY_DRAFTS))?.[STORAGE_KEY_DRAFTS],
   write: (drafts) => chrome.storage.session.set({ [STORAGE_KEY_DRAFTS]: drafts }),
+  fits: fitsDraftsBudget,
 });
 const draftSession = createDraftSession(draftStore);
 
@@ -902,6 +915,7 @@ async function openEditor(profile = null) {
   }
   hideFormError();
   setRestoredNotice(Boolean(restored));
+  setDraftNotKeptNotice(false);
   // AR-01b. CAPTURED BEFORE THE FORM IS SHOWN, so there is no moment at which
   // Save can run without a base. AR-02 closed the known limit this comment
   // used to carry: a RESTORED draft brings its own base, the version it was
@@ -917,6 +931,14 @@ async function openEditor(profile = null) {
 
 function setRestoredNotice(visible) {
   $("draft-notice").classList.toggle("hidden", !visible);
+}
+
+// DR-02 (s5). Shown while the editor's latest edits are not stored as a draft:
+// over the drafts budget, or refused by the browser. The text is budget.js's.
+function setDraftNotKeptNotice(visible) {
+  const el = $("draft-not-kept");
+  el.textContent = DRAFT_NOT_KEPT_NOTICE;
+  el.classList.toggle("hidden", !visible);
 }
 
 // Throw the draft away and repaint from storage. The only path back to the
@@ -940,6 +962,7 @@ async function revertToSaved() {
   $("header-rows").textContent = "";
   for (const row of shape.rows) addHeaderRow(row);
   setRestoredNotice(false);
+  setDraftNotKeptNotice(false);
   // The form now shows the saved version, so an error about the form as it
   // was no longer describes anything on screen. After an AR-01b refusal it
   // would still be telling the user to use Revert to saved.
@@ -1029,12 +1052,19 @@ function readFormRaw() {
 // to saved has ended it, nothing is. That replaces the edit-view check this
 // function used to make. Known limit: keystrokes typed while a Save is
 // writing are not kept.
+//
+// DR-02 (s5), FINDING-051. A draft over the drafts budget is not written, and
+// the one stored before stays; a write the browser rejects leaves `kept` at
+// DRAFT_NOT_KEPT too. Either way the editor says its latest edits are not
+// kept, until a write is. Before this, both were a console line at most.
 async function persistDraft() {
+  let kept = DRAFT_NOT_KEPT;
   try {
-    await draftSession.put(formToDraft({ ...readFormRaw(), baseDigest: editingBaseDigest }));
+    kept = await draftSession.put(formToDraft({ ...readFormRaw(), baseDigest: editingBaseDigest }));
   } catch (err) {
     console.error("HeaderWright: could not persist the draft —", err);
   }
+  setDraftNotKeptNotice(kept === DRAFT_NOT_KEPT);
 }
 
 function validateForm({ name, domains, headers }) {
@@ -1182,6 +1212,16 @@ async function saveProfile() {
     return;
   }
 
+  // DR-02 (s5), FINDING-051. HeaderWright's own budget, refused in the form
+  // before anything is written. Chrome's quota is far above it, and a write
+  // Chrome refused showed nothing at all. A save that does not make the set
+  // larger is never refused, so an over-budget set can always be edited back.
+  const budget = checkProfilesBudget(STORAGE_KEY_PROFILES, previousProfiles, nextProfiles);
+  if (!budget.ok) {
+    showFormError(describeSaveBudgetRefusal(budget.overBy));
+    return;
+  }
+
   await setProfiles(nextProfiles);
 
   // FINDING-042: the draft has become the saved state, so it is no longer
@@ -1289,8 +1329,18 @@ async function onImportFileChosen(event) {
     return;
   }
 
+  // DR-02 (s5). A file over the budget is refused when it is chosen, so Replace
+  // is never offered for it. The profiles stored now are read once, for this
+  // and for the confirmation's count.
+  const stored = await getProfiles();
+  const fileBudget = checkProfilesBudget(STORAGE_KEY_PROFILES, stored, profiles);
+  if (!fileBudget.ok) {
+    showIoMsg(`Import failed: ${describeImportBudgetRefusal(fileBudget.overBy)}.`);
+    return;
+  }
+
   pendingImport = profiles;
-  const current = (await getProfiles()).length;
+  const current = stored.length;
   const n = profiles.length;
   $("import-confirm-text").textContent =
     `Replace your ${current} profile${current === 1 ? "" : "s"} with ` +
@@ -1302,6 +1352,15 @@ async function applyImport() {
   if (pendingImport === null) return;
   const nextProfiles = pendingImport;
   const previousProfiles = await getProfiles();
+
+  // DR-02 (s5). Checked again at Replace, against the profiles stored now:
+  // another window may have added to them since the file was chosen.
+  const replaceBudget = checkProfilesBudget(STORAGE_KEY_PROFILES, previousProfiles, nextProfiles);
+  if (!replaceBudget.ok) {
+    hideIoUi();
+    showIoMsg(`Import failed: ${describeImportBudgetRefusal(replaceBudget.overBy)}.`);
+    return;
+  }
 
   // Persist FIRST — same lesson as saveProfile.
   await setProfiles(nextProfiles);

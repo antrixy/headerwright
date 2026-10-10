@@ -738,6 +738,22 @@ quotas are 10 MiB; AR-05c new, low, `slice:scope`, prior `FINDING-051`,
 evidence `reproduced`; AR-15's cell names DR-02. Target summary:
 `slice:scope` 19 → 20, total 56 → 57.
 
+> **Outcome (built, 2026-10-10 UTC (2026-10-09 CT)): as designed, with one row
+> more.** `budget.js` counts strings by UTF-16 code unit with the fast path
+> for printable ASCII other than `"`, `\` and `<`; on this container a 4 MiB
+> string counts in about 10 ms, and 4,700 profiles just under the budget in
+> about 22 ms. `draft.js`'s `put` resolves `true` after a write; the session
+> passes the store's answer on. `extension/` holds 19 files and the syntax
+> gate reads 26. FINDINGS: FINDING-051, as named. LEDGER: DR-02, AR-05c and
+> AR-15 as designed; DR-02's cell also records S5-D2's "its own row". Not in
+> the design: **AR-24**, raised under the brief's rule that anything found
+> goes to a new row, low, `slice:scope`: FINDING-035 to FINDING-041 sat in
+> FINDINGS' Open section with no row naming them, so LEDGER's contract check 6
+> failed on all seven (found running checks 1–8 by hand during s5; they
+> predate LEDGER). The target summary is therefore `slice:scope` 19 → 21 and
+> total 56 → 58, not 20 and 57, and the contract checks 1–8 now find no
+> problem.
+
 ### Commit 6: AR-16
 
 **`extension/lib/canonical.js`, `serializeProfiles`.** It refuses, in the
@@ -985,6 +1001,15 @@ it reads every mutated file at start-up and `extension/lib/budget.js` does
 not exist yet; mutate-grants and mutate-scans shift. module-syntax (25
 files), oracle-selfcheck and initiator-selfcheck pass.
 
+> **Outcome (red, 2026-10-10 UTC (2026-10-09 CT)): as predicted, `selftest: 21
+> of 653 checks FAILED`,** checks 29–49, each read by name. No crash.
+>
+> **Outcome (red tree, all gates): 4 of 7 failed, as predicted.** selftest;
+> mutate-collisions stopped before its first mutant with
+> `FileNotFoundError` for `extension/lib/budget.js`; mutate-grants and
+> mutate-scans, every count 21 higher. module-syntax (25 files),
+> oracle-selfcheck and initiator-selfcheck passed.
+
 ### Commit 6, AR-16: checks 50–62
 
 `exportRefusal(set)` returns the thrown message, or null when the set
@@ -1076,6 +1101,13 @@ fixture.
 > checks, 200 mutation scenarios, 7 gates`, module-syntax over 25 files; the
 > other seven mutate-scans rows and all 7 mutate-grants rows unchanged.
 > `configRevision([], false)` is `69709b56`, and `lib/status.js` is unchanged.
+
+> **Outcome (commit 5, green, 2026-10-10 UTC (2026-10-09 CT)): as
+> predicted.** `selftest: 653/653 checks passed`. `verify.mjs`: all 7 gates
+> pass, `tree: 653 checks, 223 mutation scenarios, 7 gates`, module-syntax
+> over 26 files. mutate-scans: all 8 rows matched, 20 and 0 unchanged;
+> mutate-grants: all 7 rows unchanged. `configRevision([], false)` is
+> `69709b56`, and `lib/status.js` is unchanged.
 
 ## 5. Mutants, added to `test/mutate-collisions.py`, with predicted fails
 
@@ -1200,6 +1232,18 @@ line and the write after it, and still swallows the failed write: 1 (s3's
 29). M31 and M32 are anchored on `kept = await draftSession.put(…)`: 1 each
 (s3's 42), as in s3.
 
+> **Outcome (mutants, 2026-10-10 UTC (2026-10-09 CT)): every prediction for
+> the 23 added and the 3 changed held, counts and checks exactly.** All
+> applied on the green tree, each failed at least one check, and none crashed;
+> every failing check was read by name. D14 failed 39, 40, 43 and s3's 33.
+> Mutation scenarios: 200 → 223. **Not predicted:** three existing s3 mutants
+> gain one check each, read by name on the commit 4 and commit 5 trees. M18
+> ("drop writes when its key is absent") and M21 ("the session accepts writes
+> after it ends") also fail check 41, whose ended session must have written
+> nothing; M27 ("the session is given a store of its own") also fails check
+> 47, which counts the calls to `createDraftStore(`. Each goes 1 → 2. No other
+> existing mutant moved.
+
 ### Commit 6: 14 added (223 → 237)
 
 | M | Mutant | Predicted fails |
@@ -1282,6 +1326,23 @@ evidence; they do not replace the s5 sitting on Chrome 154.
 > and the form does not scroll; from the 4th row the popup is 600 px and the
 > form scrolls. The screenshot is byte-identical to one taken with the ruled
 > CSS injected into the unchanged product.
+
+> **Outcome (commit 5, Chromium 141.0.7390.37, 2026-10-10 UTC (2026-10-09
+> CT)): C10–C13 as predicted.** C10: with `hw:profiles` at 4,194,244 bytes, a
+> Save through the form left the editor open with `Not saved: your profiles
+> would be 1 KB over HeaderWright's 4 MB storage limit. Shorten a header value
+> or delete a profile, then save.`, and `getBytesInUse("hw:profiles")`
+> unchanged. C11: a file 606,008 bytes over: `Import failed: this file's
+> profiles are 592 KB over HeaderWright's 4 MB storage limit. Remove profiles
+> or shorten header values in the file and try again.`, no Replace offered,
+> nothing stored. C12: after `1234567`, a value of 140,000 characters: the
+> notice `These edits are too large to keep if the popup closes. Save the
+> profile to keep them.` showed, and the stored draft kept `1234567`; typing
+> `short` then stored it and hid the notice (not predicted, recorded). C13:
+> with 1,000 bytes of session storage free, 412 characters: the same notice
+> showed, the stored draft kept `1234567`, and the console line is the one §0
+> recorded. No page errors in C10–C12. DevTools Issues, read as in §0 with the
+> editor open: unchanged from the commit 4 build.
 
 ## 7. What s5 leaves for later
 

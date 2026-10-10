@@ -38,6 +38,11 @@
 // editor to its own base. Delete purges a profile's draft, Replace keeps only
 // the drafts whose profile it imports unchanged, and every draft read and
 // write goes through one queue.
+//
+// DR-02 (s5, v0.2.4), FINDING-051. The drafts map has a budget (budget.js),
+// and a draft over it is not written: the stored one stays, and the store
+// says so, so the editor can show it. A write the browser refused used to
+// leave nothing on screen.
 
 import { VALID_OPERATIONS, VALID_SIDES } from "./rules.js";
 import { createSerialQueue } from "./queue.js";
@@ -49,6 +54,14 @@ import { createSerialQueue } from "./queue.js";
  * build.
  */
 export const DRAFT_VERSION = 2;
+
+/**
+ * What a draft write resolves when the draft was NOT stored because the map
+ * would go over its budget (DR-02). A symbol, so no stored value or boolean
+ * can be mistaken for it. The popup treats a write the browser rejected the
+ * same way: either way the edit on screen is not kept.
+ */
+export const DRAFT_NOT_KEPT = Symbol("draft not kept");
 
 /**
  * The storage key of a profile's draft: the id as a string, or "new" for a
@@ -305,7 +318,8 @@ export async function retainDraftsFor(drafts, profiles, digestOf) {
 
 /**
  * The one path to the stored drafts map (AR-02, ruled S3-D4). `read` returns
- * whatever is stored under the drafts key; `write` stores a whole map.
+ * whatever is stored under the drafts key; `write` stores a whole map; `fits`,
+ * optional, says whether a whole map may be stored (DR-02).
  *
  * EVERY CALL GOES THROUGH ONE QUEUE. A draft write is a read-modify-write of
  * the whole map, and the popup issues them from input events without waiting.
@@ -319,8 +333,14 @@ export async function retainDraftsFor(drafts, profiles, digestOf) {
  * treated a failed read as an empty map and wrote that back, which would have
  * erased every other profile's draft. Each call's promise settles with its own
  * outcome, and a failure does not block the next call.
+ *
+ * THE WHOLE MAP IS BUDGETED, NOT THE DRAFT BEING WRITTEN (DR-02). put() sets
+ * the draft into the map it read and asks `fits` about that map, so other
+ * profiles' drafts count. A map that does not fit is not written, the stored
+ * draft stays as it was, and put() resolves DRAFT_NOT_KEPT; one that fits is
+ * written and put() resolves true. Without `fits`, every draft is written.
  */
-export function createDraftStore({ read, write }) {
+export function createDraftStore({ read, write, fits }) {
   const run = createSerialQueue((operation) => operation());
   const load = async () => {
     const stored = await read();
@@ -334,7 +354,9 @@ export function createDraftStore({ read, write }) {
       return run(async () => {
         const drafts = await load();
         drafts[key] = draft;
+        if (fits && !fits(drafts)) return DRAFT_NOT_KEPT;
         await write(drafts);
+        return true;
       });
     },
     // Resolves whether it wrote. Dropping a draft that is not there writes
@@ -367,7 +389,9 @@ export function createDraftStore({ read, write }) {
  * The editor's writes to one draft (AR-02, ruled S3-D4).
  *
  * open() binds the session to a profile's key. put() writes through the store
- * while it is open, and resolves false, touching nothing, once it has ended.
+ * while it is open and resolves what the store resolved (true, or
+ * DRAFT_NOT_KEPT for a draft over the budget), and resolves false, touching
+ * nothing, once it has ended.
  * end() CLOSES THE SESSION SYNCHRONOUSLY, then issues the drop. Save, Cancel
  * and Revert to saved end it, so a keystroke that arrives while the drop is in
  * flight is refused rather than written back, and every write issued before
@@ -381,7 +405,7 @@ export function createDraftSession(store) {
     },
     put(draft) {
       if (key === null) return Promise.resolve(false);
-      return store.put(key, draft).then(() => true);
+      return store.put(key, draft);
     },
     end() {
       const ending = key;

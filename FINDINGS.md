@@ -2594,3 +2594,67 @@ navigation preload, were not measured.
 
 **The lesson.** A limit of the platform is still the product's to state. The
 user meets it as the product's behaviour.
+
+**FINDING-051 — a write the browser refused was silent, and nothing bounded
+what HeaderWright stores.** Raised as DR-02 (`LEDGER.md`): at the Chrome 102
+floor the storage quotas are 1 MB and 5 MB, not 10 MB. Measured 2026-10-09
+while preparing s5, and fixed in v0.2.4/s5.
+
+**Symptom.** Not reported by a user. With the profiles near Chrome's quota, a
+Save through the form left the editor open, with no error and no message, and
+stored nothing. With session storage near its quota, a draft write was dropped
+and the editor carried on as if its edits were kept. In both cases the only
+trace was in the console.
+
+**Cause.** No budget of HeaderWright's own: the only input limit was the
+5,000-profile cap, so what could be stored was whatever a given Chrome
+allowed, and the write paths did not report the browser's refusal.
+`saveProfile` awaited a write that threw into nothing on screen, and
+`persistDraft` logged the failure and returned.
+
+**Measured** in headless Chromium 141.0.7390.37, on the unchanged product,
+and recorded in §0 of `test/PREDICTIONS-2026-10-09-s5.md`:
+- with `hw:profiles` filled to 135 bytes under the local quota, a new profile
+  saved through the form: the editor stayed open, nothing on screen, nothing
+  stored, and the page error `Resource::kQuotaBytes quota exceeded`;
+- with 1,000 bytes of session storage left, 412 characters typed over a
+  stored 7-character draft: the draft kept the 7, nothing on screen changed,
+  and one console line;
+- how Chrome counts `storage.local`: the key, plus the value as JSON written
+  by Chromium's own writer, reproduced exactly for twelve fixtures; and that
+  `storage.session` charges an estimate of memory instead, up to five times
+  the JSON.
+
+**Ruled 2026-10-06 (S5-D2),** `antrixy/project-planning` `decisions.md`,
+"HeaderWright v0.2.4 — s5, compatibility and truth language".
+
+**Fix.** `lib/budget.js`: 4,194,304 bytes of `hw:profiles`, counted as Chrome
+counts them, and 131,072 bytes of the drafts map's JSON. Save refuses in the
+form error, with the overage. Import refuses when the file is chosen, so
+Replace is never offered, and again at Replace. A write that does not make the
+set larger is never refused, so an over-budget set can always be edited back
+under. A draft that would take the drafts map over its budget is not written,
+the stored one stays, and the editor says its latest edits are not kept; a
+draft write the browser refuses shows the same notice. Both budgets sit under
+every quota since Chrome 102, so the user meets HeaderWright's sentence, not
+the browser's silence.
+
+**Evidence.** `selftest.mjs`, checks 29–49 of the predictions: the budgets;
+the count against Chrome's for all twelve fixtures; the boundaries, one byte
+either side; the way back for an over-budget set; the overage's rounding and
+the three sentences word for word; the drafts budget in bytes; the store and
+the session, against a fake budget; and the wiring of Save, Import, Replace
+and the notice. Each of the twenty-three mutants added with them fails the
+checks predicted for it. Chromium 141 ran the four refusals end to end (§6,
+C10–C13).
+
+**What rests on what.** The count is Chromium 141's, read with
+`getBytesInUse`, and the rule is Chromium's JSON writer; no other version was
+measured. The session charge is not modelled: the drafts budget is set so far
+under the quota that it does not need to be. Other writes the browser refuses
+(the master toggle, Delete, Replace's write) still show only a console error:
+that is AR-05c, not this fix.
+
+**The lesson.** A quota the product never states is a limit the user finds by
+losing work. A budget of its own, below the platform's, turns the limit into a
+sentence.

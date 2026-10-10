@@ -218,10 +218,10 @@ export function serializeProfiles(profiles) {
 // different one: it is a 32-bit status hint over the WHOLE configuration,
 // where a collision costs a status line lagging one sync. Here a collision
 // would be an overwrite nobody chose. Holding the base profile's full text
-// would also answer the question, but drafts will carry this binding (AR-02),
-// and DR-02's 1 MB session quota at the Chrome 102 floor rules out a copy of
-// every profile in every draft. The LEDGER amendment "AR-01 split by role"
-// records the reasoning. It is not a security measure: this is a local,
+// would also answer the question, but drafts carry this binding (AR-02), and
+// since v0.2.4 the drafts map has a 128 KiB budget of its own (DR-02,
+// lib/budget.js), which rules out a copy of every profile in every draft. The
+// LEDGER amendment "AR-01 split by role" records the reasoning. It is not a security measure: this is a local,
 // single-user tool.
 //
 // THE CANONICAL TEXT IS THE EXPORT FORMAT'S, deliberately. Two profiles bind

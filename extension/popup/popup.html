@@ -425,6 +425,9 @@
           <span>Showing unsaved changes.</span>
           <button type="button" id="draft-revert" class="quiet">Revert to saved</button>
         </div>
+        <!-- DR-02 (s5). Shown while the editor's latest edits are not stored as
+             a draft: over the drafts budget, or refused by the browser. -->
+        <div id="draft-not-kept" class="notice hidden"></div>
 
         <label>Headers</label>
         <div id="header-rows"></div>

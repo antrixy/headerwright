@@ -123,8 +123,11 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 // namespace import, for the reason given above: a missing export must read
 // as FAIL lines, not kill the suite at link time.
 import * as platformFloor from "./platform-floor.mjs";
+// DR-02 (s5): budget.js is new, so it comes in through a dynamic import caught
+// to {}. Absent, or missing an export, it reads as FAIL lines, not a crash.
+const budgetLib = await import("../extension/lib/budget.js").catch(() => ({}));
 
-const EXPECTED_CHECKS = 632;
+const EXPECTED_CHECKS = 653;
 
 let passed = 0;
 let failed = 0;
@@ -4081,6 +4084,246 @@ async function ar02Checks() {
     popupJs.includes("const draftSession = createDraftSession(draftStore);"));
 }
 
+// ---- DR-02 (s5 commit 5). Checks 29–49 of test/PREDICTIONS-2026-10-09-s5.md,
+// in order.
+//
+// What HeaderWright stores is bounded by budgets of its own, counted as Chrome
+// counts (ruled S5-D2): 4 MiB of hw:profiles, and 128 KiB of the drafts map's
+// JSON. budget.js comes in through a dynamic import caught to {}, so a missing
+// file or export reads as FAIL lines, and every check first requires what it
+// reads. The store checks use a fake drafts budget of 600 characters of JSON,
+// with fixtures sized so that the budget decides each outcome, and the sizes
+// are checked too. The wiring is read from comment-stripped popup.js, with
+// whitespace collapsed; no pattern here reads inside a double-quoted string.
+async function dr02Checks() {
+  const b = budgetLib;
+  const d = draftLib;
+  const fn = (name) => typeof b[name] === "function";
+  const KEY = "hw:profiles";
+  const isObj = (v) => v !== null && typeof v === "object";
+  const call = async (f) => {
+    try { return await f(); } catch { return THREW; }
+  };
+
+  // 29
+  check("DR-02: the budgets are 4,194,304 bytes of profiles and 131,072 bytes of drafts",
+    b.PROFILES_BUDGET_BYTES === 4194304 && b.DRAFTS_BUDGET_BYTES === 131072);
+
+  // 30. The fixtures of section 0, as frozen, each with the count Chromium 141's
+  // getBytesInUse returned for it under the key "hw:profiles".
+  const small = (id = 1) => ({ id, name: "p", domains: ["a.com"],
+    headers: [{ name: "X-A", operation: "set", value: "1" }] });
+  const typical = (id = 1) => ({ id, name: `Staging API ${id}`,
+    domains: ["api.example.com", "example.com"],
+    headers: [
+      { name: "Authorization", operation: "set", value: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c" },
+      { name: "X-Forwarded-For", operation: "append", value: "203.0.113.7" },
+      { name: "Cookie", operation: "append", value: "session=8f14e45fceea167a5a36dedd4bea2543; theme=dark" },
+      { name: "X-Debug", operation: "remove", value: "" },
+      { name: "Access-Control-Allow-Origin", operation: "set", value: "https://app.example.com", side: "response" },
+      { name: "Content-Security-Policy", operation: "set", value: "default-src 'self'; img-src 'self' data: https://cdn.example.com; script-src 'self' 'unsafe-inline'", side: "response" },
+      { name: "Server", operation: "remove", value: "", side: "response" },
+    ] });
+  const one = (id, name, header, value = "v", operation = "set") =>
+    ({ id, name, domains: ["a.com"], headers: [{ name: header, operation, value }] });
+  const KATS = [                                      // key "hw:profiles"
+    ["the empty set", [], 13],
+    ["one small profile", [small()], 109],
+    ["one typical profile", [typical()], 897],
+    ["two profiles", [small(1), typical(2)], 994],
+    ["angle brackets, quotes and backslashes",
+      [one(4, "<b>x</b> \"q\" \\ & > '", "X-T", "<script>alert(\"x\")</script> \\\\ </b>")], 194],
+    ["non-ASCII and astral characters",
+      [one(5, "café 中文 😀", "X-U", "naïve ☃ 👍🏽")], 143],
+    ["U+2028 and U+2029", [one(6, "line sep para", "X-S")], 131],
+    ["control characters in a name",
+      [one(7, "nul\u0000 soh\u0001 bs\b ff\f nl\n cr\r tab\t esc\u001b del\u007f", "X-C")], 168],
+    ["lone surrogates in a name", [one(8, "lone \ud83d high and \ude00 low", "X-L")], 133],
+    ["noncharacters in a name", [one(9, "bmp ￿ ﷐ astral 🿿", "X-N")], 131],
+    ["the largest id and a remove", [one(2147483647, "max", "X-M", "", "remove")], 122],
+    ["one hundred typical profiles",
+      Array.from({ length: 100 }, (_, i) => typical(i + 1)), 88696],
+  ];
+  const stored = (value) => (fn("storedBytes") ? attempt(() => b.storedBytes(KEY, value)) : THREW);
+  check("DR-02: storedBytes(\"hw:profiles\", …) equals Chrome's count for all twelve fixtures of section 0",
+    KATS.length === 12 && KATS.every(([, value, bytes]) => stored(value) === bytes));
+
+  // 31. L: the small profile measures 109 bytes with its one-character value,
+  // so a small profile whose value is L characters is exactly at the budget.
+  const L = 4194304 - 108;
+  const smallWith = (n, c = "x") =>
+    [{ ...small(), headers: [{ name: "X-A", operation: "set", value: c.repeat(n) }] }];
+  const budgetFor = (previous, next) => (fn("checkProfilesBudget")
+    ? attempt(() => b.checkProfilesBudget(KEY, previous, next)) : THREW);
+  const atBudget = budgetFor([], smallWith(L));
+  const oneOver = budgetFor([], smallWith(L + 1));
+  check("DR-02: a set at exactly the budget is accepted, and one byte over is refused with overBy 1",
+    stored(smallWith(L)) === 4194304 &&
+    isObj(atBudget) && atBudget.ok === true &&
+    isObj(oneOver) && oneOver.ok === false && oneOver.overBy === 1);
+
+  // 32. A write that does not make hw:profiles larger is never refused, so there
+  // is always a way back under the budget.
+  const overNow = smallWith(L + 5000);
+  const shrink = budgetFor(overNow, smallWith(L + 4999));
+  const same = budgetFor(overNow, smallWith(L + 5000, "y"));
+  const grow = budgetFor(overNow, smallWith(L + 5001));
+  check("DR-02: over the budget by 5,000 bytes already, a write 1 byte smaller is accepted, one the same size is accepted, and one 1 byte larger is refused",
+    isObj(shrink) && shrink.ok === true && isObj(same) && same.ok === true &&
+    isObj(grow) && grow.ok === false);
+
+  // 33
+  const FORMATS = [[1, "1 KB"], [1024, "1 KB"], [1025, "2 KB"], [12288, "12 KB"],
+    [1022976, "999 KB"], [1022977, "1.0 MB"], [1363148, "1.3 MB"], [1363149, "1.4 MB"],
+    [1572864, "1.5 MB"]];
+  check("DR-02: formatOverage: 1 → 1 KB, 1,024 → 1 KB, 1,025 → 2 KB, 12,288 → 12 KB, 1,022,976 → 999 KB, 1,022,977 → 1.0 MB, 1,363,148 → 1.3 MB, 1,363,149 → 1.4 MB, 1,572,864 → 1.5 MB",
+    fn("formatOverage") && FORMATS.every(([bytes, text]) => attempt(() => b.formatOverage(bytes)) === text));
+
+  // 34–36. The ruled copy, word for word (section 1).
+  check("DR-02: the save refusal for 12,288 bytes is the ruled sentence, with 12 KB",
+    fn("describeSaveBudgetRefusal") && attempt(() => b.describeSaveBudgetRefusal(12288)) ===
+      "Not saved: your profiles would be 12 KB over HeaderWright's 4 MB storage limit. Shorten a header value or delete a profile, then save.");
+  const importClause = fn("describeImportBudgetRefusal")
+    ? attempt(() => b.describeImportBudgetRefusal(1572864)) : THREW;
+  check("DR-02: the import refusal for 1,572,864 bytes is the ruled clause with 1.5 MB, unterminated, and renders as Import failed: ….",
+    importClause === "this file's profiles are 1.5 MB over HeaderWright's 4 MB storage limit. Remove profiles or shorten header values in the file and try again" &&
+    `Import failed: ${importClause}.` ===
+      "Import failed: this file's profiles are 1.5 MB over HeaderWright's 4 MB storage limit. Remove profiles or shorten header values in the file and try again.");
+  check("DR-02: DRAFT_NOT_KEPT_NOTICE is the ruled sentence",
+    b.DRAFT_NOT_KEPT_NOTICE ===
+      "These edits are too large to keep if the popup closes. Save the profile to keep them.");
+
+  // 37. {"x":"…"} is n + 8 bytes of JSON.
+  const accented = { new: "é" };
+  const mapOf = (n) => ({ x: "a".repeat(n) });
+  check("DR-02: draftsBytes counts UTF-8 bytes, a map of exactly 131,072 bytes fits, and one byte more does not",
+    fn("draftsBytes") && fn("fitsDraftsBudget") &&
+    attempt(() => b.draftsBytes(accented)) === JSON.stringify(accented).length + 1 &&
+    attempt(() => b.draftsBytes(mapOf(131064))) === 131072 &&
+    attempt(() => b.fitsDraftsBudget(mapOf(131064))) === true &&
+    attempt(() => b.fitsDraftsBudget(mapOf(131065))) === false);
+
+  // 38–43. The store, against a small fake storage and a fake budget.
+  const NOT_KEPT = d.DRAFT_NOT_KEPT;
+  const hasNotKept = NOT_KEPT !== undefined && NOT_KEPT !== true && NOT_KEPT !== false;
+  const fakeFits = (map) => JSON.stringify(map).length <= 600;
+  const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+  const fakeStorage = (initial) => {
+    const fake = { data: clone(initial), writes: 0 };
+    fake.read = async () => clone(fake.data);
+    fake.write = async (value) => { fake.writes += 1; fake.data = clone(value); };
+    return fake;
+  };
+  const storeOn = (fake, budgeted = true) => (typeof d.createDraftStore === "function"
+    ? attempt(() => d.createDraftStore(budgeted
+      ? { read: fake.read, write: fake.write, fits: fakeFits }
+      : { read: fake.read, write: fake.write }))
+    : THREW);
+  const put = (store, key, draft) => call(() => store.put(key, draft));
+  const draftWith = (id, n) => formToDraft({ editingProfileId: id,
+    baseDigest: id === null ? null : "sha256:profile-v1:" + "a".repeat(64),
+    name: "p", domains: "a.com",
+    rows: [{ name: "X-A", side: "request", operation: "set", value: "v".repeat(n) }] });
+  const same3 = (fake, draft) => JSON.stringify(fake.data) === JSON.stringify({ 3: draft });
+  const fits3 = draftWith(3, 10);
+  const fits3b = draftWith(3, 20);
+  const over3 = draftWith(3, 500);
+  const near5 = draftWith(5, 330);
+  const tinyNew = draftWith(null, 10);
+  const sized = fakeFits({ 3: fits3 }) && fakeFits({ 3: fits3b }) && !fakeFits({ 3: over3 }) &&
+    fakeFits({ 5: near5 }) && fakeFits({ new: tinyNew }) && !fakeFits({ 5: near5, new: tinyNew });
+  {
+    const fake = fakeStorage({ 3: fits3 });
+    const result = await put(storeOn(fake), "3", over3);
+    check("DR-02: a draft that pushes the map over the budget is not written, resolves DRAFT_NOT_KEPT, and the stored draft is still the earlier one",
+      hasNotKept && sized && result === NOT_KEPT && fake.writes === 0 && same3(fake, fits3));
+  }
+  {
+    const fake = fakeStorage();
+    const result = await put(storeOn(fake), "3", fits3);
+    check("DR-02: a draft that fits is written and resolves true",
+      sized && result === true && fake.writes === 1 && same3(fake, fits3));
+  }
+  {
+    const fake = fakeStorage({ 3: fits3 });
+    const store = storeOn(fake);
+    const first = await put(store, "3", over3);
+    const second = await put(store, "3", fits3b);
+    check("DR-02: after a refused draft, the next one that fits is written",
+      hasNotKept && sized && first === NOT_KEPT && second === true && same3(fake, fits3b));
+  }
+  {
+    const fake = fakeStorage();
+    const store = storeOn(fake);
+    const session = typeof d.createDraftSession === "function" && isObj(store)
+      ? attempt(() => d.createDraftSession(store)) : THREW;
+    attempt(() => session.open(3));
+    const refusedPut = await call(() => session.put(over3));
+    await call(() => session.end());
+    const afterEnd = await call(() => session.put(fits3));
+    check("DR-02: the session passes DRAFT_NOT_KEPT on, and still resolves false once ended",
+      hasNotKept && sized && isObj(session) && refusedPut === NOT_KEPT && afterEnd === false &&
+      fake.writes === 0);
+  }
+  {
+    const fake = fakeStorage({ 5: near5 });
+    const result = await put(storeOn(fake), "new", tinyNew);
+    check("DR-02: another profile's stored draft counts toward the budget: with it near the limit, a small draft under a new key is refused and nothing is written",
+      hasNotKept && sized && result === NOT_KEPT && fake.writes === 0 &&
+      JSON.stringify(fake.data) === JSON.stringify({ 5: near5 }));
+  }
+  {
+    const fake = fakeStorage();
+    const huge = draftWith(3, 200000);
+    const result = await put(storeOn(fake, false), "3", huge);
+    check("DR-02: a store given no budget writes a draft of any size and resolves true",
+      result === true && fake.writes === 1 && same3(fake, huge));
+  }
+
+  // 44–49. The wiring. Each function body is cut at its closing brace in
+  // column 0, and its whitespace collapsed.
+  const flat = (s) => s.replace(/\s+/g, " ");
+  const bodyOf = (signature) => {
+    const start = popupJs.indexOf(signature);
+    if (start < 0) return "";
+    const end = popupJs.indexOf("\n}\n", start);
+    return end < 0 ? "" : flat(popupJs.slice(start, end + 2));
+  };
+  const at = (body, text) => body.indexOf(text);
+  const inOrder = (...positions) => positions.every((p) => p >= 0) &&
+    positions.every((p, i) => i === 0 || positions[i - 1] < p);
+  const saveBody = bodyOf("async function saveProfile(");
+  check("DR-02: saveProfile checks the profiles budget after the collision refusal and before the write, and its refusal shows describeSaveBudgetRefusal(budget.overBy) and returns",
+    inOrder(at(saveBody, "if (savedProfileCollision) {"),
+      at(saveBody, "const budget = checkProfilesBudget(STORAGE_KEY_PROFILES, previousProfiles, nextProfiles);"),
+      at(saveBody, "if (!budget.ok) { showFormError(describeSaveBudgetRefusal(budget.overBy)); return; }"),
+      at(saveBody, "await setProfiles(nextProfiles)")));
+  const chosenBody = bodyOf("async function onImportFileChosen(");
+  check("DR-02: onImportFileChosen checks fileBudget after the parse and before pendingImport is set, and its refusal shows the import message and returns",
+    inOrder(at(chosenBody, "profiles = parseProfilesFile("),
+      at(chosenBody, "const fileBudget = checkProfilesBudget(STORAGE_KEY_PROFILES, stored, profiles);"),
+      at(chosenBody, "if (!fileBudget.ok) { showIoMsg(`Import failed: ${describeImportBudgetRefusal(fileBudget.overBy)}.`); return; }"),
+      at(chosenBody, "pendingImport = profiles;")));
+  const applyBody = bodyOf("async function applyImport(");
+  check("DR-02: applyImport checks replaceBudget before the write, with the same refusal and a return",
+    inOrder(at(applyBody, "const replaceBudget = checkProfilesBudget(STORAGE_KEY_PROFILES, previousProfiles, nextProfiles);"),
+      at(applyBody, "if (!replaceBudget.ok) { hideIoUi(); showIoMsg(`Import failed: ${describeImportBudgetRefusal(replaceBudget.overBy)}.`); return; }"),
+      at(applyBody, "await setProfiles(nextProfiles);")));
+  const storeCall = flat((popupJs.match(/createDraftStore\(\{[\s\S]*?\n\}\);/) || [""])[0]);
+  check("DR-02: the one draft store is created with fits: fitsDraftsBudget",
+    (popupJs.match(/\bcreateDraftStore\(/g) || []).length === 1 &&
+    storeCall.includes("fits: fitsDraftsBudget"));
+  const persistBody = bodyOf("async function persistDraft(");
+  check("DR-02: persistDraft starts from let kept = DRAFT_NOT_KEPT; and ends with setDraftNotKeptNotice(kept === DRAFT_NOT_KEPT);",
+    persistBody.startsWith("async function persistDraft() { let kept = DRAFT_NOT_KEPT; try {") &&
+    persistBody.endsWith(" setDraftNotKeptNotice(kept === DRAFT_NOT_KEPT); }"));
+  const form = (popupHtml.match(/<form id="profile-form">[\s\S]*?<\/form>/) || [""])[0];
+  check("DR-02: openEditor and revertToSaved call setDraftNotKeptNotice(false), and popup.html declares #draft-not-kept hidden, as a .notice, inside the form",
+    bodyOf("async function openEditor(").includes("setDraftNotKeptNotice(false);") &&
+    bodyOf("async function revertToSaved(").includes("setDraftNotKeptNotice(false);") &&
+    form.includes('<div id="draft-not-kept" class="notice hidden"></div>'));
+}
+
 async function debounceChecks() {
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
@@ -4151,6 +4394,7 @@ await actionGateChecks();
 await debounceChecks();
 await profileDigestChecks();
 await ar02Checks();
+await dr02Checks();
 
 // -------------------------------------------------------------- result
 
