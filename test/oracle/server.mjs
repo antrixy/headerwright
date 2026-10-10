@@ -49,6 +49,8 @@ const CASES = {
     ["Access-Control-Allow-Headers", "X-Baseline"],
     ["Access-Control-Allow-Methods", "GET"],
     ["X-HW-Oracle", "baseline"],
+    // F-045 (s5, ruled S5-D8): row 15.5 reads a response `remove` here too.
+    ["X-HW-Removable", "present"],
   ],
   plain: [
     ["X-HW-Oracle", "baseline"],

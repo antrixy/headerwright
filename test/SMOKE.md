@@ -1268,7 +1268,7 @@ had to be voided.
 | 15.2 | `X-HW-Oracle` / `set` / `rewritten` | plain | `1 changed`; `x-hw-oracle` `baseline` → `rewritten` |
 | 15.3 | `X-HW-Removable` / `remove`, alone | plain | `0 changed, 1 removed`; `x-hw-removable` absent |
 | 15.4 | `set X-HW-Oracle`, then `remove X-HW-Removable` | plain | `1 changed, 1 removed` — BOTH apply |
-| 15.5 | as 15.4 | CORS | `1 changed, 0 removed`; `x-hw-oracle` `baseline` → `rewritten`; the CORS family unchanged. **The `remove` entry is NOT OBSERVABLE here** — see below. |
+| 15.5 | as 15.4 | CORS | `1 changed, 1 removed`; `x-hw-oracle` `baseline` → `rewritten`; `x-hw-removable` absent; the CORS family unchanged — BOTH apply beside it |
 
 **15.3 and 15.4 are the rows FINDING-035 got wrong for two sittings.** It was
 raised as "response `remove` never applies" and then as "an earlier `set`
@@ -1283,11 +1283,17 @@ present is an emit-side defect and is its own finding.
 
 **15.5 was CORRECTED on 2026-09-21, after Sitting H (FINDING-045).** Its
 expectation used to read "same as 15.4, plus the CORS family unchanged". That
-cannot happen: the CORS case in `test/oracle/server.mjs` sends only the three
-`Access-Control-*` headers and `X-HW-Oracle`, so a response `remove` of
-`X-HW-Removable` has nothing to act on there. **In this row, `0 removed` is
-NOT OBSERVED, never PASS and never FAIL.** Response `remove` is proved by 15.3
-and 15.4, in the plain case, and nowhere else.
+could not happen then: the CORS case in `test/oracle/server.mjs` sent only the
+three `Access-Control-*` headers and `X-HW-Oracle`, so a response `remove` of
+`X-HW-Removable` had nothing to act on there. From 2026-09-21 the row read
+`1 changed, 0 removed`, with the `remove` marked as not observed, never PASS
+and never FAIL.
+
+**15.5 changed again on 2026-10-10, in s5 (F-045, ruled S5-D8).** The CORS
+case now sends `X-HW-Removable: present` as well, so the row observes the
+`remove` beside the CORS family and expects `1 changed, 1 removed`, as 15.4
+does in the plain case. The oracle's build stamp moved with the fixture:
+restart the instruments after the pull, and let preflight confirm it.
 
 **15.5 exists because the CORS case has its own blind spot.** `Set-Cookie` is
 stripped from `Response.headers` by the Fetch spec even same-origin, so an
@@ -1305,7 +1311,7 @@ Set-Cookie result from this part at all.
     15.3 remove entry has 2 keys    = ?   no `value` key = ?
          verdict + table row        = ?
     15.4 verdict                    = ?   both applied = ?
-    15.5 CORS verdict               = ?   CORS family unchanged = ?
+    15.5 CORS verdict               = ?   both applied = ?   CORS family unchanged = ?
     Any row where the popup and getDynamicRules() DISAGREED = ?
          (040 / 042 / 043 — record which, and the stored JSON verbatim)
     Notes:

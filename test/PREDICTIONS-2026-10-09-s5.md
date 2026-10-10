@@ -816,6 +816,13 @@ HW-DESC → `shipped`, if Ash has changed and read the About text by then
 (S5-D7), with the text, the date and the read-back. `FINDINGS.md`: a dated
 note under FINDING-045.
 
+> **Outcome (built, 2026-10-10 in UTC and CT alike): as designed.** Ash set
+> the repository's About text on GitHub to the manifest's description and read
+> it back on the repository page at 06:24 CT (a screenshot of the About box),
+> before this commit was built; HW-DESC is `shipped`. F-045 is
+> `fixed-unverified`, evidence `reproduced`. SMOKE.md's note under row 15.5
+> keeps the 2026-09-21 wording, in the past tense, and records this change.
+
 ### Known limits, stated
 
 - The registry's numbers below 116 are evidence floors, not first versions:
@@ -1069,6 +1076,17 @@ fixture.
 **Other gates on the red tree: 5 of 7 fail:** selftest, mutate-collisions
 (two not applied), mutate-grants, mutate-scans, oracle-selfcheck.
 
+> **Outcome (red, 2026-10-10 in UTC and CT alike): as predicted, `selftest: 2
+> of 668 checks FAILED`,** checks 63 and 64, read by name. oracle-selfcheck:
+> `13/15 rows passed`, exit 1, the two new rows failing ("the cors case emits
+> x-hw-removable", and the CORS removal row, which read the server's 400 as a
+> FAIL row and did not abort).
+>
+> **Outcome (red tree, all gates): 5 of 7 failed, as predicted.** selftest;
+> mutate-collisions (`PATCH DID NOT APPLY` for exactly F1 and F2);
+> mutate-grants and mutate-scans (every count 2 higher); oracle-selfcheck.
+> module-syntax (26 files) and initiator-selfcheck passed.
+
 ## 4. Green, predicted
 
 | After commit | Checks | Mutation scenarios | Syntax gate | Gates |
@@ -1133,6 +1151,14 @@ fixture.
 > mutate-scans: all 8 rows matched, 20 and 0 unchanged; mutate-grants: all 7
 > rows unchanged. `configRevision([], false)` is `69709b56`, and
 > `lib/status.js` is unchanged.
+
+> **Outcome (commit 7, green, 2026-10-10 in UTC and CT alike): as predicted.**
+> `selftest: 668/668 checks passed`; oracle-selfcheck `15/15 rows passed`.
+> `verify.mjs`: all 7 gates pass, `tree: 668 checks, 239 mutation scenarios, 7
+> gates`, module-syntax over 26 files. mutate-scans: all 8 rows matched, 20
+> and 0 unchanged; mutate-grants: all 7 rows unchanged. `configRevision([],
+> false)` is `69709b56`, and `lib/status.js` is unchanged. The gates' time on
+> the Mac is read from the hand-over, not counted.
 
 ## 5. Mutants, added to `test/mutate-collisions.py`, with predicted fails
 
@@ -1310,6 +1336,12 @@ other twelve do not.
 | --- | --- | --- |
 | F1 | the CORS case stops sending `X-HW-Removable` | 1 (63) |
 | F2 | row 15.5 goes back to `0 removed` | 1 (64) |
+
+> **Outcome (mutants, 2026-10-10 in UTC and CT alike): both predictions
+> held,** F1 failing 63 and F2 failing 64, read by name; neither applied
+> before the product change. Mutation scenarios: 237 → 239. No existing mutant
+> moved, compared on the commit 6 and commit 7 trees. No mutant crashed in any
+> commit of s5.
 
 No mutant crashes, in any commit.
 

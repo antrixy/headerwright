@@ -27,8 +27,9 @@ const BASE = `http://127.0.0.1:${PORT}`;
 // Moves 10 -> 13 on 2026-09-20: the plain-case x-hw-removable floor row, the
 // plain-case removal-detection row, and the refusal guard behind it. Bumped in
 // the same edit that adds them — an unbumped tripwire fails the run, which is
-// the design.
-const EXPECTED_ROWS = 13;
+// the design. 13 -> 15 on 2026-10-10 (s5, F-045, ruled S5-D8): the CORS-case
+// x-hw-removable floor row and the CORS-case removal-detection row.
+const EXPECTED_ROWS = 15;
 
 let ran = 0;
 let failed = 0;
@@ -61,6 +62,16 @@ async function observe({ id, caseName = "cors", tamper = null, tamperHeader = nu
   return { diff: diffHeaders(sent, received, observed), sent, received, observed };
 }
 
+// F-045. A tamper the server refuses (400, for a header the case does not
+// emit) must read as a FAIL row, not abort the run before the tripwire.
+async function observeOrNull(args) {
+  try {
+    return await observe(args);
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   // Guard: the instrument must be connected before anything is measured.
   try {
@@ -82,6 +93,14 @@ async function main() {
     a.sent.some(([n]) => n.toLowerCase() === "access-control-allow-origin") &&
     a.received.some(([n]) => n.toLowerCase() === "access-control-allow-origin"),
     "same-origin exposure is the whole point; if this fails the oracle is blind");
+
+  // F-045 (s5, ruled S5-D8). SMOKE.md row 15.5 reads a response `remove` of
+  // x-hw-removable in the CORS case, so the CORS case must emit it, on both
+  // sides of the diff. Same shape as the plain-case floor row below.
+  check("the cors case emits x-hw-removable",
+    a.sent.some(([n]) => n.toLowerCase() === "x-hw-removable") &&
+      a.received.some(([n]) => n.toLowerCase() === "x-hw-removable"),
+    "row 15.5's remove has nothing to act on without it");
 
   const b = await observe({ id: "clean-plain", caseName: "plain" });
   check("clean plain response diffs identical", b.diff.identical,
@@ -127,6 +146,18 @@ async function main() {
     !rp.diff.identical &&
       rp.diff.removed.some((c) => c.name === "x-hw-removable"),
     JSON.stringify(rp.diff));
+
+  // F-045: the same removal, in the CORS case, which row 15.5 reads.
+  const rc = await observeOrNull({
+    id: "t-remove-cors",
+    tamper: "remove",
+    tamperHeader: "x-hw-removable",
+  });
+  check("REMOVE of x-hw-removable is detected in the cors case",
+    rc !== null && !rc.diff.identical &&
+      rc.diff.removed.some((c) => c.name === "x-hw-removable"),
+    rc === null ? "the server refused the tamper: the cors case does not emit x-hw-removable"
+      : JSON.stringify(rc.diff));
 
   // GUARD ON THE GUARD. The row above is only worth anything if a target the
   // case does not emit fails loudly rather than filtering nothing and reading

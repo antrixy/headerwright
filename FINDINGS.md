@@ -2196,6 +2196,16 @@ headers its fixture case sends. A check could parse the row tables against
 `CASES` in `server.mjs`. That is a derived-fact check of the R15 kind, and it
 is noted, not built.
 
+**The fixture is fixed in v0.2.4 (s5, 2026-10-10 in UTC and CT alike; F-045, ruled S5-D8).**
+The CORS case in `test/oracle/server.mjs` now sends `X-HW-Removable: present`
+as the plain case does, so row 15.5 observes the `remove` and expects
+`1 changed, 1 removed`. `test/oracle/selfcheck.mjs` gains a CORS floor row and
+a CORS removal row (13 → 15), and `selftest.mjs` checks the fixture and the
+row's expectation (checks 63–64 of `test/PREDICTIONS-2026-10-09-s5.md`). The
+general check named above is still not built. The oracle's build stamp moved,
+so the instruments restart after the pull; one browser observation of row
+15.5 is owed to the s5 sitting.
+
 **FINDING-046 — the serial queue reported a failed task as success, and three
 popup handlers depended on it.** Raised 2026-09-24 in v0.2.1/s1 as AR-05
 (`LEDGER.md`).

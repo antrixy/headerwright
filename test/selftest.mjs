@@ -127,7 +127,7 @@ import * as platformFloor from "./platform-floor.mjs";
 // to {}. Absent, or missing an export, it reads as FAIL lines, not a crash.
 const budgetLib = await import("../extension/lib/budget.js").catch(() => ({}));
 
-const EXPECTED_CHECKS = 666;
+const EXPECTED_CHECKS = 668;
 
 let passed = 0;
 let failed = 0;
@@ -2265,6 +2265,21 @@ const exportBody = (() => {
 const exportCatch = exportBody.indexOf("} catch (err) { showIoMsg(`Export failed: ${err.message}.`); return; }");
 check("AR-16: exportProfiles shows a refusal and returns before any file is made",
   exportCatch >= 0 && exportCatch < exportBody.indexOf("URL.createObjectURL("));
+
+// --- F-045 (s5 commit 7, ruled S5-D8). Checks 63–64 of
+// test/PREDICTIONS-2026-10-09-s5.md. SMOKE.md row 15.5 reads a response
+// `remove` of X-HW-Removable in the oracle's CORS case, which did not send it,
+// so the row was marked NOT OBSERVABLE. The fixture now sends it in both
+// cases, and the row expects the removal.
+const oracleServer = readFileSync(new URL("./oracle/server.mjs", import.meta.url), "utf8");
+const oracleCase = (name) =>
+  (oracleServer.match(new RegExp(`\\n  ${name}: \\[([\\s\\S]*?)\\n  \\],`)) || ["", ""])[1];
+check("F-045: both oracle cases send [\"X-HW-Removable\", \"present\"]",
+  ["cors", "plain"].every((name) => oracleCase(name).includes('["X-HW-Removable", "present"]')));
+const smokeRow155 = (readFileSync(new URL("./SMOKE.md", import.meta.url), "utf8")
+  .split("\n").find((line) => line.startsWith("| 15.5 |")) || "");
+check("F-045: SMOKE.md row 15.5 expects 1 changed, 1 removed and no longer says NOT OBSERVABLE",
+  smokeRow155.includes("`1 changed, 1 removed`") && !smokeRow155.includes("NOT OBSERVABLE"));
 
 // ------------------------------- static popup wiring (finding 10 motivated)
 // The suite cannot execute popup.js — it needs chrome.* — but it CAN read it.

@@ -34,6 +34,7 @@ DRA = ROOT / "extension/lib/draft.js"
 PLF = ROOT / "test/platform-floor.mjs"
 PRV = ROOT / "PRIVACY.md"
 SMK = ROOT / "test/SMOKE.md"
+ORS = ROOT / "test/oracle/server.mjs"
 BUD = ROOT / "extension/lib/budget.js"
 
 MUTATIONS = [
@@ -828,6 +829,14 @@ MUTATIONS = [
     ("s5 X14 a refused export still makes a file", POP,
      '    showIoMsg(`Export failed: ${err.message}.`);\n    return;\n',
      '    showIoMsg(`Export failed: ${err.message}.`);\n'),
+
+    # ---- s5, F-045: F1-F2 of test/PREDICTIONS-2026-10-09-s5.md (commit 7).
+    ("s5 F1 the CORS case stops sending X-HW-Removable", ORS,
+     '    // F-045 (s5, ruled S5-D8): row 15.5 reads a response `remove` here too.\n    ["X-HW-Removable", "present"],\n',
+     ''),
+    ("s5 F2 row 15.5 goes back to 0 removed", SMK,
+     '| 15.5 | as 15.4 | CORS | `1 changed, 1 removed`',
+     '| 15.5 | as 15.4 | CORS | `1 changed, 0 removed`'),
 ]
 
 backup = {}
