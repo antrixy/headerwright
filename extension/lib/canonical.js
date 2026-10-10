@@ -38,7 +38,7 @@ import {
   MAX_RULE_ID,
   MAX_UNSAFE_DYNAMIC_RULES,
 } from "./rules.js";
-import { findCollisions, describeImportRefusal } from "./collisions.js";
+import { findCollisions, describeImportRefusal, describeExportRefusal } from "./collisions.js";
 
 export const FILE_FORMAT = "headerwright-profiles";
 // THE HIGHEST VERSION THIS BUILD WRITES OR READS. v0.1.x wrote and read 1.
@@ -200,14 +200,77 @@ export function stableStringify(value, indentUnit = 2) {
 
 /**
  * Serialize profiles to the canonical export file text.
+ *
+ * AR-16 (s5, v0.2.4), ruled S5-D1: EXPORT REFUSES ANY SET IMPORT WOULD
+ * REFUSE. It used to write a colliding pair, two profiles sharing an id, or
+ * 5,001 profiles, and parseProfilesFile() then refused the file it had
+ * written (FINDING-027): a backup the user believed they had and did not.
+ * The refusals come in the importer's order of precedence: the cap before
+ * anything else, then each profile's own validity (canonicalizeProfiles),
+ * then a duplicated id, then a collision. Each is an unterminated clause,
+ * as every message thrown here is; popup.js renders it as
+ * `Export failed: ${err.message}.` and makes no file. Import is unchanged,
+ * and there is no second, unchecked kind of file (S5-D1 rejected both).
  */
 export function serializeProfiles(profiles) {
+  refuseOverCapExport(profiles);
+  const canonical = canonicalizeProfiles(profiles);
+  refuseDuplicateIdExport(profiles);
+  refuseCollidingExport(profiles);
   const doc = {
     format: FILE_FORMAT,
     version: versionFor(profiles),
-    profiles: canonicalizeProfiles(profiles),
+    profiles: canonical,
   };
   return stableStringify(doc) + "\n";
+}
+
+const NOT_REIMPORTABLE = "refusing to export a set that cannot be re-imported";
+
+// The importer's cap, counted the same way, with the way out in profiles.
+function refuseOverCapExport(profiles) {
+  if (profiles.length > MAX_UNSAFE_DYNAMIC_RULES) {
+    const excess = profiles.length - MAX_UNSAFE_DYNAMIC_RULES;
+    throw new Error(
+      `you have ${profiles.length} profiles and a file can hold ` +
+        `${MAX_UNSAFE_DYNAMIC_RULES} — ${NOT_REIMPORTABLE}. Delete at least ` +
+        `${excess} profile${excess === 1 ? "" : "s"}, then export`
+    );
+  }
+}
+
+// The first pair in stored order: the profile that already held the id, then
+// the one that repeats it.
+function refuseDuplicateIdExport(profiles) {
+  const earlierById = new Map();
+  for (const profile of profiles) {
+    const earlier = earlierById.get(profile.id);
+    if (earlier) {
+      throw new Error(
+        `"${earlier.name}" and "${profile.name}" share id ${profile.id} — ` +
+          `${NOT_REIMPORTABLE}. Delete one of them and add it again, then export`
+      );
+    }
+    earlierById.set(profile.id, profile);
+  }
+}
+
+// Computed as the importer computes it: on normalized domains, over valid
+// entries only.
+function refuseCollidingExport(profiles) {
+  const exportCollisions = findCollisions(
+    profiles.map((profile) => ({
+      id: profile.id,
+      name: profile.name,
+      domains: normalizeDomains(profile.domains),
+      headers: profile.headers,
+    })),
+    (entry) => validateHeaderEntry(entry).valid
+  );
+  if (exportCollisions.length > 0) {
+    const exportNames = new Map(profiles.map((profile) => [profile.id, profile.name]));
+    throw new Error(describeExportRefusal(exportCollisions, (id) => exportNames.get(id)));
+  }
 }
 
 // ------------------------------------------------ per-profile digest (AR-01b)

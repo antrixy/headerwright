@@ -786,6 +786,15 @@ fourteen mutants added.
 `v0.2.4` 12 → 13, `slice:scope` 20 → 19, total 57. `FINDINGS.md`: a dated
 note under FINDING-027.
 
+> **Outcome (built, 2026-10-10 in UTC and CT alike): as designed.** The three
+> refusals live in their own functions (`refuseOverCapExport`,
+> `refuseDuplicateIdExport`, `refuseCollidingExport`), called in the
+> importer's order from `serializeProfiles`; the new code shares no anchor
+> with an import mutant. `popup.js` is unchanged. LEDGER as designed; the
+> fourth blocking decision is now FEAT-3's. With AR-24 raised at commit 5, the
+> target summary reads `v0.2.4` 12 → 13, `slice:scope` 21 → 20, total 58, not
+> 57.
+
 ### Commit 7: F-045
 
 **`test/oracle/server.mjs`:** the CORS case gains
@@ -1038,6 +1047,15 @@ fixture.
 
 **Other gates on the red tree: 4 of 7 fail;** twelve mutants do not apply.
 
+> **Outcome (red, 2026-10-10 in UTC and CT alike): as predicted, `selftest: 9
+> of 666 checks FAILED`,** checks 50–55, 57, 59 and 61, each read by name.
+> Checks 56, 58, 60 and 62 passed. No crash.
+>
+> **Outcome (red tree, all gates): 4 of 7 failed, as predicted.** selftest;
+> mutate-collisions (`PATCH DID NOT APPLY` for exactly twelve, X1–X12);
+> mutate-grants and mutate-scans, every count 9 higher. module-syntax (26
+> files), oracle-selfcheck and initiator-selfcheck passed.
+
 ### Commit 7, F-045: checks 63–64
 
 | # | Check | Red |
@@ -1108,6 +1126,13 @@ fixture.
 > over 26 files. mutate-scans: all 8 rows matched, 20 and 0 unchanged;
 > mutate-grants: all 7 rows unchanged. `configRevision([], false)` is
 > `69709b56`, and `lib/status.js` is unchanged.
+
+> **Outcome (commit 6, green, 2026-10-10 in UTC and CT alike): as predicted.**
+> `selftest: 666/666 checks passed`. `verify.mjs`: all 7 gates pass, `tree:
+> 666 checks, 237 mutation scenarios, 7 gates`, module-syntax over 26 files.
+> mutate-scans: all 8 rows matched, 20 and 0 unchanged; mutate-grants: all 7
+> rows unchanged. `configRevision([], false)` is `69709b56`, and
+> `lib/status.js` is unchanged.
 
 ## 5. Mutants, added to `test/mutate-collisions.py`, with predicted fails
 
@@ -1266,6 +1291,19 @@ line and the write after it, and still swallows the failed write: 1 (s3's
 On the red tree X13 and X14 apply, anchored on code that predates s5; the
 other twelve do not.
 
+> **Outcome (mutants, 2026-10-10 in UTC and CT alike): every prediction for
+> the 14 added held, counts and checks exactly,** read by name; the red column
+> held too. Mutation scenarios: 223 → 237. **Not predicted:** nine existing
+> mutants gain checks, because Export now runs the collision analysis and the
+> codec on every set, read by name on the commit 5 and commit 6 trees. The
+> overlap mutants "exact-equality overlap only" (10 → 15) and "one-directional
+> overlap" (9 → 14) gain 50–53 and 61; "header names compared
+> case-sensitively" (11 → 13) gains 51 and 53; "side ignored" (9 → 10) gains
+> 53; "the legacy default flips" (32 → 34) gains 51 and 60; "drop the leading
+> dot" (3 → 4) and "the codec drops side again" (5 → 6) gain 60; "the codec
+> emits side: request" (7 → 9) gains 56 and 60; "the writer stops validating
+> the whole profile" (17 → 18) gains 58. No mutant lost a check.
+
 ### Commit 7: 2 added (237 → 239)
 
 | M | Mutant | Predicted fails |
@@ -1343,6 +1381,14 @@ evidence; they do not replace the s5 sitting on Chrome 154.
 > showed, the stored draft kept `1234567`, and the console line is the one §0
 > recorded. No page errors in C10–C12. DevTools Issues, read as in §0 with the
 > editor open: unchanged from the commit 4 build.
+
+> **Outcome (commit 6, Chromium 141.0.7390.37, 2026-10-10 in UTC and CT
+> alike): C14 as predicted.** With "Alpha" and "Beta" stored writing `X-H` on
+> `example.com`, Export showed `Export failed: "Alpha" and "Beta" both write
+> header "x-h" on overlapping domains — refusing to export a set that cannot
+> be re-imported. Change the header or the domains in one of them, then
+> export.` and no download started; the control, "Alpha" alone, downloaded
+> `headerwright-profiles.json`. No page errors.
 
 ## 7. What s5 leaves for later
 

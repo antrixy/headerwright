@@ -444,3 +444,34 @@ export function describeImportRefusal(collisions, nameFor) {
       : "")
   );
 }
+
+/**
+ * The refusal thrown by serializeProfiles() when the profiles collide
+ * (AR-16, ruled S5-D1). Export refuses any set Import would refuse, so the
+ * file a user keeps is one this build can read back.
+ *
+ * Shaped like the import refusal, for the same reasons: it names both
+ * profiles and the header, says "on the response" for a response-side
+ * collision, counts further collisions instead of listing them, and ends
+ * WITHOUT PUNCTUATION, because popup.js renders it as
+ * `Export failed: ${err.message}.`. Unlike the import refusal it ends on the
+ * way out, since here the user can fix the cause in the editor.
+ */
+export function describeExportRefusal(collisions, nameFor) {
+  if (!collisions || collisions.length === 0) return "";
+
+  const [pair] = collisions;
+  const [firstId, secondId] = pair.profileIds;
+  const further = collisions.length - 1;
+
+  return (
+    `${nameOf(firstId, nameFor)} and ${nameOf(secondId, nameFor)} both write ` +
+    `header "${pair.header}"${pair.side === "response" ? " on the response" : ""} ` +
+    `on overlapping domains` +
+    (further > 0
+      ? `; ${further} further collision${further === 1 ? " is" : "s are"} not listed`
+      : "") +
+    ` — refusing to export a set that cannot be re-imported. Change the ` +
+    `header or the domains in one of them, then export`
+  );
+}

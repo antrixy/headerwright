@@ -1220,6 +1220,17 @@ install is already treated, and it removes the asymmetry entirely). The third
 is the most coherent and is also the largest change, since it moves import from
 refusing to marking. Needs a decision entry before any of them is built.
 
+**Fixed in v0.2.4 (s5, 2026-10-10 in UTC and CT alike; AR-16, ruled S5-D1): the export is
+refused.** The first shape above, decided as a portable config: Export refuses
+any set Import would refuse (a collision, a duplicated id, more than 5,000
+profiles), in the importer's order, with a sentence that names the cause and
+the way out, and makes no file. Import is unchanged, and there is no second,
+unchecked kind of file. The rescue path this entry worried about is the
+editor: the collision can be resolved there, then exported. Checks 50–62 of
+`test/PREDICTIONS-2026-10-09-s5.md`, and Chromium 141 refused a colliding
+export with no file (§6, C14). Browser evidence on Chrome is owed to the s5
+sitting.
+
 **FINDING-025 — `originsForDomain()` requests a redundant pattern.**
 `*://*.host/*` subsumes `*://host/*`. Confirmed at every layer:
 `permissions.contains()` on the apex returns true with only the wildcard held;

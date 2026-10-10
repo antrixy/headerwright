@@ -127,7 +127,7 @@ import * as platformFloor from "./platform-floor.mjs";
 // to {}. Absent, or missing an export, it reads as FAIL lines, not a crash.
 const budgetLib = await import("../extension/lib/budget.js").catch(() => ({}));
 
-const EXPECTED_CHECKS = 653;
+const EXPECTED_CHECKS = 666;
 
 let passed = 0;
 let failed = 0;
@@ -2170,6 +2170,101 @@ check("F026: the THROWN import message states the overlap ONCE",
 // it, the message must end in exactly one full stop.
 check("F026: rendered as popup.js renders it, there is one terminal period",
   /[^.]\.$/.test(`Import failed: ${importThrew}.`));
+
+// --- AR-16 (s5 commit 6, ruled S5-D1). Checks 50–62 of
+// test/PREDICTIONS-2026-10-09-s5.md, in order.
+//
+// EXPORT REFUSES ANY SET IMPORT WOULD REFUSE. It used to write a colliding
+// pair, two profiles sharing an id, and 5,001 profiles, and the importer then
+// refused the file it had written (FINDING-027). The refusals follow the
+// importer's precedence: the cap, then each profile, then a duplicated id,
+// then a collision. Every negative check first requires that the set it
+// starts from is refused at all.
+const exportRefusal = (set) => {
+  try { serializeProfiles(set); return null; } catch (err) { return err.message; }
+};
+const exportPair = [
+  { id: 1, name: "Alpha", domains: ["example.com"], headers: [setH("X-H", "A")] },
+  { id: 2, name: "Beta", domains: ["api.example.com"], headers: [setH("X-H", "B")] },
+];
+const exportDup = [
+  { id: 1, name: "Alpha", domains: ["a.com"], headers: [setH("X-A", "1")] },
+  { id: 1, name: "Alpha again", domains: ["b.com"], headers: [setH("X-B", "2")] },
+];
+const NOT_REIMPORTABLE = "refusing to export a set that cannot be re-imported";
+const pairRefusal = exportRefusal(exportPair);
+check("AR-16: a colliding set is refused on export", pairRefusal !== null);
+check("AR-16: the collision refusal is exactly the ruled clause",
+  pairRefusal === `"Alpha" and "Beta" both write header "x-h" on overlapping domains — ${NOT_REIMPORTABLE}. Change the header or the domains in one of them, then export`);
+const twoCollisions = exportRefusal([...exportPair,
+  { id: 3, name: "Gamma", domains: ["example.com"], headers: [setH("X-G", "C")] },
+  { id: 4, name: "Delta", domains: ["example.com"], headers: [setH("X-G", "D")] }]);
+check("AR-16: with two collisions, the refusal counts the one not listed",
+  twoCollisions !== null && twoCollisions.includes(`; 1 further collision is not listed — refusing`));
+const responseRefusal = exportRefusal(exportPair.map((p) =>
+  ({ ...p, headers: [{ ...p.headers[0], side: "response" }] })));
+check("AR-16: a response-side collision's refusal says on the response",
+  responseRefusal !== null && responseRefusal.includes(`"x-h" on the response on overlapping domains`));
+check("AR-16: a duplicated id is refused, naming the first pair in stored order",
+  exportRefusal(exportDup) === `"Alpha" and "Alpha again" share id 1 — ${NOT_REIMPORTABLE}. Delete one of them and add it again, then export`);
+const capRefusal = exportRefusal(bulk(MAX_UNSAFE_DYNAMIC_RULES + 1));
+check("AR-16: 5,001 profiles are refused with the ruled clause, and 5,003 ask for 3 to go",
+  capRefusal === `you have 5001 profiles and a file can hold 5000 — ${NOT_REIMPORTABLE}. Delete at least 1 profile, then export` &&
+  (exportRefusal(bulk(MAX_UNSAFE_DYNAMIC_RULES + 3)) || "").endsWith("Delete at least 3 profiles, then export"));
+const atCap = attempt(() => serializeProfiles(bulk(MAX_UNSAFE_DYNAMIC_RULES)));
+check("AR-16: exactly 5,000 profiles export, and the file imports",
+  typeof atCap === "string" &&
+  attempt(() => parseProfilesFile(atCap).length) === MAX_UNSAFE_DYNAMIC_RULES);
+const malformed = { id: 99990, name: "Bad", domains: ["bad.com"],
+  headers: [{ name: "bad name", operation: "set", value: "x" }] };
+const overAndBad = exportRefusal([...bulk(MAX_UNSAFE_DYNAMIC_RULES + 1), malformed]);
+const overAndPair = exportRefusal([...bulk(MAX_UNSAFE_DYNAMIC_RULES + 1),
+  { ...exportPair[0], id: 99991 }, { ...exportPair[1], id: 99992 }]);
+check("AR-16: the cap outranks a malformed profile and a collision",
+  overAndBad !== null && overAndBad.startsWith("you have") &&
+  overAndPair !== null && overAndPair.startsWith("you have"));
+const badBeta = exportRefusal([exportPair[0],
+  { ...exportPair[1], headers: [setH("X-H", "B"), { name: "bad name", operation: "set", value: "x" }] }]);
+check("AR-16: a malformed profile outranks a collision",
+  badBeta !== null && badBeta.includes("header name") && !badBeta.includes("both write header"));
+const dupAndPair = exportRefusal([...exportDup,
+  { id: 2, name: "Beta", domains: ["a.com"], headers: [setH("X-A", "B")] }]);
+check("AR-16: a duplicated id outranks a collision",
+  dupAndPair !== null && dupAndPair.includes("share id 1"));
+// Sets the importer accepts, which a too-eager refusal would wrongly stop.
+const mustPass = [
+  [{ id: 1, name: "both sides", domains: ["example.com"],
+    headers: [setH("X-H", "req"), { name: "X-H", operation: "set", value: "resp", side: "response" }] }],
+  [{ id: 1, name: "one", domains: ["a.example.com"], headers: [setH("X-H", "1")] },
+   { id: 2, name: "two", domains: ["b.example.com"], headers: [setH("X-H", "2")] }],
+  [{ id: 1, name: "plain", domains: ["example.com"], headers: [setH("X-H", "1")] },
+   { id: 2, name: "confusable", domains: ["badexample.com"], headers: [setH("X-H", "2")] }],
+  [{ id: 1, name: "set then append", domains: ["example.com"],
+    headers: [setH("X-Forwarded-For", "alpha"), { name: "X-Forwarded-For", operation: "append", value: "bravo" }] }],
+];
+check("AR-16: Export and Import agree on four sets that must pass, byte for byte",
+  mustPass.every((set) => {
+    const once = attempt(() => serializeProfiles(set));
+    if (typeof once !== "string") return false;
+    const back = attempt(() => parseProfilesFile(once));
+    return Array.isArray(back) && attempt(() => serializeProfiles(back)) === once;
+  }));
+const threeRefusals = [pairRefusal, exportRefusal(exportDup), capRefusal];
+check("AR-16: none of the three refusals ends in punctuation, and each renders with one full stop",
+  threeRefusals.every((m) => m !== null && !/[.!?]$/.test(m) &&
+    /[^.]\.$/.test(`Export failed: ${m}.`)));
+// Read here, before the popup section below declares popupJs; line comments
+// dropped so a comment cannot satisfy the check.
+const exportBody = (() => {
+  const src = readFileSync(new URL("../extension/popup/popup.js", import.meta.url), "utf8")
+    .split("\n").filter((line) => !/^\s*\/\//.test(line)).join("\n");
+  const start = src.indexOf("async function exportProfiles(");
+  const end = start < 0 ? -1 : src.indexOf("\n}\n", start);
+  return start < 0 || end < 0 ? "" : src.slice(start, end + 2).replace(/\s+/g, " ");
+})();
+const exportCatch = exportBody.indexOf("} catch (err) { showIoMsg(`Export failed: ${err.message}.`); return; }");
+check("AR-16: exportProfiles shows a refusal and returns before any file is made",
+  exportCatch >= 0 && exportCatch < exportBody.indexOf("URL.createObjectURL("));
 
 // ------------------------------- static popup wiring (finding 10 motivated)
 // The suite cannot execute popup.js — it needs chrome.* — but it CAN read it.
