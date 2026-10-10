@@ -374,6 +374,11 @@ AR-19's ground, not an s5 row.
   v0.4.0 and FEAT-1 to v0.5.0. To rule before commit 4, which raises the
   row.
 
+> **Outcome (ruled 2026-10-10 UTC (2026-10-09 CT)): v0.3.0.** Ash ruled
+> S5-D15 "v0.3.0 (Recommended)" in this session, after commit 3 landed and
+> before commit 4 was built. UI-05a targets v0.3.0; s4 (AR-04, AR-13a) moves
+> to v0.4.0 and FEAT-1 to v0.5.0. Commit 4 carries the renumbering (§2).
+
 ### The copy, word for word
 
 **Status line (UI-04).** `lib/status.js`: `applying <N> · <M> not applied` →
@@ -639,6 +644,23 @@ reworded as step 2 and **UI-05a** new as step 1 (S5-D14), its target per
 S5-D15; AR-19's cell gains the Issues reading. Target summary:
 `slice:scope` 18 → 19, UI-05a's bucket +1, total 54 → 56. `FINDINGS.md`: a
 dated note under FINDING-043 that the editor field is widened.
+
+> **Outcome (built, 2026-10-10 UTC (2026-10-09 CT)): as designed, with
+> S5-D15's consequences added, which this file could not name.** UI-05a
+> targets v0.3.0, prior UI-05, evidence `design`. Beyond the design: AR-04 and
+> AR-13a move to v0.4.0 and FEAT-1 to v0.5.0; LEDGER's target list gains
+> `v0.5.0`, its slice list shows s4 as v0.4.0, and its Amendments record the
+> renumbering, the dated records keeping the numbers they were written with.
+> The target summary reads `v0.3.0` 2 → 1, `v0.4.0` 1 → 2, `v0.5.0` 1 (new),
+> `slice:scope` 18 → 19, total 54 → 56. `SCOPE.md`'s release table gains
+> v0.3.0, the table of header rules, puts the Grant control at v0.4.0, target
+> and initiator domains at v0.5.0 and response `append` after v0.5.0, and a
+> dated paragraph says why. `test/mutate-scans.py`'s one pin moves 19 → 20, as
+> §4 said. LEDGER's contract checks 1–8, run by hand: no problem from this
+> commit; check 6's seven hits (FINDING-035 to FINDING-041 in FINDINGS' Open
+> section, named by no row) were there at s5's base. The Issues reading does
+> not move: read again on the commit 3 and commit 4 builds, the two lists are
+> the same.
 
 ### Commit 5: DR-02
 
@@ -911,6 +933,15 @@ grid, not a fixed rule".
 **Other gates on the red tree: 4 of 7 fail,** as before; four mutants do not
 apply.
 
+> **Outcome (red, 2026-10-10 UTC (2026-10-09 CT)): as predicted, `selftest:
+> 3 of 632 checks FAILED`.** The failures were checks 25, 26 and 27, each read
+> by name. Check 28 passed. No crash.
+>
+> **Outcome (red tree, all gates): 4 of 7 failed, as predicted.** selftest;
+> mutate-collisions (`PATCH DID NOT APPLY` for exactly four: H1, H2, H3 and
+> H6); mutate-grants and mutate-scans (every count 3 higher). module-syntax
+> (25 files), oracle-selfcheck and initiator-selfcheck passed.
+
 ### Commit 5, DR-02: checks 29–49
 
 `b` is `budget.js`, loaded dynamically; every check first requires the
@@ -1036,6 +1067,16 @@ fixture.
 > rows unchanged. `configRevision([], false)` is `69709b56`; `lib/status.js`'s
 > sha256 moved, `b1df6027…` → `9bf7540b…`.
 
+> **Outcome (commit 4, green, 2026-10-10 UTC (2026-10-09 CT)): as
+> predicted.** `selftest: 632/632 checks passed`. On the first full run
+> mutate-scans failed on its one predicted row: "the comment stripper also
+> eats string literals" read 20 against its pin of 19. Read by name on the
+> commit 3 and commit 4 trees, the one new failure is check 26; the pin moved
+> to 20, with a dated comment. Then `verify.mjs`: all 7 gates pass, `tree: 632
+> checks, 200 mutation scenarios, 7 gates`, module-syntax over 25 files; the
+> other seven mutate-scans rows and all 7 mutate-grants rows unchanged.
+> `configRevision([], false)` is `69709b56`, and `lib/status.js` is unchanged.
+
 ## 5. Mutants, added to `test/mutate-collisions.py`, with predicted fails
 
 Each mutant must fail at least one check; that is the harness's verdict.
@@ -1116,6 +1157,15 @@ partial" gains check 17.
 
 "A fixed select width returns" keeps its anchor and its 1. "The h-side hook
 is renamed" gains check 26.
+
+> **Outcome (mutants, 2026-10-10 UTC (2026-10-09 CT)): every prediction held,
+> counts and checks exactly.** All six applied on the green tree, each failed
+> at least one check, and none crashed; every failing check was read by name.
+> H4 failed check 26 and ".h-name is queried and is assigned by the same
+> file". The two existing mutants, read on both trees: "a fixed select width
+> returns" fails 1, the same check; "the h-side hook is renamed" 2 → 3,
+> gaining check 26. The red column held: H4 and H5 applied before the product
+> change, H1, H2, H3 and H6 did not. Mutation scenarios: 195 → 200.
 
 ### Commit 5: 23 added, 3 rewritten (200 → 223)
 
@@ -1223,6 +1273,15 @@ evidence; they do not replace the s5 sitting on Chrome 154.
 > card kept its `Not applying:` collision marker, unchanged on purpose. C8:
 > `0 profiles · 0/0 domains granted · nothing registered`, on two lines, 46.9
 > px high. No page errors.
+
+> **Outcome (commit 4, Chromium 141.0.7390.37, 2026-10-10 UTC (2026-10-09
+> CT)): C9 as predicted,** with the commit's own stylesheet. Name 293 px,
+> value 174 px, side 56 px, operation 82 px; `X-Forwarded-For`,
+> `Access-Control-Allow-Origin` and `Content-Security-Policy` fit in
+> `system-ui` 13 px; the row pitch is 66.7 px. Three rows give a 592 px popup
+> and the form does not scroll; from the 4th row the popup is 600 px and the
+> form scrolls. The screenshot is byte-identical to one taken with the ruled
+> CSS injected into the unchanged product.
 
 ## 7. What s5 leaves for later
 

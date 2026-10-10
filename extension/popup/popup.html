@@ -276,18 +276,33 @@
   input:focus-visible, select:focus-visible { outline: 2px solid var(--on); outline-offset: 0; border-color: transparent; }
   .hint { font-size: 11px; color: var(--ink-soft); margin-top: 3px; }
 
-  /* FIVE COLUMNS SINCE v0.2.0. The 56px side column is spent out of the two
-     1fr fields, which drop from 100.5px to 70px each at the 380px body width.
-     That is the whole cost of the feature being reachable, and it was chosen
-     over a 82px column (57px fields — too narrow for "https://") and over
-     folding the side into the operation select, which would have made
-     append-on-response unselectable and therefore hidden the validator's
-     refusal from everyone who does not hand-edit an export. */
-  .hrow { display: grid; grid-template-columns: 1fr 56px 82px 1fr 24px; gap: 5px; margin-bottom: 5px; }
+  /* TWO LINES SINCE v0.2.4 (UI-03, ruled S5-D3). On one line the five
+     controls left the name and value fields 70px each at the 380px body
+     width, so a long header name was cut off in its field and a wrong name
+     looked like a right one (FINDING-043). The name now has the first line,
+     beside the remove button, and side, operation and value share the
+     second: 293px for the name and 174px for the value. Each control is
+     placed by its class's grid-area, so the order popup.js appends them in
+     no longer decides the layout. The side keeps its own column rather than
+     folding into the operation select, which would make append-on-response
+     unselectable and hide the validator's refusal. */
+  .hrow {
+    display: grid;
+    grid-template-columns: 56px 82px 1fr 24px;
+    grid-template-areas: "name name name remove" "side op value value";
+    gap: 4px 5px; margin-bottom: 9px;
+  }
+  .hrow .h-name { grid-area: name; }
+  .hrow .h-side { grid-area: side; }
+  .hrow .h-op { grid-area: op; }
+  .hrow .h-value { grid-area: value; }
+  .hrow .remove-row { grid-area: remove; }
   /* Width comes from the grid column, not from this rule — the two selects are
      different widths now, so a fixed width here would overflow the narrower. */
   .hrow select { padding: 5px 3px; }
   .hrow .h-side { padding: 5px 2px; }
+  /* Compact, so three header rows fit the 600px popup. */
+  .hrow input[type="text"], .hrow select, .hrow .h-side { padding-top: 3px; padding-bottom: 3px; }
   .hrow .remove-row { border: none; background: none; color: var(--ink-soft); font-size: 15px; padding: 0; }
   .hrow .remove-row:hover { color: var(--danger); background: none; }
   input:disabled { opacity: 0.45; }

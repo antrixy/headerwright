@@ -2019,6 +2019,15 @@ field (v0.1.7 grid `1fr 82px 1fr 24px`, now `1fr 56px 82px 1fr 24px`; the
 widening it is deferred to v0.2.1 — so the card is where a name is read in
 full, and its lines wrap rather than clip.
 
+**The editor field is widened in v0.2.4 (s5, 2026-10-10 UTC (2026-10-09
+CT); UI-03, ruled S5-D3).** The editor's row is two lines: the name has the
+first, beside the remove button, and at the 380px popup its field is 293px
+wide instead of 70px. `X-Forwarded-For`, `Access-Control-Allow-Origin` and
+`Content-Security-Policy` fit, measured in Chromium 141
+(`test/PREDICTIONS-2026-10-09-s5.md`, §0 and §6, C9). The card's readback
+line, the v0.2.0 fix, is unchanged. Browser evidence on Chrome is owed to the
+s5 sitting.
+
 **FINDING-044 — `README.md` described a request-only extension, the same drift
 FINDING-039 found in the manifest, in the same release cycle.** Raised
 2026-09-20 while adding an unrelated section to the same file.

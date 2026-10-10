@@ -208,9 +208,11 @@ MUTATIONS = [
     ("side and operation swap DOM order against the grid columns", POP,
      'row.append(nameInput, sideSelect, opSelect, valueInput, removeBtn);',
      'row.append(nameInput, opSelect, sideSelect, valueInput, removeBtn);'),
-    ("the side column is dropped from the grid (five children, four tracks)", HTML,
-     'grid-template-columns: 1fr 56px 82px 1fr 24px;',
-     'grid-template-columns: 1fr 82px 1fr 24px;'),
+    # s5 H1: the row is placed by named areas since UI-03 (commit 4), so the
+    # side is dropped from the template's second line instead of its tracks.
+    ("the side area is dropped from the second line", HTML,
+     'grid-template-areas: "name name name remove" "side op value value";',
+     'grid-template-areas: "name name name remove" "op op value value";'),
     ("a fixed select width returns and overflows the 56px column", HTML,
      '  .hrow select { padding: 5px 3px; }',
      '  .hrow select { width: 82px; padding: 5px 3px; }'),
@@ -689,6 +691,23 @@ MUTATIONS = [
     ("s5 N13 README's badge bullet stops naming the ! badge", RDM,
      'for the toggle, and `!` when',
      'for the toggle, and a warning mark when'),
+
+    # ---- s5, UI-03: H2-H6 of test/PREDICTIONS-2026-10-09-s5.md (commit 4).
+    ("s5 H2 the row goes back onto one line", HTML,
+     'grid-template-columns: 56px 82px 1fr 24px;\n    grid-template-areas: "name name name remove" "side op value value";',
+     'grid-template-columns: 1fr 56px 82px 1fr 24px;\n    grid-template-areas: "name side op value remove";'),
+    ("s5 H3 the name's area is renamed in the stylesheet only", HTML,
+     '.hrow .h-name { grid-area: name; }',
+     '.hrow .h-name { grid-area: title; }'),
+    ("s5 H4 the name field's class is renamed in popup.js only", POP,
+     'nameInput.className = "mono h-name";',
+     'nameInput.className = "mono h-title";'),
+    ("s5 H5 the popup is widened to 480 px (UI-05a arrives early)", HTML,
+     '  body {\n    width: 380px;',
+     '  body {\n    width: 480px;'),
+    ("s5 H6 the compact padding is dropped", HTML,
+     '  .hrow input[type="text"], .hrow select, .hrow .h-side { padding-top: 3px; padding-bottom: 3px; }\n',
+     ''),
 ]
 
 backup = {}

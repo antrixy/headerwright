@@ -124,7 +124,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 // as FAIL lines, not kill the suite at link time.
 import * as platformFloor from "./platform-floor.mjs";
 
-const EXPECTED_CHECKS = 629;
+const EXPECTED_CHECKS = 632;
 
 let passed = 0;
 let failed = 0;
@@ -2766,11 +2766,38 @@ check("0.2.0: request is written as absence, never as side: \"request\"",
 check("0.2.0: the side select is appended BEFORE the operation select",
   /row\.append\(nameInput, sideSelect, opSelect, valueInput, removeBtn\)/
     .test(popupJs));
-// DOM order and grid order are independent — a grid places children in source
-// order, so getting append() right and the column list wrong silently puts the
-// side select in the operation's column and vice versa.
-check("0.2.0: the row grid has five columns with side ahead of operation",
-  /grid-template-columns: 1fr 56px 82px 1fr 24px/.test(popupHtml));
+// UI-03 (s5 commit 4, ruled S5-D3): the row is two lines, and every control is
+// PLACED BY ITS CLASS'S grid-area, not by DOM order. The check that pinned the
+// five-column track list is gone with the layout it pinned; check 26 below
+// is what now keeps each control in its place. Checks 25–28 of
+// test/PREDICTIONS-2026-10-09-s5.md.
+// 25
+check("UI-03: the .hrow rule has grid-template-columns: 56px 82px 1fr 24px and grid-template-areas: \"name name name remove\" \"side op value value\"",
+  /\.hrow \{[^}]*grid-template-columns: 56px 82px 1fr 24px;[^}]*grid-template-areas: "name name name remove" "side op value value";/
+    .test(popupHtml));
+// 26. A grid-area on a class popup.js never assigns places nothing, and an
+// area nobody takes leaves a hole. Both fail silently in the browser.
+const hrowAreaRules = [...popupHtml.matchAll(/\.hrow \.([a-z-]+) \{ grid-area: ([a-z]+); \}/g)]
+  .map((m) => ({ cls: m[1], area: m[2] }));
+const hrowTemplateAreas = new Set(
+  (popupHtml.match(/\.hrow \{[^}]*grid-template-areas:((?:\s*"[^"]*")+);/)?.[1] ?? "")
+    .replaceAll('"', " ").trim().split(/\s+/).filter(Boolean)
+);
+const popupAssignedClasses = new Set(
+  [...popupJs.matchAll(/className = "([^"]*)"/g)].flatMap((m) => m[1].split(/\s+/))
+);
+check("UI-03: every .hrow grid-area rule names a class popup.js assigns, each area of the template is given to exactly one class, and no class is given an area the template lacks",
+  hrowAreaRules.length >= 5 &&
+  hrowTemplateAreas.size >= 5 &&
+  hrowAreaRules.every(({ cls }) => popupAssignedClasses.has(cls)) &&
+  [...hrowTemplateAreas].every((area) => hrowAreaRules.filter((r) => r.area === area).length === 1) &&
+  hrowAreaRules.every(({ area }) => hrowTemplateAreas.has(area)));
+// 27. The compact padding is what keeps three header rows inside 600 px.
+check("UI-03: the compact rule .hrow input[type=\"text\"], .hrow select, .hrow .h-side { padding-top: 3px; padding-bottom: 3px; } is there",
+  popupHtml.includes('.hrow input[type="text"], .hrow select, .hrow .h-side { padding-top: 3px; padding-bottom: 3px; }'));
+// 28. The width is UI-05a's to change (S5-D14, S5-D15), not this commit's.
+check("UI-03: the popup is still 380 px wide",
+  /body \{[^}]*width: 380px;/.test(popupHtml));
 // A fixed width on `.hrow select` would overflow the narrower column, which is
 // why the rule that used to set 82px no longer does.
 check("0.2.0: .hrow select takes its width from the grid, not a fixed rule",

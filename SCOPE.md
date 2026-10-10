@@ -49,7 +49,7 @@ initiator site. The fix is a second, separately granted list.
 One feature, per the versioning rule. It shipped in part.
 
 - **v0.2.0 — response `set` and `remove`.** Published.
-- **Response `append` — not numbered.** Planned, after v0.4.0.
+- **Response `append` — not numbered.** Planned, after v0.5.0.
 
 `declarativeNetRequest` supports response header modification. The profile
 schema extends rather than changes: a second header list per profile, same
@@ -91,15 +91,23 @@ users as soon as each is verified, instead of waiting for a bundle.
 | v0.2.2 | canonical identity and stale writes | fixes; published 2026-09-28 UTC (2026-09-27 CT) |
 | v0.2.3 | drafts | fixes; published 2026-10-03 |
 | v0.2.4 | compatibility and truth language | fixes |
-| v0.3.0 | an explicit Grant control; Save stops prompting for permission | feature |
-| v0.4.0 | separate target and initiator domains | feature |
+| v0.3.0 | a table of each profile's header rules, in a 480px popup | feature |
+| v0.4.0 | an explicit Grant control; Save stops prompting for permission | feature |
+| v0.5.0 | separate target and initiator domains | feature |
 
-After v0.4.0, not numbered: response `append`.
+After v0.5.0, not numbered: response `append`.
 
-The v0.2.x rows fix defects and add nothing. v0.3.0's Grant control is a new
+The v0.2.x rows fix defects and add nothing. v0.4.0's Grant control is a new
 control, so it takes a minor version under the versioning rule, not a patch.
 `LEDGER.md` names the rows in each version and is authoritative for their
 status.
+
+**Renumbered 2026-10-10 UTC (2026-10-09 CT).** The table of header rules is
+the first step of a redesign of the popup. It is a new view, so it is
+v0.3.0's one feature under the versioning rule, not a patch. The Grant
+control moved from v0.3.0 to v0.4.0, and separate target and initiator
+domains from v0.4.0 to v0.5.0. Nothing had been published under either
+number.
 
 ## Permanently out of scope — cannot be built
 

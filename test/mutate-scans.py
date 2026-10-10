@@ -98,7 +98,10 @@ MUTATIONS = [
     # openEditor, and the "changed" refusal's setRestoredNotice(true). The
     # predictions file said no row here would move; that was wrong, for the
     # reason the paragraph above already gives. Read by name before changing.
-    ("the comment stripper also eats string literals", TEST, 19,
+    # 19 -> 20 on 2026-10-10 (s5 commit 4, UI-03), as its predictions said:
+    # check 26 reads the class names popup.js assigns, which live in
+    # double-quoted strings. Read by name: the one new failure is check 26.
+    ("the comment stripper also eats string literals", TEST, 20,
      "const popupJs = stripJsComments(popupJsRaw);",
      'const popupJs = stripJsComments(popupJsRaw).replace(/"[^"]*"/g, \'""\');'),
 
