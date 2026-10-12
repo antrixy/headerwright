@@ -2746,3 +2746,37 @@ v0.2.4 publishes.
 **The lesson.** A description written from a function's return values claims
 every state the function can return. What a user can see is decided at the
 call sites.
+
+**FINDING-053 — the repository's About text carried three leading spaces,
+and the read-back could not see them.** Raised as HW-DESCb (`LEDGER.md`) on
+2026-10-12, in v0.2.4's release session, and fixed the same day.
+
+**Symptom.** None a reader could see: GitHub's page shows the About text
+without them. The release session's check, "the About text equals
+`manifest.description`" (S5-D7), failed byte for byte: the text was 132
+characters, three U+0020 and then the manifest's 129.
+
+**Cause.** The text was set by hand on 2026-10-10 (HW-DESC); how the spaces
+got in is not known, and GitHub stored them as given. The read-back that
+closed HW-DESC was a screenshot of the About box. A screenshot cannot show
+leading whitespace, so a claim of equality was checked by a means that
+cannot see the difference.
+
+**Read** through GitHub's API on the Mac, with the manifest fetched from
+GitHub at `f86f18b` and hash-checked: both lengths, the code points of any
+leading and trailing whitespace, and equality as stored and as trimmed.
+
+**Ruled 2026-10-12 (U8),** `antrixy/project-planning` `decisions.md`, the
+v0.2.4 release session.
+
+**Fix.** Deleted in place on the repository page: the cursor before `Set`,
+three Backspaces, Save changes. Nothing was retyped or pasted.
+
+**Evidence.** The same read at 10:47:01 CT: 129 characters, no leading or
+trailing whitespace, equal to `manifest.description`. A read in the same
+minute as the ruling still showed 132; whether it ran before the save is not
+known.
+
+**The lesson.** Text that must equal another text is compared by its bytes.
+A screenshot shows what a reader sees, which is the wrong instrument for
+equality.
