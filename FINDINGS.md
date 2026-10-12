@@ -1231,6 +1231,12 @@ editor: the collision can be resolved there, then exported. Checks 50–62 of
 export with no file (§6, C14). Browser evidence on Chrome is owed to the s5
 sitting.
 
+**Browser evidence, 2026-10-12 (the s5 sitting, `test/RUNBOOK-2026-10-10-s5.md`,
+Chrome 154.0.8037.98, profile `hw-s5`; every counted prediction held).** With a
+colliding pair stored, Export showed the refusal word for word and made no
+file: `chrome://downloads` stayed empty and `~/Downloads` gained nothing. With
+one of the pair deleted, Export downloaded the file. AR-16 is `verified`.
+
 **FINDING-025 — `originsForDomain()` requests a redundant pattern.**
 `*://*.host/*` subsumes `*://host/*`. Confirmed at every layer:
 `permissions.contains()` on the apex returns true with only the wildcard held;
@@ -2039,6 +2045,13 @@ wide instead of 70px. `X-Forwarded-For`, `Access-Control-Allow-Origin` and
 line, the v0.2.0 fix, is unchanged. Browser evidence on Chrome is owed to the
 s5 sitting.
 
+**Browser evidence, 2026-10-12 (the s5 sitting, `test/RUNBOOK-2026-10-10-s5.md`,
+Chrome 154.0.8037.98, profile `hw-s5`; every counted prediction held).** With
+three header rows, every name field was 293 px wide, and the three names fit
+in the Mac's `system-ui` 13 px. A name typed short in the sitting,
+`Access-Control-Allow`, showed as short at a glance: this entry's case,
+caught by the fix. UI-03 is `verified`.
+
 **FINDING-044 — `README.md` described a request-only extension, the same drift
 FINDING-039 found in the manifest, in the same release cycle.** Raised
 2026-09-20 while adding an unrelated section to the same file.
@@ -2205,6 +2218,12 @@ row's expectation (checks 63–64 of `test/PREDICTIONS-2026-10-09-s5.md`). The
 general check named above is still not built. The oracle's build stamp moved,
 so the instruments restart after the pull; one browser observation of row
 15.5 is owed to the s5 sitting.
+
+**Browser evidence, 2026-10-12 (the s5 sitting, `test/RUNBOOK-2026-10-10-s5.md`,
+Chrome 154.0.8037.98, profile `hw-s5`; every counted prediction held).** With the
+instruments restarted (oracle build `c098c223e3b1`), row 15.5 on the CORS
+case read `MODIFIED — 1 changed, 1 removed, 0 added`, `x-hw-removable`
+`present` → `—` beside the unchanged CORS family. F-045 is `verified`.
 
 **FINDING-046 — the serial queue reported a failed task as success, and three
 popup handlers depended on it.** Raised 2026-09-24 in v0.2.1/s1 as AR-05
@@ -2679,3 +2698,11 @@ that is AR-05c, not this fix.
 **The lesson.** A quota the product never states is a limit the user finds by
 losing work. A budget of its own, below the platform's, turns the limit into a
 sentence.
+
+**Browser evidence, 2026-10-12 (the s5 sitting, `test/RUNBOOK-2026-10-10-s5.md`,
+Chrome 154.0.8037.98, profile `hw-s5`; every counted prediction held).** Chrome 154
+counted the stored set exactly as `storedBytes` does (4,194,244 bytes); Save
+and Import refused on screen with the overage and wrote nothing, Import
+without offering Replace; the draft notice showed for a draft over the budget
+and for one the browser refused, and the stored draft stayed both times.
+DR-02 is `verified`.

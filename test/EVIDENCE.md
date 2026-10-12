@@ -10,6 +10,117 @@ from.
 
 ---
 
+# The s5 sitting — v0.2.4's browser rows on Chrome 154 (2026-10-10 to 2026-10-12)
+
+The browser rows S5-D9 left `fixed-unverified`: UI-04, UI-03, DR-02, AR-16
+(DR-01b with it) and F-045. The predictions were frozen in
+`test/RUNBOOK-2026-10-10-s5.md`, committed at `4b9c28a` before Chrome opened.
+Its Outcomes section gives a verdict per prediction and every departure from
+the file. This entry is what was observed. The sitting ran from 2026-10-10 to
+2026-10-12 in UTC and in CT alike.
+
+### Environment
+
+| | |
+|---|---|
+| Build | main's `extension/` at `bcebae3` (unchanged at `4b9c28a`), loaded UNPACKED from `~/headerwright/extension`. All 19 files byte-identical to `bcebae3`, hashed from inside the popup. Not a release: the manifest reads `0.2.3` |
+| Extension ID | `khjeofpciphjaclledledepfppaiicnf`, derived from the folder's path, as predicted |
+| Card on `chrome://extensions` | `HeaderWright — Modify HTTP Headers`, `0.2.3`; no Errors button; `minimum_chrome_version` read as `116` |
+| Also installed | nothing. Google Docs Offline was removed before the load |
+| Profile | `hw-s5`, `Profile 19`, new for this sitting, signed out |
+| Chrome | **154.0.8037.98** (Official Build) (arm64), revision `b859317bf11f6be47f9b7799ec690a0a42a1fb33-refs/branch-heads/8037@{#1674}`, read on `chrome://version` in `Default` before the runbook was written and again in `hw-s5` |
+| OS | macOS 26.5.2 (25F84) |
+| Instruments | oracle pid 44972, build `c098c223e3b1` (new at `bcebae3`); initiator pid 44973, build `1e6dc8fd662c`; started from `4b9c28a` in the background, logs in `~/hw-s5-logs/`; PREFLIGHT PASSES |
+| Tree | `4b9c28a`, `tree: 668 checks, 239 mutation scenarios, 7 gates`, in 146 seconds |
+| When | 2026-10-10 13:23 CT (18:23 UTC) to 2026-10-12 08:39 CT (13:39 UTC), with pauses of about 1¼, 4½ and 35½ hours, none inside the stretch that could not pause. Clock times are the send times of the operator's messages |
+
+### UI-04: the footer says "registered"
+
+| state | footer (text, then hover text) |
+| --- | --- |
+| toggle ON, no profiles | `0 profiles · 0/0 domains granted · nothing registered`, `""`; two lines |
+| `probe` saved, before the grant (not predicted) | `1 profile · 0/1 domain granted · registered 0 · 1 not registered`, amber |
+| `probe` granted | `1 profile · 1/1 domain granted · registered 1`, `""` |
+| `probe` plus a colliding pair, `Alpha` and `Beta`, written from the console | `3 profiles · 1/1 domain granted · registered 1 · 2 not registered`, **`Not registered: profile 2; profile 3`**; Chrome's tooltip showed the same; badge `!` |
+
+The card's `Not applying:` collision marker is unchanged, on purpose (S5-D5).
+
+### UI-03: the editor's row on two lines
+
+A new profile's editor with three header rows, the names typed by hand:
+`X-Forwarded-For`, `Access-Control-Allow-Origin`, `Content-Security-Policy`.
+Every name field 293 px and value field 174 px; each name fits its field
+(`scrollWidth <= clientWidth`), measuring 104, 175 and 146 px of text in a
+275 px field in the Mac's `system-ui` 13 px. The popup is 380 by 592 and the
+form does not scroll, as in Chromium 141. The screenshot shows each name
+whole. Before the read, the second name was seen typed as
+`Access-Control-Allow`, and the slip was visible at a glance in the wider
+field: the case FINDING-043 describes, caught by the fix.
+
+### F-045: row 15.5 through the CORS case
+
+`http://hw.test:8787/`, no service worker registered. `probe` sets response
+`X-HW-Oracle` to `rewritten` and removes `X-HW-Removable`; its rule's remove
+entry has no `value` key.
+
+| row | verdict | table |
+| --- | --- | --- |
+| 15.4, plain case (control) | `MODIFIED — 1 changed, 1 removed, 0 added.` | `x-hw-oracle` `baseline` → `rewritten`; `x-hw-removable` `present` → `—`; `x-hw-second` unchanged |
+| **15.5, CORS case** | **`MODIFIED — 1 changed, 1 removed, 0 added.`** | the three `access-control-*` headers unchanged; `x-hw-oracle` `baseline` → `rewritten`; **`x-hw-removable` `present` → `—`** |
+
+The first observation of a response `remove` beside the CORS family.
+
+### AR-16 (and DR-01b): Export refuses what Import refuses
+
+With `Alpha` and `Beta` both writing `X-H` on `hw.test`, one click on Export
+showed `Export failed: "Alpha" and "Beta" both write header "x-h" on
+overlapping domains — refusing to export a set that cannot be re-imported.
+Change the header or the domains in one of them, then export.`, as an error,
+with nothing written to storage. `chrome://downloads` stayed empty, and
+`~/Downloads` held no `headerwright-profiles` file before or after. The
+control: with `Beta` deleted, Export downloaded `headerwright-profiles.json`
+(685 bytes), listed on `chrome://downloads` as from the extension; it was
+deleted at the end.
+
+### DR-02: HeaderWright's own budgets, refused on screen
+
+| state | observed |
+| --- | --- |
+| a filler profile on an ungranted domain, set 60 bytes under the budget | Chrome 154's `getBytesInUse("hw:profiles")` **4,194,244**, equal to `storedBytes` |
+| Save of a small new profile | `Not saved: your profiles would be 1 KB over HeaderWright's 4 MB storage limit. Shorten a header value or delete a profile, then save.`; the editor open; nothing written; the count unchanged |
+| a file 599,989 bytes over, handed to the import input | `Import failed: this file's profiles are 586 KB over HeaderWright's 4 MB storage limit. Remove profiles or shorten header values in the file and try again.`; **no Replace offered**; nothing written |
+| a draft `1234567`, then a value of 140,000 characters | `These edits are too large to keep if the popup closes. Save the profile to keep them.`; the stored draft still `1234567`; typing `short` stored it and hid the notice |
+| session storage filled to 1,008 bytes free, then 4,000 characters | the same notice, the console line `HeaderWright: could not persist the draft — Error: Session storage quota bytes exceeded. Values were not stored.`, and the stored draft still `short` |
+
+Session storage's quota read 10,485,760, and with the filler removed
+10,485,024 bytes were free, as in Chromium 141.
+
+### Observed, and not predicted
+
+- **With DevTools attached, the popup stayed open behind the permission
+  dialog** and showed the pre-grant partial footer (above).
+- The worker's FINDING-021 warning appeared in the popup's console when the
+  colliding pair was written.
+- An *Import failed* message stays in the list view until the next Export or
+  Import.
+- **Deleting the last profile on `hw.test` released its grant:** origins `[]`
+  at the end.
+
+### Read, not counted
+
+- **DevTools' Issues panel, read for the first time**, with a three-row
+  editor open: *A form field element should have an id or name attribute*, 12
+  affected resources, and *No label associated with a form field*, 1; 13 in
+  all, none an error or a warning. The counter read 1 on the list, 5, 9 and 13
+  with one, two and three header rows. AR-19's ground; no row moves.
+- The oracle tab's DevTools showed 1 error, not read.
+
+**No prediction was wrong:** all 23 counted predictions held, and every
+recorded one. UI-04, UI-03, DR-02, AR-16, DR-01b and F-045 move to
+`verified`.
+
+---
+
 # GATE-0c — the published v0.2.3 in a clean profile (2026-10-05)
 
 The release gate for v0.2.3, a new row as GATE-0b was (G1's precedent). The
