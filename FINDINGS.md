@@ -2706,3 +2706,43 @@ and Import refused on screen with the overage and wrote nothing, Import
 without offering Replace; the draft notice showed for a draft over the budget
 and for one the browser refused, and the stored draft stayed both times.
 DR-02 is `verified`.
+
+**FINDING-052 — the store listing promised a badge state the extension never
+shows.** Raised as DR-04 (`LEDGER.md`) on 2026-10-12, in v0.2.4's release
+session, while reading the listing's Description against the copy s5 changed.
+
+**Symptom.** Not reported by a user. The Description, read on the dashboard
+on 2026-10-12, said the badge shows "a pending mark while a change is being
+registered". No user could see one: while a change is being registered the
+badge keeps its previous state, and it changes when the sync ends.
+
+**Cause.** `lib/status.js` has a `stale` state with its own badge
+(`BADGE_STALE`, `…`), and the sentence described the states `computeBadge`
+can return. The worker paints the badge only at the end of its own sync, and
+passes the record's own `desiredRevision` as the current one, so `classify`
+cannot return `stale` there. Only the popup's footer, which compares the
+stored record with the configuration it reads, can show stale. The badge
+sentence was rewritten with DR-01 on 2026-09-24; when this clause entered it
+is not recorded word for word.
+
+**Read** from the source at `f86f18b`: the `updateBadge` call at the end of
+the sync in `background/sw.js`, and `classify` in `lib/status.js`. s5's
+predictions recorded the same at §0, from `4d087f2`: "The badge's `…` is
+never shown." s5 rewrote README's badge bullet without it; the listing was
+not in s5's commits.
+
+**Ruled 2026-10-12 (U7),** `antrixy/project-planning` `decisions.md`, the
+v0.2.4 release session.
+
+**Fix.** The listing's bullet ends "ON or OFF when it succeeded, and a
+warning when it failed or left some profiles unregistered". A Description
+edit, submitted with v0.2.4 on 2026-10-12 and read back from the dashboard's
+draft. No code changes: whether the badge should show a pending state is not
+ruled.
+
+**Evidence.** Pending: the public listing, read back on the Mac after
+v0.2.4 publishes.
+
+**The lesson.** A description written from a function's return values claims
+every state the function can return. What a user can see is decided at the
+call sites.
