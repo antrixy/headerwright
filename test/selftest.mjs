@@ -2908,9 +2908,10 @@ check("UI-03: every .hrow grid-area rule names a class popup.js assigns, each ar
 // 27. The compact padding is what keeps three header rows inside 600 px.
 check("UI-03: the compact rule .hrow input[type=\"text\"], .hrow select, .hrow .h-side { padding-top: 3px; padding-bottom: 3px; } is there",
   popupHtml.includes('.hrow input[type="text"], .hrow select, .hrow .h-side { padding-top: 3px; padding-bottom: 3px; }'));
-// 28. The width is UI-05a's to change (S5-D14, S5-D15), not this commit's.
-check("UI-03: the popup is still 380 px wide",
-  /body \{[^}]*width: 380px;/.test(popupHtml));
+// 28, rewritten for UI-05a (v0.3.0, ruled UA1; test/PREDICTIONS-2026-10-13-ui05a.md,
+// commit 2): the popup is 480 px wide, so the header rules table has room.
+check("UA1: the popup is 480 px wide",
+  /body \{[^}]*width: 480px;/.test(popupHtml));
 // A fixed width on `.hrow select` would overflow the narrower column, which is
 // why the rule that used to set 82px no longer does.
 check("0.2.0: .hrow select takes its width from the grid, not a fixed rule",

@@ -616,6 +616,17 @@ change yet.
 (every count 1 higher). module-syntax (26 files), oracle-selfcheck and
 initiator-selfcheck pass.
 
+> **Outcome (red, 2026-10-14 in UTC and CT alike): as predicted, `selftest:
+> 1 of 668 checks FAILED`,** the one failure read by name: "UA1: the popup is
+> 480 px wide". No crash.
+>
+> **Outcome (red tree, all gates): 4 of 7 failed, as predicted, and for the
+> predicted reasons.** selftest; mutate-collisions (`PATCH DID NOT APPLY`
+> for exactly ua W1, read in a full run of the harness); mutate-grants and
+> mutate-scans (`MUTANTS NOT MATCHING EXPECT`, every count 1 higher, read row
+> by row). module-syntax (26 files), oracle-selfcheck and initiator-selfcheck
+> passed.
+
 ### Commit 3, the table: checks 1–17, one removed, one changed
 
 Fixtures are the readback section's: `rb4` (request set `X-HW-Probe`
@@ -716,6 +727,14 @@ commit 3; 255 + 8 + 7 = 270 after commit 4.
 - `extension/` stays 19 files: no file is added.
 - No existing check changes beyond §3's lists.
 
+> **Outcome (commit 2, green, 2026-10-14 in UTC and CT alike): as
+> predicted.** `selftest: 668/668 checks passed`. `verify.mjs`: all 7 gates
+> pass, `tree: 668 checks, 239 mutation scenarios, 7 gates`, module-syntax
+> over 26 files, in 331 s in the container. mutate-scans: all 8 rows matched
+> their expects, the string-literals row 20; mutate-grants: all 7 rows
+> unchanged. `configRevision([], false)` and `lib/status.js` unchanged;
+> `extension/` 19 files.
+
 ## 5. Mutants, with predicted fails
 
 Each mutant in `test/mutate-collisions.py` must fail at least one check;
@@ -727,6 +746,12 @@ its commit's red tree, and none crashes.
 | M | Mutant | Predicted fails |
 | --- | --- | --- |
 | W1 | rewritten from s5 H5: the popup goes back to 380 px (`width: 480px;` → `380px`) | 1 (UA1's check) |
+
+> **Outcome (mutants, 2026-10-14 in UTC and CT alike): as predicted.** W1
+> applied on the green tree and failed exactly "UA1: the popup is 480 px
+> wide", read by name; it did not apply on the red tree. Every one of the
+> 224 mutants' counts was compared by name on the `f5d94ff` and commit 2
+> trees: none moved, and s5 H5's row is W1's. Mutation scenarios: 239.
 
 ### Commit 3: 14 added (224 → 238); 2 rewritten in mutate-scans
 
@@ -813,6 +838,17 @@ errors.
 | C15 | 4 | classic scrollbars; the mock card with Authorization's value replaced by `abcdefghijklmnopqrstuvwxyz01` (30 characters shown), and few enough cards that the list does not scroll; then Delete on another card, so the confirm box makes the list scroll | before: not cut, no `tabindex`; with the confirm open: the same element (a marker attribute set on it beforehand survives, so no render replaced it) is cut with `tabindex` `0`; after Cancel: not cut, no `tabindex` |
 | C16 | 4 | a 2,000-character value, focused | the popover's height is the room on its side, it scrolls (`scrollHeight > clientHeight`), and its text equals the cell's |
 | C17 | 4 | Issues with the list showing and a popover open | no issue kind beyond §0's (recorded) |
+
+> **Outcome (commit 2, Chromium 141.0.7390.37, 2026-10-14 in UTC and CT
+> alike): C1–C3 as predicted,** with the commit's own `extension/`. C1: the
+> popup 480 px wide; the five readback lines' text unchanged, the append's
+> name as `x-forwarded-for`; the card 201.2 px; the footer `1 profile · 1/1
+> domain granted · registered 1`. C2: name 393 px, value 274 px, the three
+> names fit; the footer `0 profiles · 0/0 domains granted · nothing
+> registered` on one line (30.9 px); with three rows the popup 592.3 px and
+> the form not scrolling (506 in 506); with four, 600 px and scrolling (573
+> in 514). C3: the 45, 53 and 65-character lines one line (30.9 px), the 70,
+> 83 and 87-character lines two (46.9 px). No page errors.
 
 ## 7. What UI-05a leaves for later
 
