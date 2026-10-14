@@ -673,6 +673,17 @@ and the changed RB check are among the 18); mutate-grants (every count 18
 higher). module-syntax (26 files), oracle-selfcheck and initiator-selfcheck
 pass.
 
+> **Outcome (red, 2026-10-14 in UTC and CT alike): as predicted, `selftest:
+> 18 of 684 checks FAILED`:** checks 1–17 and the changed RB check, each read
+> by name. No crash.
+>
+> **Outcome (red tree, all gates): 4 of 7 failed, as predicted, and for the
+> predicted reasons.** selftest; mutate-collisions (`PATCH DID NOT APPLY` for
+> exactly T1–T14); mutate-scans (M11 and M12 did not apply; the F022, vh,
+> strip-removed, M9 and M10 rows read 18 higher, and the string-literals row
+> 37 against its 21); mutate-grants (every count 18 higher). module-syntax
+> (26 files), oracle-selfcheck and initiator-selfcheck passed.
+
 ### Commit 4, cut values: checks 18–33
 
 | # | Check | Red |
@@ -735,6 +746,15 @@ commit 3; 255 + 8 + 7 = 270 after commit 4.
 > unchanged. `configRevision([], false)` and `lib/status.js` unchanged;
 > `extension/` 19 files.
 
+> **Outcome (commit 3, green, 2026-10-14 in UTC and CT alike): as
+> predicted.** `selftest: 684/684 checks passed`. `verify.mjs`: all 7 gates
+> pass, `tree: 684 checks, 253 mutation scenarios, 7 gates`, module-syntax
+> over 26 files, in 353 s in the container. mutate-scans: all 8 rows matched,
+> the string-literals row 21, M11 1 and M12 2; mutate-grants: all 7 rows
+> unchanged. `configRevision([], false)` and `lib/status.js` unchanged;
+> `extension/` 19 files. LEDGER's contract checks 1–8, run by a script before
+> the commit: no problem (62 rows; it was checked against planted faults).
+
 ## 5. Mutants, with predicted fails
 
 Each mutant in `test/mutate-collisions.py` must fail at least one check;
@@ -786,6 +806,16 @@ in place of `overflow-wrap: anywhere;`: expect 1 (13). "M12 readback lines
 written with innerHTML" takes the anchor `    value.textContent =
 cells.value;` → `    value.innerHTML = cells.value;`: expect 2 (11 and the
 changed RB check). Their names keep their M-numbers.
+
+> **Outcome (mutants, 2026-10-14 in UTC and CT alike): every prediction
+> held, counts and checks exactly,** each mutant applied to a throwaway copy
+> and its failures read by name: T1 3 and 7; T2 4 and 7; T3 2, 5, 7 and 8; T4
+> 6 and 7; T5 9; T6 and T7 10; T8 11; T9 12; T10 and T11 14; T12 15; T13 16;
+> T14 17. None applied on the red tree, and none crashed. The four existing
+> mutants moved as predicted, compared by name on the commit 2 and commit 3
+> trees: M3 3 → 4 (check 3), M4 5 → 6 (7), M5 6 → 7 (7), M6 2 → 4 (2 and 3);
+> no other of the 224 moved. mutate-scans: M11 failed check 13, and M12 check
+> 11 and the changed RB check. Mutation scenarios: 239 → 253.
 
 ### Commit 4: 17 added (238 → 255)
 
@@ -849,6 +879,22 @@ errors.
 > the form not scrolling (506 in 506); with four, 600 px and scrolling (573
 > in 514). C3: the 45, 53 and 65-character lines one line (30.9 px), the 70,
 > 83 and 87-character lines two (46.9 px). No page errors.
+
+> **Outcome (commit 3, Chromium 141.0.7390.37, 2026-10-14 in UTC and CT
+> alike): C4–C9 as predicted,** with the commit's own `extension/`. C4: the
+> caption `Header rules`; four `th` with scope `col`; the five rows exactly as
+> predicted, the removes' Value `—`; columns 37.4, 52.5, 114.9 and 216.2 px;
+> only Authorization's value over its cell (245 > 215), painted with `…`; the
+> card 251.3 px; no `.readback-line` left. C5: Header 170.3, Value 167.9, not
+> cut. C6: Header 211 px, the name whole in its 200 px `div` (200 in 200), the
+> row 53.3 px. C7: `"  padded  "` and `"a  b"` painted with their spaces,
+> `innerText` equal to `textContent`. C8: toggle off, all four cards `Off —
+> nothing registered` with no table; on, the four tables back without
+> reopening; the card on `example.com` (no host access) and the colliding
+> "Alpha" and "Beta" `No rule registered for this profile` with no table,
+> each colliding card with its `Not applying:` marker; the footer `4 profiles ·
+> 2/3 domains granted · registered 1 · 3 not registered`. C9: one issue kind,
+> `FormLabelHasNeitherForNorNestedInput`, as at §0. No page errors.
 
 ## 7. What UI-05a leaves for later
 

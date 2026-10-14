@@ -73,7 +73,9 @@ import {
 import { decodeStoredState } from "../lib/stored.js";
 import {
   describeReadback,
-  formatReadbackLine,
+  readbackCells,
+  READBACK_CAPTION,
+  READBACK_COLUMNS,
   READBACK_NOTES,
 } from "../lib/readback.js";
 
@@ -621,11 +623,8 @@ function renderProfileCard(profile, grants, collisions, nameById, drafts, regist
     note.textContent = readback.note;
     readbackBox.appendChild(note);
   }
-  for (const line of readback.lines) {
-    const lineEl = document.createElement("div");
-    lineEl.className = "readback-line";
-    lineEl.textContent = formatReadbackLine(line);
-    readbackBox.appendChild(lineEl);
+  if (readback.lines.length > 0) {
+    readbackBox.appendChild(renderReadbackTable(readback.lines));
   }
 
   card.append(row1, meta, readbackBox, domains);
@@ -667,6 +666,52 @@ function renderProfileCard(profile, grants, collisions, nameById, drafts, regist
   }
 
   return card;
+}
+
+// UI-05a (v0.3.0, ruled UA2, UA5, UA7). The registered rule as a table, one
+// row per entry, under a caption and a header row a screen reader can name.
+// Every cell is written as text: header names and values are user-supplied.
+// The name never shrinks below its own width up to 200 px and then wraps; a
+// value takes the rest of the row and is cut with a visible ellipsis (the
+// stylesheet's rules, beside the .profile rules).
+function renderReadbackTable(lines) {
+  const table = document.createElement("table");
+  table.className = "rules";
+  const caption = document.createElement("caption");
+  caption.textContent = READBACK_CAPTION;
+  const head = document.createElement("tr");
+  for (const label of READBACK_COLUMNS) {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.textContent = label;
+    head.appendChild(th);
+  }
+  const thead = document.createElement("thead");
+  thead.appendChild(head);
+  const tbody = document.createElement("tbody");
+  for (const line of lines) {
+    const cells = readbackCells(line);
+    const row = document.createElement("tr");
+    const type = document.createElement("td");
+    type.className = "rb-type";
+    type.textContent = cells.type;
+    const action = document.createElement("td");
+    action.className = "rb-action";
+    action.textContent = cells.action;
+    const header = document.createElement("td");
+    header.className = "rb-header";
+    const name = document.createElement("div");
+    name.className = "rb-name";
+    name.textContent = cells.header;
+    header.appendChild(name);
+    const value = document.createElement("td");
+    value.className = "rb-value";
+    value.textContent = cells.value;
+    row.append(type, action, header, value);
+    tbody.appendChild(row);
+  }
+  table.append(caption, thead, tbody);
+  return table;
 }
 
 function renderDomainChip(domain, grants) {

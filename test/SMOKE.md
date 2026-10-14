@@ -1324,6 +1324,16 @@ Set-Cookie result from this part at all.
 and FINDING-043 — ruled 2026-09-21*. Design and code predictions frozen in
 `test/PREDICTIONS-2026-09-21-readback.md`.
 
+**Amended for v0.3.0 (UI-05a, ruled UA2–UA5 on 2026-10-13).** The card
+shows the registered rule as a table captioned "Header rules", one row
+per entry, with the columns Type, Action, Header and Value, not as lines.
+Read each predicted line below as the row with the same four parts:
+`res · set · X-HW-Oracle → "rewritten"` is Type `res`, Action `set`,
+Header `X-HW-Oracle` and Value `"rewritten"`; a line with no arrow has
+`—` in Value. The notes (`Off — nothing registered`, `Checking what
+Chrome has registered…`) are unchanged and show no table. A header name
+is never cut; a value longer than its column ends in `…`.
+
 **What this part is for.** Each profile card now shows the rule Chrome has
 REGISTERED, one line per entry, e.g. `res · set · X-HW-Removable → "present"`.
 The selftest proves the formatter; it cannot prove the card shows what
@@ -1352,7 +1362,7 @@ nothing changed.
 | 16.2 | add response `X-HW-Removable`, dropdown LEFT on `set`, type `remove` in the value (the FINDING-040 slip) | 16.1's line, then `res · set · X-HW-Removable → "remove"` |
 | 16.3 | change 16.2's value to `present` (the invisible variant, C8's exact mis-build) | `res · set · X-HW-Removable → "present"` — the word `remove` appears on no line |
 | 16.4 | replace the rows with request `X-Forwarded-For` / `append` / `bravo`, then request `X-Forwarded` / `set` / `alpha` (the S2 near-miss) | `req · append · X-Forwarded-For → "bravo"` then `req · set · X-Forwarded → "alpha"` — two visibly different names |
-| 16.5 | add response `Access-Control-Allow-Origin` / `set` / `*` | the full name on the card, wrapped if it must be; no `…` anywhere |
+| 16.5 | add response `Access-Control-Allow-Origin` / `set` / `*` | the full name in the Header column, wrapped if it must be; the name is never cut; a value longer than its column ends in … (amended for v0.3.0) |
 | 16.6 | master toggle OFF | every card: `Off — nothing registered`, no lines |
 | 16.7 | master toggle ON | 16.5's lines return without reopening the popup |
 | 16.8 | case: type a name in mixed case, e.g. `X-Hw-CaseProbe` | **least confident:** the card shows the case as typed. Chrome's docs do not say whether `getDynamicRules()` preserves it. Record what is shown either way. |
@@ -1371,7 +1381,7 @@ for longer than a moment, record it — that is a sync that did not land.
     16.2 card = ?                     console agrees = ?
     16.3 card = ?                     console agrees = ?   "remove" on any line = ?
     16.4 card = ?                     console agrees = ?   names distinct = ?
-    16.5 name in full, no ellipsis    = ?
+    16.5 name in full, never cut      = ?
     16.6 off text, no lines           = ?
     16.7 lines back without reopen    = ?
     16.8 case shown                   = ?   (verbatim)

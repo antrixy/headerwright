@@ -2780,3 +2780,46 @@ known.
 **The lesson.** Text that must equal another text is compared by its bytes.
 A screenshot shows what a reader sees, which is the wrong instrument for
 equality.
+
+**FINDING-054 — the card's readback line showed a run of spaces in a value
+as one space.** Raised 2026-10-14 UTC (2026-10-13 CT) in UI-05a's
+predictions as UI-09 (`LEDGER.md`), found while measuring the card for
+v0.3.0, and fixed by UI-05a's table.
+
+**Symptom.** Not reported by a user. A value with two spaces between words,
+or at either edge, read on the card with one: `"a  b"` as `"a b"`, and
+`"  padded  "` as `" padded "`. The quotes FINDING-040's fix put around a
+value, so that edge whitespace would be visible, showed it collapsed.
+
+**Cause.** The line was written with `textContent`, exactly, and its CSS was
+`white-space: normal`, which collapses a run of spaces when the text is
+painted. The selftest compared the line's text, which was right; nothing read
+what was painted.
+
+**Measured** in headless Chromium 141.0.7390.37 on the unchanged product at
+`f5d94ff`, and recorded in §0 of `test/PREDICTIONS-2026-10-13-ui05a.md`: with
+request `X-Pad` set to `  padded  ` and `X-Gap` to `a  b`,
+`getDynamicRules()` returned both values exactly, and each line's
+`textContent` held them; the lines' `innerText` read `req · set · X-Pad → "
+padded "` and `req · set · X-Gap → "a b"`. The validator accepts such values,
+and the form does not trim them.
+
+**Ruled** with UI-05a's rulings, UA1–UA10, 2026-10-13: put to Ash before the
+predictions were frozen, and not objected to. `antrixy/project-planning`
+`decisions.md`, "HeaderWright v0.3.0 — UI-05a".
+
+**Fix.** From v0.3.0 the readback is a table, and its Value cell is
+`white-space: pre`: every space is painted, on one line, and a value too long
+for the cell is cut with a visible ellipsis. The popover that shows a cut
+value whole (UI-05a's commit 4) is `pre-wrap` by design.
+
+**Evidence.** `selftest.mjs`, check 14 of the predictions, requires
+`white-space: pre` on the Value cell, and its mutant T11, the cell back to
+`nowrap`, fails it. Chromium 141 ran C7 on the commit's own build: each Value
+cell's `innerText` equals its `textContent`, `"  padded  "` and `"a  b"`.
+
+**What rests on what.** One browser, Chromium 141. UI-05a's sitting on Chrome
+154 is owed.
+
+**The lesson.** A check that reads a text node proves what was written, not
+what is painted.

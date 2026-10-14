@@ -100,13 +100,15 @@ Why:
   isn't and the headers will not apply. Both are read from Chrome at render
   time rather than remembered.
 
-  **As of v0.2.0, each profile card also shows the rule Chrome has actually
-  registered** — one line per header, giving the side, the operation, the full
-  header name and the value in quotes, e.g. `res · set · X-Frame-Options →
-  "DENY"`. It is read from Chrome each time the popup draws, not from what was
-  saved, so if it differs from what you meant, the card is right and the form
-  was wrong. While a change is still being registered the card says so rather
-  than showing the previous rule.
+  **Each profile card also shows the rule Chrome has actually
+  registered**, as a table under "Header rules", one row per header: Type
+  (`req` for the request, `res` for the response), Action (`set`,
+  `append` or `remove`), Header, the full name, and Value, in quotes, or
+  `—` for a remove. It is read from Chrome each time the popup draws, not
+  from what was saved, so if it differs from what you meant, the card is
+  right and the form was wrong. While a change is still being registered
+  the card says so rather than showing the previous rule. The card has
+  shown this since v0.2.0, as a table since v0.3.0.
 
   **A second exception, as of v0.2.0 — and this one has been true since
   v0.1.0.** Chrome requires host permission for the request URL *and* for the

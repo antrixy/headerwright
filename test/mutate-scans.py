@@ -101,7 +101,11 @@ MUTATIONS = [
     # 19 -> 20 on 2026-10-10 (s5 commit 4, UI-03), as its predictions said:
     # check 26 reads the class names popup.js assigns, which live in
     # double-quoted strings. Read by name: the one new failure is check 26.
-    ("the comment stripper also eats string literals", TEST, 20,
+    # 20 -> 21 on 2026-10-14 (UI-05a commit 3), as its predictions said:
+    # checks 10 and 12 read double-quoted strings in popup.js ("col", the
+    # cells' class names), and the rewritten RB textContent check no longer
+    # reads "readback-line".
+    ("the comment stripper also eats string literals", TEST, 21,
      "const popupJs = stripJsComments(popupJsRaw);",
      'const popupJs = stripJsComments(popupJsRaw).replace(/"[^"]*"/g, \'""\');'),
 
@@ -133,12 +137,15 @@ MUTATIONS = [
     ("M10 the readback reads storage instead of the registered rules", POP, 1,
      "    const registered = await chrome.declarativeNetRequest.getDynamicRules();",
      "    const registered = (await getProfiles()).map((p) => ({ id: p.id }));"),
+    # M11 and M12 rewritten for UI-05a's table (commit 3, UA2 and UA5): the
+    # name cell is what must never clip, and the cells what must never be
+    # written as HTML. M12's expect is 2: check 11 and the RB check.
     ("M11 readback lines clip with an ellipsis (FINDING-043 reinstated)", HTML, 1,
-     "    white-space: normal; overflow-wrap: anywhere;",
-     "    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"),
-    ("M12 readback lines written with innerHTML", POP, 1,
-     "    lineEl.textContent = formatReadbackLine(line);",
-     "    lineEl.innerHTML = formatReadbackLine(line);"),
+     "  .profile .rules .rb-name { width: max-content; max-width: 200px; overflow-wrap: anywhere; }",
+     "  .profile .rules .rb-name { width: max-content; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"),
+    ("M12 readback lines written with innerHTML", POP, 2,
+     "    value.textContent = cells.value;",
+     "    value.innerHTML = cells.value;"),
 ]
 
 backup = {}

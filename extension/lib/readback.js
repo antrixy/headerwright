@@ -117,3 +117,30 @@ export function formatReadbackLine(line) {
   if (line.operation === "remove" || line.value === undefined) return head;
   return `${head} \u2192 ${JSON.stringify(line.value)}`;
 }
+
+// UI-05a (v0.3.0, ruled UA2): the card shows the registered rule as a table
+// captioned "Header rules", one row per entry. The cells say what the line
+// above says, part by part, so a row and its line cannot disagree; the
+// runbooks and SMOKE.md quote the line. Design frozen in
+// test/PREDICTIONS-2026-10-13-ui05a.md before this code existed.
+export const READBACK_CAPTION = "Header rules";
+export const READBACK_COLUMNS = Object.freeze(["Type", "Action", "Header", "Value"]);
+export const READBACK_NO_VALUE = "\u2014";
+
+/**
+ * The four cells of one registered entry.
+ *
+ * THE NAME IS NEVER SHORTENED, here or in the stylesheet (FINDING-043, and
+ * UA5's amendment of the 2026-09-21 ruling). THE VALUE IS THE LINE'S VALUE,
+ * quoted, so an empty value and edge whitespace stay visible; a remove, or an
+ * entry with no value, shows the dash.
+ */
+export function readbackCells(line) {
+  const noValue = line.operation === "remove" || line.value === undefined;
+  return {
+    type: line.side,
+    action: line.operation,
+    header: line.header,
+    value: noValue ? READBACK_NO_VALUE : JSON.stringify(line.value),
+  };
+}

@@ -92,6 +92,10 @@ import * as canonicalLib from "../extension/lib/canonical.js";
 // test/PREDICTIONS-2026-09-29-s3.md.
 import * as draftLib from "../extension/lib/draft.js";
 import * as rulesLib from "../extension/lib/rules.js";
+// Same reason, UI-05a (v0.3.0): readbackCells and the table's caption, columns
+// and no-value mark arrive in readback.js. See
+// test/PREDICTIONS-2026-10-13-ui05a.md.
+import * as readbackLib from "../extension/lib/readback.js";
 import { createHash } from "node:crypto";
 import {
   domainsOverlap,
@@ -127,7 +131,7 @@ import * as platformFloor from "./platform-floor.mjs";
 // to {}. Absent, or missing an export, it reads as FAIL lines, not a crash.
 const budgetLib = await import("../extension/lib/budget.js").catch(() => ({}));
 
-const EXPECTED_CHECKS = 668;
+const EXPECTED_CHECKS = 684;
 
 let passed = 0;
 let failed = 0;
@@ -741,6 +745,62 @@ check("RB: a non-array requestHeaders reads 'unreadable' and does not throw",
 const rb15 = attempt(() => describeReadback({ syncState: "applied", rule: rbRule() }));
 check("RB: a rule with neither header list reads 'none'",
   rb15 !== THREW && rb15.kind === "none" && rb15.lines.length === 0);
+
+// ---- UI-05a (v0.3.0): the readback as a table. Checks 1-8 of
+// test/PREDICTIONS-2026-10-13-ui05a.md, in order (ruled UA2). Every cell comes
+// from readbackCells(line); the fixtures are the readback checks' own. Each
+// check first requires the function, so a missing export reads as FAIL lines.
+const uaCellsFn = typeof readbackLib.readbackCells === "function";
+const uaCells = (line) =>
+  uaCellsFn && line ? attempt(() => readbackLib.readbackCells(line)) : THREW;
+const uaLinesOf = (r) => (r === THREW || !r ? [] : r.lines);
+const uaJoin = (c) =>
+  `${c.type} \u00b7 ${c.action} \u00b7 ${c.header}` +
+  (c.value === readbackLib.READBACK_NO_VALUE ? "" : ` \u2192 ${c.value}`);
+// 1
+check("UA2: readbackCells is a function, the caption is Header rules, the columns are Type, Action, Header, Value, and the no-value mark is U+2014",
+  uaCellsFn &&
+  readbackLib.READBACK_CAPTION === "Header rules" &&
+  JSON.stringify(readbackLib.READBACK_COLUMNS) === JSON.stringify(["Type", "Action", "Header", "Value"]) &&
+  readbackLib.READBACK_NO_VALUE === "\u2014");
+// 2
+const ua2 = uaCells(uaLinesOf(rb4)[0]);
+check("UA2: a request set's cells are req, set, X-HW-Probe and \"present\"",
+  ua2 !== THREW &&
+  JSON.stringify(ua2) === JSON.stringify({ type: "req", action: "set", header: "X-HW-Probe", value: '"present"' }));
+// 3
+const ua3res = uaCells(uaLinesOf(rb4)[2]);
+const ua3req = uaCells(uaLinesOf(rb4)[0]);
+check("UA2: an entry from responseHeaders has Type res, and one from requestHeaders req",
+  ua3res !== THREW && ua3req !== THREW && ua3res.type === "res" && ua3req.type === "req");
+// 4
+const ua4 = uaCells(uaLinesOf(rb6)[0]);
+check("UA2: a remove's Value cell is the dash, U+2014, one character",
+  ua4 !== THREW && ua4.value === "\u2014" && ua4.value.length === 1);
+// 5
+const ua5empty = uaCells(uaLinesOf(rb7)[0]);
+const ua5pad = uaCells(uaLinesOf(rb13)[0]);
+check("UA2: an empty value is shown as its quotes, and edge whitespace survives inside them",
+  ua5empty !== THREW && ua5pad !== THREW &&
+  ua5empty.value === '""' && ua5pad.value === '"  padded  "');
+// 6
+const ua6 = uaCells(uaLinesOf(rb8)[0]);
+check("UA2: a 40+ character header name is whole in its Header cell",
+  ua6 !== THREW && rbLong.length >= 40 && ua6.header === rbLong);
+// 7. The table and the line cannot disagree: the runbooks quote the line.
+const ua7lines = [rb4, rb6, rb7, rb8, rb9, rb10, rb13].flatMap(uaLinesOf);
+check("UA2: every fixture's cells, read in the line's order, give formatReadbackLine's text",
+  uaCellsFn && ua7lines.length === 10 &&
+  ua7lines.every((line) => {
+    const c = uaCells(line);
+    const text = attempt(() => formatReadbackLine(line));
+    return c !== THREW && text !== THREW && uaJoin(c) === text;
+  }));
+// 8. FINDING-040's invisible variant, in cells.
+const ua8 = uaCells(uaLinesOf(rb9)[0]);
+check("UA2: F040's invisible variant reads set and \"present\", and no cell says remove",
+  ua8 !== THREW && ua8.action === "set" && ua8.value === '"present"' &&
+  !Object.values(ua8).some((v) => String(v).includes("remove")));
 
 
 // ---------------------------------------- manifest user-facing copy (F039)
@@ -2366,20 +2426,109 @@ check("RB: renderListNow reads the REGISTERED rules, not storage",
     .test(renderListBody) &&
   /registeredById = new Map\(registered\.map\(\(rule\) => \[rule\.id, rule\]\)\);/
     .test(renderListBody));
-const readbackCss = (popupHtml.match(/\.profile \.readback-line \{([^}]*)\}/) || ["", ""])[1];
-check("RB: readback lines wrap and never clip",
-  /overflow-wrap:\s*anywhere/.test(readbackCss) &&
-  /white-space:\s*normal/.test(readbackCss) &&
-  !/nowrap|text-overflow|overflow:\s*hidden/.test(readbackCss));
-check("RB: readback lines are written with textContent, never innerHTML",
-  /lineEl\.className = "readback-line";\s*lineEl\.textContent = formatReadbackLine\(line\);/
-    .test(renderCardBody) &&
+// "RB: readback lines wrap and never clip" is gone with the rule it read
+// (UI-05a commit 3): checks 13 and 14 below hold its ground, names never cut
+// and values cut only with a visible ellipsis (UA5).
+const renderTableBody = (popupJs.match(
+  /function renderReadbackTable\([^)]*\) \{[\s\S]*?\n\}\n/) || [""])[0];
+check("RB: readback cells are written with textContent, never innerHTML",
+  renderTableBody.includes("const cells = readbackCells(line);") &&
+  !/\.innerHTML\s*\+?=/.test(renderTableBody) &&
   // AN ASSIGNMENT, NOT A MENTION. The first version was !/innerHTML/, which
   // the existing "textContent, never innerHTML" COMMENT in this function
   // satisfies once the comment strip is gone — mutate-scans' pre-FINDING-032
   // row went 0 -> 1 on it. A guard that forbids a word forbids its own
   // explanation; this one forbids the statement.
   !/\.innerHTML\s*\+?=/.test(renderCardBody));
+
+// ---- UI-05a (v0.3.0): the card's table. Checks 9-17 of
+// test/PREDICTIONS-2026-10-13-ui05a.md, in order (ruled UA2, UA5, UA7). Bound
+// to the statements that build it. The stylesheet is read with its comments
+// stripped; README and SMOKE.md are read here, whitespace collapsed.
+const uaStyle = ((popupHtml.match(/<style>([\s\S]*?)<\/style>/) || ["", ""])[1])
+  .replace(/\/\*[\s\S]*?\*\//g, "");
+const uaRule = (selector) => {
+  const at = uaStyle.indexOf(`${selector} {`);
+  if (at < 0) return null;
+  const end = uaStyle.indexOf("}", at);
+  return end < 0 ? null : uaStyle.slice(at + selector.length + 2, end);
+};
+// 9
+const uaNoteAt = renderCardBody.indexOf("note.textContent = readback.note;");
+const uaTableAt = renderCardBody.search(
+  /if \(readback\.lines\.length > 0\) \{\s*readbackBox\.appendChild\(renderReadbackTable\(readback\.lines\)\);\s*\}/);
+check("UA5: renderProfileCard writes the note as before and then, only when the readback has lines, appends renderReadbackTable(readback.lines)",
+  uaNoteAt >= 0 && uaTableAt > uaNoteAt);
+// 10
+check("UA2/UA7: renderReadbackTable captions the table from READBACK_CAPTION, gives each of READBACK_COLUMNS a th with scope col in a thead, and appends caption, thead and tbody",
+  renderTableBody.includes("caption.textContent = READBACK_CAPTION;") &&
+  /for \(const label of READBACK_COLUMNS\) \{\s*const th = document\.createElement\("th"\);\s*th\.scope = "col";\s*th\.textContent = label;\s*head\.appendChild\(th\);\s*\}/
+    .test(renderTableBody) &&
+  renderTableBody.includes("thead.appendChild(head);") &&
+  renderTableBody.includes("table.append(caption, thead, tbody);"));
+// 11
+check("UA2: each row's cells come from readbackCells(line), are written with textContent, and are appended Type, Action, Header, Value",
+  renderTableBody.includes("const cells = readbackCells(line);") &&
+  renderTableBody.includes("type.textContent = cells.type;") &&
+  renderTableBody.includes("action.textContent = cells.action;") &&
+  renderTableBody.includes("name.textContent = cells.header;") &&
+  renderTableBody.includes("value.textContent = cells.value;") &&
+  renderTableBody.includes("row.append(type, action, header, value);"));
+// 12
+const uaCellClasses = [...renderTableBody.matchAll(/\.className = "([^"]+)";/g)].map((m) => m[1]);
+check("UA2: the cells' classes are rb-type, rb-action, rb-header (the name in rb-name) and rb-value, and rb-type, rb-action, rb-name and rb-value each have a rule",
+  ["rb-type", "rb-action", "rb-header", "rb-name", "rb-value"].every((c) => uaCellClasses.includes(c)) &&
+  ["rb-type", "rb-action", "rb-name", "rb-value"].every((c) => new RegExp(`\\.${c}\\b[^{]*\\{`).test(uaStyle)));
+// 13. FINDING-043: a name is never cut (UA5).
+const uaNameRule = uaRule(".profile .rules .rb-name");
+const uaNameRules = [...uaStyle.matchAll(/([^{}]*)\{([^}]*)\}/g)]
+  .filter((m) => /\.rb-(name|header)\b/.test(m[1])).map((m) => m[2]);
+check("UA2/UA5: a name is never cut: .rb-name is max-content up to 200 px and wraps anywhere, and no rule on .rb-name or .rb-header hides overflow, ellipsizes, or forbids wrapping",
+  uaNameRule !== null &&
+  /width:\s*max-content/.test(uaNameRule) &&
+  /max-width:\s*200px/.test(uaNameRule) &&
+  /overflow-wrap:\s*anywhere/.test(uaNameRule) &&
+  uaNameRules.length >= 1 &&
+  uaNameRules.every((body) => !/overflow:\s*hidden|text-overflow|nowrap|white-space:\s*pre/.test(body)));
+// 14. UA3, and FINDING-054: one line, a visible ellipsis, every space kept.
+const uaValueRule = uaRule(".profile .rules .rb-value");
+check("UA2/UA3, FINDING-054: the Value cell takes the rest of the width and cuts on one line with a visible ellipsis, keeping its spaces",
+  uaValueRule !== null &&
+  /width:\s*100%/.test(uaValueRule) && /max-width:\s*0/.test(uaValueRule) &&
+  /overflow:\s*hidden/.test(uaValueRule) &&
+  /text-overflow:\s*ellipsis/.test(uaValueRule) &&
+  /white-space:\s*pre;/.test(uaValueRule));
+// 15
+const uaTableRule = uaRule(".profile .rules");
+check("UA2: the table is full width, borders collapsed, in ui-monospace 11.5 px",
+  uaTableRule !== null &&
+  /width:\s*100%/.test(uaTableRule) &&
+  /border-collapse:\s*collapse/.test(uaTableRule) &&
+  /font-family:\s*ui-monospace/.test(uaTableRule) &&
+  /font-size:\s*11\.5px/.test(uaTableRule));
+// 16
+const uaReadme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+const uaCaption = readbackLib.READBACK_CAPTION;
+const uaReadmePara = typeof uaCaption === "string"
+  ? uaReadme.split(/\n\s*\n/).map((p) => p.replace(/\s+/g, " "))
+      .find((p) => p.includes(`"${uaCaption}"`))
+  : undefined;
+check("UA2: README's paragraph holding the caption names the four columns, and README no longer says one line per header",
+  uaReadmePara !== undefined &&
+  Array.isArray(readbackLib.READBACK_COLUMNS) &&
+  readbackLib.READBACK_COLUMNS.every((c) => uaReadmePara.includes(c)) &&
+  !/one line per header/.test(uaReadme.replace(/\s+/g, " ")));
+// 17
+const uaSmoke = readFileSync(new URL("./SMOKE.md", import.meta.url), "utf8");
+const uaPart16 = (uaSmoke.match(/^## Part 16[\s\S]*?(?=^## Part |$(?![\s\S]))/m) || [""])[0];
+const uaRow165 = uaPart16.split("\n").find((l) => l.startsWith("| 16.5 |")) || "";
+check("UA2: SMOKE.md Part 16 carries the UI-05a amendment, and row 16.5 says never cut and no longer no ellipsis anywhere",
+  typeof uaCaption === "string" &&
+  uaPart16.includes("UI-05a") &&
+  uaPart16.replace(/\s+/g, " ").includes(`"${uaCaption}"`) &&
+  ["Type", "Action", "Header", "Value"].every((c) => uaPart16.includes(c)) &&
+  uaRow165.includes("never cut") &&
+  !uaRow165.includes("no `\u2026` anywhere"));
 
 // FINDING-041. preflight.mjs is not a gate — it needs running servers and a
 // hosts file — so nothing else would notice if its extension block were
