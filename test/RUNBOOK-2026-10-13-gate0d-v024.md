@@ -696,3 +696,241 @@ with one readback line (A-P1, A-P5, A-P7, A-P8, A-P9), the two wire cases
 
 *Recorded here during the sitting, one entry per prediction id. Nothing above
 this heading is edited after commit.*
+
+Recorded 2026-10-13, 13:07–18:24 CT (18:07–23:24 UTC; the same date in both),
+with one pause, 13:57–17:28 CT, inside S-2 and before the install. Sections
+above are unedited from `b34cc00`. The full observations are in
+`test/EVIDENCE.md`, *GATE-0d — the published v0.2.4 in a clean profile*.
+
+**No prediction was wrong.** All fifteen counted predictions held, and every
+recorded one. A-P1 held in both clauses: with no DevTools attached, the
+popup closed on Save. The footer read `registered 1`, compared by its bytes.
+
+**Clock times are the send times of the operator's messages**, to the
+minute, unless a line gives seconds from a command's own `read at` line.
+Every result arrived as a screenshot unless a line says otherwise.
+
+### Before Chrome
+
+- 13:07:42: `~/headerwright` was at `395d96a`, six commits behind, with a
+  clean tree. `origin/main` = `b34cc00`, over `b8f0dd3`. The fast-forward was
+  seen: six files, exactly `git diff --stat 395d96a b34cc00`. `HEAD` =
+  `origin/main` = `b34cc00d00f60902c17194afd9f2b3e06c29e1ee`.
+- 13:13:38 to 13:16:06: `verify exit 0`, `tree: 668 checks, 239 mutation
+  scenarios, 7 gates`, `ALL AUTOMATED GATES PASS — no browser evidence is
+  included`; about 148 seconds.
+- 13:26:15: nothing was listening on 8787 or 8790 (`lsof` printed nothing,
+  exit 1). `lsof` exits 1 whenever any port it is asked about has no
+  listener, so the reading is the absence of output, not the exit code
+  (shown in the container before this step was handed over).
+- 13:28:56: both instruments started in the background from
+  `~/headerwright` at `b34cc00` (L2), with `nohup` and their output in
+  `~/hw-gate0d-logs/` (`oracle.log` 127 bytes, `initiator.log` 249). Oracle
+  pid 67813 on `127.0.0.1:8787`, initiator pid 67814 on `127.0.0.1:8790`;
+  `lsof` and `ps` showed both. zsh numbered them jobs 2 and 3, so the
+  terminal already held a job 1, as in GATE-0c; it was not identified.
+- 13:29:51: **PREFLIGHT PASSES.** Oracle 15/15, build `c098c223e3b1`;
+  initiator 12/12, build `1e6dc8fd662c`; both started
+  2026-10-13T18:28:56.188Z; `hw.test:8787`, `hw.test:8790` and
+  `nothw.test:8790` resolve to those processes. Preflight's extension line
+  named `0.2.4`.
+
+### In Chrome, before any row
+
+- **S-1.** 13:49: Chrome `154.0.8037.98` (Official Build) (arm64), revision
+  `b859317bf11f6be47f9b7799ec690a0a42a1fb33-refs/branch-heads/8037@{#1674}`,
+  macOS 26.5.2 (25F84), Profile Path `…/Google/Chrome/Profile 21`. The build
+  this file names; major version 154. 13:52: the list held exactly one
+  extension, **Google Docs Offline**, enabled; *Pin new extensions to
+  Toolbar* was on. About 13:53: Google Docs Offline removed (the click was
+  not shown); the page then read *Find extensions and themes in the Chrome
+  Web Store*, with no cards, and Developer mode OFF.
+- **PC2 — HELD.** No user-installed extensions, and none of any kind.
+- **PC1 — HELD.** 13:53: the profile menu read `hw-gate0-v024` with *Sign in
+  to Chrome*, no account. The other profiles listed were `Maverick` and
+  `no-ai-search`.
+- **S-2.** 13:57: the listing read Version `0.2.4`, Updated October 13,
+  2026, Size `98.69KiB`, Offered by Maverick Yadav.
+- **The pause, 13:57–17:28.** At 17:28 the install dialog was open over the
+  listing: `Add "HeaderWright — Modify HTTP Headers"?`, **Cancel** and **Add
+  extension**, no permission warnings. When it was opened is not known.
+  Following the Pauses section: 17:41:29, **PREFLIGHT PASSES** again, the
+  same pids, start time and builds; the dialog was cancelled (reported);
+  17:42, `chrome://version` in the profile read the same build and
+  `Profile 21`. 17:45: **Add to Chrome** again, the same dialog, read before
+  confirming; the listing showed 4 users.
+- 17:46, after **Add extension**: the store's button read **Remove from
+  Chrome**, and the toolbar showed the icon, pinned, with badge `OFF`.
+  Chrome's "has been added" note was not in the screenshot and is not
+  recorded as seen.
+- **S-P0 — CORRECT.** The listing at 13:57 and the dialog at 17:28 and 17:45.
+- **S-3.** 17:51, the Details page: `HeaderWright — Modify HTTP Headers`,
+  On, the manifest's description, Version `0.2.4`, Size `< 1 MB`. 17:52: no
+  sites listed under *Automatically allow access on the following sites*;
+  **Pin to toolbar** ON, as Chrome set it at install, so S-3's pin check was
+  met; *Allow in Incognito* off; Source *Chrome Web Store*; no Errors button
+  on the card. **Developer mode was found still OFF** (no ID, no Inspect
+  views) and switched on. 17:57: ID `ooapgilielelobkkcdlnkenkflbnnmhi` on the
+  card and on Details; Inspect views *service worker (Inactive)*; *Collect
+  errors* off.
+- **S-P1 — CORRECT.** `ooapgilielelobkkcdlnkenkflbnnmhi`.
+- **S-P2 — CORRECT.** `HeaderWright — Modify HTTP Headers`.
+- **S-P3 — CORRECT.** `0.2.4`.
+- **S-P5 — CORRECT.** 17:51: Site access read *This extension can read and
+  change your data on sites. You can control which sites the extension can
+  access.*, with *Automatically allow access on the following sites* ON and
+  no sites listed: as for v0.2.3 on 154, word for word.
+- 17:59: **S-4's block was first pasted into the terminal**, not the popup's
+  console. zsh refused the whole paste (`parse error near '}'`) and nothing
+  ran. It was then run in DevTools.
+- The DevTools title bar read `DevTools - chrome-extension://...kenkflbnnmhi/popup/popup.html`,
+  as this file expects. The paste needed no `allow pasting`.
+- **S-P4 — CORRECT.** 18:01: `["ooapgilielelobkkcdlnkenkflbnnmhi","0.2.4",14,[]]`.
+- **S-P4m — CORRECT.** 18:03: `[200,true,[],["key","update_url"],"116"]`.
+  GitHub served the tag's exact manifest, and every key in it has the same
+  value installed.
+- **S-P4n — CORRECT.** The extra keys are exactly `key` and `update_url`.
+- **S-P4f — CORRECT.** `"116"`.
+- **S-P4c — CORRECT.** 18:04: all four parts `200 true false true 0 0`
+  (`icons/icon16.png`, `icon32.png`, `icon48.png`, `icon128.png`). GitHub
+  served the tag's exact bytes; sizes equal; 0 differing pixels.
+- **S-P4d — CORRECT.** The installed icon bytes differ from the tag's on all
+  four: Chrome re-encoded them at install, as for v0.2.1, v0.2.2 and v0.2.3.
+- **Build identity under E3 is met:** ID, version, 14 code files by bytes, 4
+  icons by pixels; and the manifest by content (Q4a), floor `116`.
+- **S-P6 — CORRECT.** 18:04: `["paused",0,"69709b56","69709b56",["hw:sync"]]`.
+- **S-P6b — CORRECT.** Both revisions `69709b56`.
+- **S-P7 — CORRECT.** 18:05: `[]`.
+- **S-P8 — CORRECT.** 18:05: `[]`.
+- **S-P9 — CORRECT.** Read off the screenshots of 18:01 to 18:06: no cards;
+  *No profiles yet. Add one to start setting headers on a site.*; footer `0
+  profiles · 0/0 domains granted · paused`; label `OFF`; badge `OFF`. The
+  DevTools Issues count read 1.
+- **S-P9b — CORRECT, read from a screenshot.** 18:06:
+  `[0,"No profiles yet. Add one to start setting headers on a site.","0 profiles · 0/0 domains granted · paused","","Off"]`.
+  The line was asked for as text and arrived as a screenshot, so it was not
+  read by its bytes.
+
+### Row A
+
+- 18:07: the stretch that cannot pause began, announced first.
+- **A-1.** 18:08: the form filled by hand. Both header names showed whole in
+  their fields, each on its own line above side, operation and value
+  (UI-03). Row 2's value was typed `rewwritten`, seen on the screenshot
+  before any read, and corrected in the field. 18:09: the form check read
+  `["probe","hw.test",["X-HW-Probe","request","set","present"],["X-HW-Oracle","response","set","rewritten"]]`,
+  after that one correction. The DevTools Issues count read 9 with the
+  editor open.
+- **A-P0a — CORRECT.** 18:10:
+  `[["new"],2,null,null,"probe","hw.test",[["X-HW-Probe","request","set","present"],["X-HW-Oracle","response","set","rewritten"]],1791932839911]`.
+  The stored draft held the corrected value.
+- **A-P0b — CORRECT.** 18:11: with DevTools closed, the popup stayed open
+  showing the form (screenshot).
+- **A-P0c — CORRECT.** 18:11, reopened and not inspected: the list, no
+  cards, *No profiles yet. Add one to start setting headers on a site.*,
+  footer `0 profiles · 0/0 domains granted · paused`, no marker.
+- **A-P0d — CORRECT.** 18:12, after **Add profile**, nothing typed: *New
+  profile*; *Showing unsaved changes.* with **Revert to saved**; `probe`;
+  `hw.test`; `X-HW-Probe` whole above `req` / `set` / `present`, and
+  `X-HW-Oracle` whole above `res` / `set` / `rewritten`.
+- **A-P1 — CORRECT, both clauses.** 18:13, **Save profile** clicked once,
+  with no DevTools attached: the dialog read *"HeaderWright — Modify HTTP
+  Headers" has requested additional permissions. It could: Read and change
+  your data on all hw.test sites and hw.test*, **Deny** and **Allow**, word
+  for word as on v0.2.1 to v0.2.3. **The popup closed**: the screenshot,
+  taken before Allow, shows the dialog over `chrome://extensions` and no
+  popup. The card's Inspect views read *service worker*, no longer
+  Inactive.
+- **Allow**, between 18:13 and 18:14 (reported). The stretch that cannot
+  pause ended there, with no gap inside it.
+- **A-P2 — CORRECT.** 18:14, reopened: `probe`, `2 headers`, `Off — nothing
+  registered`, a green `hw.test` chip, no lines, no marker.
+- **A-P3 — CORRECT.** `1 profile · 1/1 domain granted · paused`; badge `OFF`.
+- **A-P4 — CORRECT.** 18:15: label `ON`; badge green `ON`.
+- **A-P5 — CORRECT.** `req · set · X-HW-Probe → "present"`, then `res · set ·
+  X-HW-Oracle → "rewritten"`, without reopening.
+- **A-P6 — CORRECT.** `1 profile · 1/1 domain granted · registered 1`.
+- **A-P7 — CORRECT.** 18:16: `[1,1,1,["hw.test"],15,"modifyHeaders"]`, then
+  `[[{"header":"X-HW-Probe","operation":"set","value":"present"}],[{"header":"X-HW-Oracle","operation":"set","value":"rewritten"}]]`,
+  unclipped, key order as written.
+- **A-P9 — CORRECT.** The card and the registered rule agree entry for entry.
+- **A-P8 — CORRECT.** 18:17: `["*://*.hw.test/*","*://hw.test/*"]`.
+- **A-P10 — CORRECT.** 18:17: `{}`.
+- **A-P6b — CORRECT, by its bytes.** 18:18: the fifth block printed
+  `[["req · set · X-HW-Probe → \"present\"","res · set · X-HW-Oracle → \"rewritten\""],"1 profile · 1/1 domain granted · registered 1","","On"]`
+  (DevTools shows it with its quotes escaped once more), and a comparison
+  line run next in the same console, ``$_ === String.raw`…` `` with the
+  prediction's text, printed `true`. The comparison line is not in this
+  file: it was added so the line was read by its bytes rather than from a
+  screenshot, and was checked in Node first (`true` on the predicted text,
+  `false` on `applying 1`).
+
+### Row B
+
+- **B-P1 — CORRECT.** 18:19: `SAME-ORIGIN — page on hw.test:8790, target
+  hw.test, initiator origin (none sent — same origin).` `x-hw-probe:
+  "present"`; `servedBy` `hw.test`.
+- **B-P2 — CORRECT.** `x-hw-second` and `authorization` ABSENT.
+
+### Row C
+
+- Precondition, 18:20: no service worker registered for `hw.test:8787`; the
+  panel showed only *Service workers from other origins*. The panel and the
+  result arrived in one screenshot, so that the panel was read before
+  Measure is as reported. The tab's DevTools showed 1 error, not read.
+- **C-P1 — CORRECT.** 18:20: `MODIFIED — 1 changed, 0 removed, 0 added.`
+- **C-P2 — CORRECT.** `x-hw-oracle` `baseline` → `rewritten`;
+  `x-hw-removable` `present` → `present`; `x-hw-second` `two` → `two`.
+
+### Row D
+
+- **D-1.** 18:21: origins `["*://*.hw.test/*","*://hw.test/*"]`. No
+  `nothw.test`, no `*://*/*`.
+- **D-P1 — CORRECT.** 18:22: the fetch succeeded; `servedBy` `hw.test`.
+- **D-P2 — CORRECT.** `CROSS-ORIGIN — page on nothw.test:8790, target
+  hw.test, initiator origin http://nothw.test:8790.`
+- **D-P3 — CORRECT.** `x-hw-probe` ABSENT. `allReceivedNames` lists
+  `accept, accept-encoding, accept-language, cache-control, connection, host,
+  origin, pragma, referer, user-agent`, with no `x-hw-probe`: the same list
+  as v0.2.1's, v0.2.2's and v0.2.3's.
+
+### Close-out
+
+- **Z-P1 — CORRECT.** 18:23:
+  `[1,1,[[{"header":"X-HW-Probe","operation":"set","value":"present"}],[{"header":"X-HW-Oracle","operation":"set","value":"rewritten"}]]]`,
+  unclipped, then `["*://*.hw.test/*","*://hw.test/*"]`.
+- 18:24:27: `ps` named both pids by command line, `node
+  test/oracle/server.mjs 8787` and `node test/initiator/server.mjs 8790`, and
+  one command killed each only after its line matched; zsh reported jobs 2
+  and 3 terminated. 18:24:29: nothing was listening on either port (`lsof`
+  printed nothing, exit 1).
+
+### Departures from this file
+
+- S-4's block was first pasted into the terminal; zsh refused it whole and
+  nothing ran.
+- Developer mode was found OFF at S-3 and switched on before the ID was read.
+- One pause of about three and a half hours inside S-2, before the install.
+  Preflight and `chrome://version` were read again after it, and the dialog
+  was cancelled and opened again before confirming. No row had started.
+- Row 2's value was typed `rewwritten` and corrected before the form check.
+- S-P9b was read from a screenshot, not by its bytes.
+- A-P6b's line was also compared by its bytes, with a line this file does
+  not have.
+- The Remove click, the dialog's cancel, Allow, and the order of Row C's
+  precondition and Measure are the operator's reports.
+- Chrome's "has been added" note was not seen.
+- Clock times are message send times.
+
+### Ledger
+
+**GATE-0d → `verified`.** Every counted prediction held: S-P1, S-P3, S-P4,
+S-P4c, S-P5, A-P1, A-P5, A-P7, A-P8, A-P9, B-P1, C-P1, C-P2, D-P1, D-P3.
+
+- **Not closed by this sitting:**
+  - Deleting `hw-gate0-v024` (M2) and removing `~/hw-gate0d-logs/`, which
+    happen after this commit is pushed and read back.
+  - The DevTools Issues counts (1, then 9 with the editor open, in the
+    popup; 1 error on the oracle tab), which were not read.
+  - Job 1 in the terminal that started the instruments, which was not
+    identified.

@@ -10,6 +10,110 @@ from.
 
 ---
 
+# GATE-0d — the published v0.2.4 in a clean profile (2026-10-13)
+
+The release gate for v0.2.4, a new row as GATE-0b and GATE-0c were (G1's
+precedent). The predictions were frozen in
+`test/RUNBOOK-2026-10-13-gate0d-v024.md`, committed at `b34cc00` before
+Chrome opened. Its Outcomes section gives a verdict per prediction and every
+departure from the file. This entry is what was observed. The sitting ran on
+2026-10-13 in UTC and in CT alike.
+
+### Environment
+
+| | |
+|---|---|
+| Build | the Chrome Web Store's v0.2.4, installed from the public listing. Its 14 code files are byte-identical to tag `v0.2.4` = `f86f18b`, its 4 icons pixel-identical, and its manifest equal by content (below) |
+| Extension ID | `ooapgilielelobkkcdlnkenkflbnnmhi` (the STORE ID) |
+| Card on `chrome://extensions` | `HeaderWright — Modify HTTP Headers`, `0.2.4`; no Errors button; Source *Chrome Web Store* |
+| Also installed | nothing. Google Docs Offline, Chrome's default, was removed before install |
+| Profile | `hw-gate0-v024`, `Profile 21`, new for this sitting, signed out |
+| Chrome | **154.0.8037.98** (Official Build) (arm64), revision `b859317bf11f6be47f9b7799ec690a0a42a1fb33-refs/branch-heads/8037@{#1674}`, read on `chrome://version` in `Default` before the runbook was written, and in this profile before any row and again after the pause |
+| OS | macOS 26.5.2 (25F84) |
+| Instruments | oracle pid 67813, build `c098c223e3b1`; initiator pid 67814, build `1e6dc8fd662c`; both started from `b34cc00` in the background (L2), logs in `~/hw-gate0d-logs/`; PREFLIGHT PASSES, twice |
+| Tree | `b34cc00`, `tree: 668 checks, 239 mutation scenarios, 7 gates`, in about 148 seconds |
+| Developer mode | ON, for inspecting only |
+| When | 2026-10-13 13:07 to 18:24 CT (18:07 to 23:24 UTC), with one pause, 13:57 to 17:28 CT, before the install. Clock times are the send times of the operator's messages |
+
+### Build identity: what Chrome actually runs
+
+Every file was fetched from inside the popup (`chrome.runtime.getURL`) and
+hashed with `crypto.subtle`. Identity is the E3 rule, planned from the start.
+
+- **All 14 code files matched the tag byte for byte:** the worker, the
+  eleven `lib/` files, `popup.html` and `popup.js`. Eight of them differ from
+  v0.2.3's, one of them, `lib/budget.js`, new in v0.2.4, so this also rules
+  out the previous release.
+- **All 4 icons are pixel-identical to the tag's, and none byte-identical.**
+  The tag's icons were fetched from GitHub at `f86f18b`, status 200, with
+  their bytes hash-checked. 0 differing pixels in all four, equal sizes.
+  Chrome re-encodes icons at install, as it did for v0.2.1 to v0.2.3.
+- **The installed manifest equals the tag's by content (Q4a).** The tag's
+  `manifest.json` was fetched from GitHub at `f86f18b`, status 200,
+  hash-checked. Every one of its keys has the same value in
+  `chrome.runtime.getManifest()`, permissions included, and the installed
+  manifest's only extra keys are `key` and `update_url`.
+  **`minimum_chrome_version` reads `116`** (S5-D4), where v0.2.3's read
+  `101`.
+- **The worker's sync record agrees and cannot tell this release from the
+  last.** On first install `hw:sync` carried revision `69709b56` for both
+  desired and applied. `lib/status.js` changed in v0.2.4 only in its strings
+  and comments, so v0.2.3 writes the same value. The stored draft's
+  `version` 2 is also v0.2.3's.
+
+### Starting state
+
+Only `hw:sync` in storage, `state 'paused'`, `activeRuleCount 0`. No
+origins, no rules. **A fresh install's master toggle is OFF.** *No profiles
+yet. Add one to start setting headers on a site.*; footer `0 profiles · 0/0
+domains granted · paused`; label and badge `OFF`.
+
+### The row
+
+| step | observed |
+| --- | --- |
+| Fill `probe` on `hw.test`: request `X-HW-Probe` set `present`, response `X-HW-Oracle` set `rewritten` | both names shown whole on their own lines (UI-03); one typing slip (`rewwritten`) seen and corrected before the check; the form checked from the console. The stored draft: one, under `new`, version 2, no base, holding the form as checked |
+| Close DevTools, close the popup, reopen (L1 as restated, Q1) | **the popup stayed open when its DevTools closed**, and closed on a click on the page. Reopened, it showed the empty list with no marker |
+| **Add profile** | *New profile*, *Showing unsaved changes.* with **Revert to saved**, and the form as checked |
+| Save, with no DevTools attached | the permission dialog named `hw.test` (*Read and change your data on all hw.test sites and hw.test*), and **the popup closed**. Allowed |
+| Card after Allow | `Off — nothing registered`, green chip, `1 profile · 1/1 domain granted · paused` |
+| Toggle ON | `req · set · X-HW-Probe → "present"`, `res · set · X-HW-Oracle → "rewritten"`; **`registered 1`** (GATE-0c read `applying 1`); badge `ON` |
+| The card and footer, from the console | equal to the prediction byte for byte: the two lines, `1 profile · 1/1 domain granted · registered 1`, hover text `""`, label `On` |
+| `getDynamicRules()` | one rule, id 1, priority 1, `requestDomains ["hw.test"]`, 15 resource types, `modifyHeaders`, exactly those two entries. **Agrees with the card** |
+| Grants | `*://*.hw.test/*`, `*://hw.test/*` |
+| Drafts after Save | `{}` |
+| Request wire, same-origin `http://hw.test:8790/` | `SAME-ORIGIN`; **`x-hw-probe: "present"`** |
+| Response wire, `http://hw.test:8787/` plain case, no service worker registered | **`MODIFIED — 1 changed, 0 removed, 0 added`**; `x-hw-oracle` `baseline` → `rewritten`; `x-hw-removable` and `x-hw-second` unchanged |
+| Initiator negative control, `http://nothw.test:8790/` | fetch succeeded (`servedBy` `hw.test`); `CROSS-ORIGIN`, initiator `http://nothw.test:8790`; **`x-hw-probe` ABSENT**, not in `allReceivedNames` |
+| Close-out | the same rule and grants: nothing in the wire rows wrote anything |
+
+**No prediction was wrong:** all fifteen counted predictions held, and every
+recorded one.
+
+**The popup closed on the permission dialog again,** with no DevTools
+attached, as in GATE-0c: the second store gate on Chrome 154 to see it.
+
+**The fourth store release with wire evidence.** Both sides apply, and the
+initiator requirement (HW-V6-01) behaves on the v0.2.4 store build exactly
+as on v0.2.1's, v0.2.2's and v0.2.3's.
+
+### Observed, and not predicted
+
+- **Chrome 154 still pins a newly installed extension by itself,** with
+  *Pin new extensions to Toolbar* on in a new profile.
+- **The paste into DevTools needed no `allow pasting`** in this new profile.
+- **`lsof` exits 1 whenever any port it is asked about has no listener,**
+  even with another port listening (shown in the container before the port
+  check was handed over); the port check reads the absence of output.
+
+### Not read
+
+- The popup's DevTools Issues count read 1, and 9 with the editor open; the
+  oracle tab showed 1 error. Neither was opened.
+- Chrome's "has been added" note after install was not in the screenshot.
+
+---
+
 # The s5 sitting — v0.2.4's browser rows on Chrome 154 (2026-10-10 to 2026-10-12)
 
 The browser rows S5-D9 left `fixed-unverified`: UI-04, UI-03, DR-02, AR-16
