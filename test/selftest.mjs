@@ -131,7 +131,7 @@ import * as platformFloor from "./platform-floor.mjs";
 // to {}. Absent, or missing an export, it reads as FAIL lines, not a crash.
 const budgetLib = await import("../extension/lib/budget.js").catch(() => ({}));
 
-const EXPECTED_CHECKS = 684;
+const EXPECTED_CHECKS = 700;
 
 let passed = 0;
 let failed = 0;
@@ -801,6 +801,33 @@ const ua8 = uaCells(uaLinesOf(rb9)[0]);
 check("UA2: F040's invisible variant reads set and \"present\", and no cell says remove",
   ua8 !== THREW && ua8.action === "set" && ua8.value === '"present"' &&
   !Object.values(ua8).some((v) => String(v).includes("remove")));
+
+// ---- UI-05a (v0.3.0): cut values. Checks 18-21 of
+// test/PREDICTIONS-2026-10-13-ui05a.md, in order (ruled UA3, UA4): when a
+// value is cut, and where its popover opens. Pure, so pinned here.
+const uaCutFn = typeof readbackLib.valueIsCut === "function";
+const uaCut = (a, b) => (uaCutFn ? attempt(() => readbackLib.valueIsCut(a, b)) : THREW);
+// 18
+check("UA3: valueIsCut is true only when the content is wider than the cell",
+  uaCut(216, 215) === true && uaCut(215, 215) === false && uaCut(100, 215) === false &&
+  uaCut(NaN, 1) === false && uaCut(undefined, 1) === false);
+const uaPlaceFn = typeof readbackLib.placeValuePopover === "function";
+const uaPlace = (cell, height) => {
+  if (!uaPlaceFn) return THREW;
+  const r = attempt(() => readbackLib.placeValuePopover({
+    cell, bounds: { top: 50, bottom: 564 }, viewportHeight: 600, height,
+  }));
+  return r === THREW || !r ? THREW : JSON.stringify({ top: r.top, bottom: r.bottom, maxHeight: r.maxHeight });
+};
+// 19
+check("UA4: placeValuePopover opens below the cell when the popover fits below, within the list",
+  uaPlace({ top: 100, bottom: 121 }, 40) === JSON.stringify({ top: 121, bottom: null, maxHeight: 443 }));
+// 20
+check("UA4: it opens above when it does not fit below and there is more room above (the last row)",
+  uaPlace({ top: 530, bottom: 551 }, 40) === JSON.stringify({ top: null, bottom: 70, maxHeight: 480 }));
+// 21
+check("UA4: it stays below, limited to the room there, when it fits on neither side and below has more room",
+  uaPlace({ top: 60, bottom: 81 }, 900) === JSON.stringify({ top: 81, bottom: null, maxHeight: 483 }));
 
 
 // ---------------------------------------- manifest user-facing copy (F039)
@@ -2529,6 +2556,87 @@ check("UA2: SMOKE.md Part 16 carries the UI-05a amendment, and row 16.5 says nev
   ["Type", "Action", "Header", "Value"].every((c) => uaPart16.includes(c)) &&
   uaRow165.includes("never cut") &&
   !uaRow165.includes("no `\u2026` anywhere"));
+
+// ---- UI-05a (v0.3.0): cut values on the card. Checks 22-33 of
+// test/PREDICTIONS-2026-10-13-ui05a.md, in order (ruled UA3, UA4, UA7).
+const uaBody = (name) => (popupJs.match(
+  new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}\\n`)) || [""])[0];
+const uaShow = uaBody("showValuePopover");
+const uaMeasure = uaBody("measureValueCell");
+// 22
+const uaLeftAt = uaShow.indexOf("valuePopover.style.left = `${table.left}px`;");
+const uaWidthAt = uaShow.indexOf("valuePopover.style.maxWidth = `${table.width}px`;");
+const uaPlaceAt = uaShow.indexOf("placeValuePopover(");
+check("UA4: showValuePopover aligns the popover with the table's left edge and limits it to the table's width before it is measured and placed",
+  uaLeftAt >= 0 && uaWidthAt >= 0 && uaPlaceAt > uaLeftAt && uaPlaceAt > uaWidthAt &&
+  uaShow.indexOf("valuePopover.offsetHeight") > uaWidthAt);
+// 23
+check("UA3: measureValueCell takes cut from valueIsCut, toggles the class cut by it, makes the cell a tab stop only when cut, and otherwise removes tabindex",
+  uaMeasure.includes("const cut = valueIsCut(cell.scrollWidth, cell.clientWidth);") &&
+  uaMeasure.includes('cell.classList.toggle("cut", cut);') &&
+  uaMeasure.includes("if (cut) cell.tabIndex = 0;") &&
+  uaMeasure.includes('else cell.removeAttribute("tabindex");') &&
+  (popupJs.match(/\.tabIndex\s*=/g) || []).length === 1);
+// 24
+const uaClearAt = renderListBody.indexOf('list.textContent = "";');
+const uaDisconnectAt = renderListBody.indexOf("valueCellObserver.disconnect();");
+const uaHideAt = renderListBody.indexOf("hideValuePopover();");
+const uaCardsAt = renderListBody.indexOf("renderProfileCard(");
+const uaMeasureAt = renderListBody.search(
+  /for \(const cell of list\.querySelectorAll\("\.rb-value"\)\) \{\s*measureValueCell\(cell\);\s*valueCellObserver\.observe\(cell\);\s*\}/);
+check("UA3: renderListNow disconnects the observer and closes the popover right after clearing the list, and measures and observes every value cell after the cards are appended",
+  uaClearAt >= 0 && uaDisconnectAt > uaClearAt && uaHideAt > uaDisconnectAt &&
+  uaCardsAt > uaHideAt && uaMeasureAt > uaCardsAt);
+// 25
+check("UA3: a size change measures the cell again: the ResizeObserver's callback calls measureValueCell on each entry's target",
+  /const valueCellObserver = new ResizeObserver\(\(entries\) => \{\s*for \(const entry of entries\) measureValueCell\(entry\.target\);\s*\}\);/
+    .test(popupJs));
+// 26
+check("UA4: hover and focus on a cut cell open the popover; leaving, blurring, leaving the popover and scrolling the list close it",
+  popupJs.includes('const profileList = $("profile-list");') &&
+  /profileList\.addEventListener\("mouseover", \(event\) => \{\s*const cell = event\.target\.closest\("\.rb-value\.cut"\);\s*if \(cell && cell !== valuePopoverCell\) showValuePopover\(cell\);\s*\}\);/.test(popupJs) &&
+  /profileList\.addEventListener\("mouseout", \(event\) => \{\s*const cell = event\.target\.closest\("\.rb-value\.cut"\);\s*if \(cell && !valuePopover\.contains\(event\.relatedTarget\)\) hideValuePopover\(\);\s*\}\);/.test(popupJs) &&
+  /profileList\.addEventListener\("focusin", \(event\) => \{\s*if \(event\.target\.matches\("\.rb-value\.cut"\)\) showValuePopover\(event\.target\);\s*\}\);/.test(popupJs) &&
+  /profileList\.addEventListener\("focusout", \(event\) => \{\s*if \(event\.target\.matches\("\.rb-value\.cut"\)\) hideValuePopover\(\);\s*\}\);/.test(popupJs) &&
+  /valuePopover\.addEventListener\("mouseleave", \(event\) => \{\s*if \(!\(valuePopoverCell && valuePopoverCell\.contains\(event\.relatedTarget\)\)\) hideValuePopover\(\);\s*\}\);/.test(popupJs) &&
+  popupJs.includes('document.querySelector("main").addEventListener("scroll", hideValuePopover, { passive: true });'));
+// 27
+check("UA4: the popover's text is the cell's, written with textContent, and showValuePopover assigns no innerHTML",
+  uaShow.includes("valuePopover.textContent = cell.textContent;") &&
+  !/\.innerHTML\s*\+?=/.test(uaShow));
+// 28
+check("UA4: the popover is placed by placeValuePopover, against the list's edges, with its own height",
+  uaShow.includes("const place = placeValuePopover({") &&
+  uaShow.includes("bounds: { top: main.top, bottom: main.bottom },") &&
+  uaShow.includes("height: valuePopover.offsetHeight,"));
+// 29
+const uaPopoverTag = '<div id="value-popover" class="value-popover" popover="manual" aria-hidden="true"></div>';
+check("UA4/UA7: popup.html holds exactly one manual, aria-hidden popover element after </main>, and popup.js takes it by its id",
+  popupHtml.split(uaPopoverTag).length === 2 &&
+  popupHtml.indexOf(uaPopoverTag) > popupHtml.indexOf("</main>") &&
+  popupJs.includes('const valuePopover = $("value-popover");'));
+// 30
+const uaPopoverRule = uaRule(".value-popover");
+check("UA4: the popover is fixed, scrolls when taller than its room, keeps spaces, wraps anywhere, in 11.5 px",
+  uaPopoverRule !== null &&
+  /position:\s*fixed/.test(uaPopoverRule) && /overflow-y:\s*auto/.test(uaPopoverRule) &&
+  /white-space:\s*pre-wrap/.test(uaPopoverRule) && /overflow-wrap:\s*anywhere/.test(uaPopoverRule) &&
+  /font-size:\s*11\.5px/.test(uaPopoverRule));
+// 31
+const uaFocusRule = uaRule(".profile .rules .rb-value.cut:focus-visible");
+check("UA3: a cut cell shows a focus ring when tabbed to",
+  uaFocusRule !== null && /outline:\s*2px solid/.test(uaFocusRule));
+// 32
+check("UA4: README says a value too long for its column ends in an ellipsis, and that pointing at it or tabbing to it shows it in full",
+  uaReadme.replace(/\s+/g, " ").includes(
+    "A value too long for its column ends in `\u2026`; point at it, or tab to it, to see it in full."));
+// 33
+const uaRow169 = uaPart16.split("\n").find((l) => l.startsWith("| 16.9 |")) || "";
+const uaRow1610 = uaPart16.split("\n").find((l) => l.startsWith("| 16.10 |")) || "";
+check("UA4: SMOKE.md Part 16 has row 16.9, the popover's text read by its id and compared with a $_ === line, and row 16.10, Tab",
+  uaRow169.includes('document.getElementById("value-popover").textContent') &&
+  uaRow169.includes("$_ === String.raw") &&
+  uaRow1610.includes("Tab"));
 
 // FINDING-041. preflight.mjs is not a gate — it needs running servers and a
 // hosts file — so nothing else would notice if its extension block were

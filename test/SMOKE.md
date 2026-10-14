@@ -1366,6 +1366,8 @@ nothing changed.
 | 16.6 | master toggle OFF | every card: `Off — nothing registered`, no lines |
 | 16.7 | master toggle ON | 16.5's lines return without reopening the popup |
 | 16.8 | case: type a name in mixed case, e.g. `X-Hw-CaseProbe` | **least confident:** the card shows the case as typed. Chrome's docs do not say whether `getDynamicRules()` preserves it. Record what is shown either way. |
+| 16.9 | add request `X-HW-Long` / `set` / `abcdefghijklmnopqrstuvwxyz0123456789abcdefghij` (46 characters) | the value ends in `…`; pointing at it, and tabbing to it, each show it whole; in the popup's console, `document.getElementById("value-popover").textContent`, then the line `` $_ === String.raw`"abcdefghijklmnopqrstuvwxyz0123456789abcdefghij"` ``, reads `true` |
+| 16.10 | from the card's Delete button, press Tab | focus stops on the cut value and on no value that fits, then leaves the table |
 
 **The stale window is not a row.** Between Save and the worker's re-register
 the card deliberately shows `Checking what Chrome has registered…` and no
@@ -1385,5 +1387,7 @@ for longer than a moment, record it — that is a sync that did not land.
     16.6 off text, no lines           = ?
     16.7 lines back without reopen    = ?
     16.8 case shown                   = ?   (verbatim)
+    16.9 popover equals the cell, by bytes = ?
+    16.10 tab stops on cut values only     = ?
     Any row where the card and getDynamicRules() DISAGREED = ?
     Notes:

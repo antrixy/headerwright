@@ -144,3 +144,31 @@ export function readbackCells(line) {
     value: noValue ? READBACK_NO_VALUE : JSON.stringify(line.value),
   };
 }
+
+// UI-05a (v0.3.0, ruled UA3). A value is cut when its cell's content is wider
+// than the cell. Both widths are whole pixels, so a value over by a fraction
+// of a pixel can paint its ellipsis and not count as cut: a known limit,
+// stated in the predictions.
+export function valueIsCut(scrollWidth, clientWidth) {
+  return Number.isFinite(scrollWidth) && Number.isFinite(clientWidth) &&
+    scrollWidth > clientWidth;
+}
+
+/**
+ * UI-05a (ruled UA4). Where the popover that shows a cut value whole opens.
+ * `cell` and `bounds` are rectangles in viewport pixels; `bounds` is the
+ * list's visible area, so the popover never covers the footer; `height` is the
+ * popover's height before it is limited. Below when it fits there; above when
+ * it does not and there is more room above (the last row); otherwise below.
+ * It is never taller than the room on its side, and scrolls inside it.
+ */
+export function placeValuePopover({ cell, bounds, viewportHeight, height }) {
+  const below = bounds.bottom - cell.bottom;
+  const above = cell.top - bounds.top;
+  const openBelow = height <= below || below >= above;
+  return {
+    top: openBelow ? cell.bottom : null,
+    bottom: openBelow ? null : viewportHeight - cell.top,
+    maxHeight: Math.max(0, openBelow ? below : above),
+  };
+}

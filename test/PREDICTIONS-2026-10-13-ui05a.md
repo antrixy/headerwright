@@ -714,6 +714,15 @@ eats string literals" 12 higher, 37 against its new 25, since checks 23, 24,
 26 and 29 are among the 16). module-syntax (26 files), oracle-selfcheck and
 initiator-selfcheck pass.
 
+> **Outcome (red, 2026-10-14 in UTC and CT alike): as predicted, `selftest:
+> 16 of 700 checks FAILED`,** checks 18–33, each read by name. No crash.
+>
+> **Outcome (red tree, all gates): 4 of 7 failed, as predicted.** selftest;
+> mutate-collisions (`PATCH DID NOT APPLY` for exactly V1–V17); mutate-grants
+> (every count 16 higher); mutate-scans (seven rows 16 higher, the
+> string-literals row 37 against its 25). module-syntax (26 files),
+> oracle-selfcheck and initiator-selfcheck passed.
+
 ## 4. Green, predicted
 
 | After commit | Checks | Mutation scenarios | Syntax gate | Gates |
@@ -754,6 +763,23 @@ commit 3; 255 + 8 + 7 = 270 after commit 4.
 > unchanged. `configRevision([], false)` and `lib/status.js` unchanged;
 > `extension/` 19 files. LEDGER's contract checks 1–8, run by a script before
 > the commit: no problem (62 rows; it was checked against planted faults).
+
+> **Outcome (commit 4, green, 2026-10-14 in UTC and CT alike): as predicted,
+> after two corrections, both stated.** `selftest: 700/700 checks passed`.
+> `verify.mjs`: all 7 gates pass, `tree: 700 checks, 270 mutation scenarios,
+> 7 gates`, module-syntax over 26 files, in 354 s in the container.
+> mutate-scans: all 8 rows matched, the string-literals row 25; mutate-grants:
+> all 7 rows unchanged. `configRevision([], false)` and `lib/status.js`
+> unchanged; `extension/` 19 files. LEDGER's contract checks 1–8: no problem.
+> **Built differently, and stated:** the popover element sits after the
+> footer, not between `</main>` and the footer as §2 said. The first full
+> run failed mutate-collisions on an existing mutant, "the status line moves
+> INSIDE the scrolling region", whose anchor is `</main>` followed by the
+> footer; with the element after the footer that anchor holds and the mutant
+> fails its one check, F022's, as before. Check 29 asks only that the element
+> come after `</main>`. **Corrected before the green run:** V10's anchor was
+> written with four spaces of indent where the listener has two, so it did
+> not apply; its text is otherwise as §5 gives it.
 
 ## 5. Mutants, with predicted fails
 
@@ -841,6 +867,15 @@ changed RB check). Their names keep their M-numbers.
 
 No existing mutant moves at commit 4.
 
+> **Outcome (mutants, 2026-10-14 in UTC and CT alike): every prediction
+> held, counts and checks exactly,** read by name on throwaway copies: V1 18;
+> V2 20; V3 21; V4 19, 20 and 21; V5 22; V6 23; V7 and V8 24; V9 25; V10 26
+> (after its anchor was corrected, above); V11 27; V12 28; V13 29; V14 30;
+> V15 31 and "every class popup.js toggles is defined in popup.html —
+> undefined: cut"; V16 32; V17 33. None applied on the red tree, and none
+> crashed. No existing mutant moved, compared by name on the commit 3 and
+> commit 4 trees. Mutation scenarios: 253 → 270.
+
 ## 6. Browser runs in the container, predicted
 
 Headless Chromium 141.0.7390.37 with the commit's own `extension/` copied,
@@ -895,6 +930,38 @@ errors.
 > each colliding card with its `Not applying:` marker; the footer `4 profiles ·
 > 2/3 domains granted · registered 1 · 3 not registered`. C9: one issue kind,
 > `FormLabelHasNeitherForNorNestedInput`, as at §0. No page errors.
+
+> **Outcome (commit 4, Chromium 141.0.7390.37, 2026-10-14 in UTC and CT
+> alike), with the commit's own `extension/`: C10–C14, C16 and C17 as
+> predicted; C15 wrong in its fixture.** C10: Authorization's cell has class
+> `cut` and `tabindex` `0`; the other four have neither. C11: Tab from the
+> card's Delete button focused Authorization's Value cell; the next Tab went
+> to the next card's Edit button, outside the table. C12: on that focus the
+> popover was open, its `textContent` equal to the cell's byte for byte
+> (`"Bearer eyJhbGciOiJIUzI1NiJ9.dXJl"`), its top at the cell's bottom and
+> its left at the table's (0 px each); Tab away closed it. C13: the pointer
+> on the cut value opened it, onto the popover kept it open, away from both
+> closed it, and on Cache-Control's value opened nothing. C14: a cut value
+> 10.3 px above the list's bottom edge, focused: the popover (28.1 px) opened
+> above, its bottom at the cell's top (0 px). The first probe for C14 found
+> no cell to place, its scroll positioning waiting on animation frames inside
+> the page; the second set the scroll directly. C16: a 2,000-character value
+> (2,002 shown): the popover 175.1 px, its room exactly, scrolling, its text
+> equal to the cell's. C17: one issue kind, as at §0. No page errors.
+>
+> **C15, wrong as written.** The predicted value, 30 characters shown, was
+> already cut before the confirm (`scrollWidth` 218 against `clientWidth`
+> 215), so it could not show the change. §0 is wrong in the same place: the
+> cell's `clientWidth` includes its 10 px of padding, so the mock card's
+> Value cell holds 205 px of text, about 29 characters, not 31, and with a
+> classic scrollbar 190 px, about 27; a value of 28 or 29 characters shown
+> fits without the scrollbar and is cut with it. §0's sentences are left as
+> written. **Run again with 28 characters shown (`"abcdefghijklmnopqrstuvwxyz"`),
+> recorded, not counted:** before the confirm, not cut and no `tabindex`
+> (215 in 215); with the confirm open, the list scrolling and a 15 px
+> scrollbar, the same element (its marker attribute still there, so no
+> render) cut with `tabindex` `0` (204 in 200); after Cancel, not cut and no
+> `tabindex`. The observer re-measured without a render, as UA3 ruled.
 
 ## 7. What UI-05a leaves for later
 

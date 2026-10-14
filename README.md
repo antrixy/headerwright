@@ -104,7 +104,9 @@ Why:
   registered**, as a table under "Header rules", one row per header: Type
   (`req` for the request, `res` for the response), Action (`set`,
   `append` or `remove`), Header, the full name, and Value, in quotes, or
-  `—` for a remove. It is read from Chrome each time the popup draws, not
+  `—` for a remove. A value too long for its column ends in `…`; point at
+  it, or tab to it, to see it in full. It is read from Chrome each time the
+  popup draws, not
   from what was saved, so if it differs from what you meant, the card is
   right and the form was wrong. While a change is still being registered
   the card says so rather than showing the previous rule. The card has

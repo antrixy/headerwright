@@ -77,6 +77,8 @@ import {
   READBACK_CAPTION,
   READBACK_COLUMNS,
   READBACK_NOTES,
+  valueIsCut,
+  placeValuePopover,
 } from "../lib/readback.js";
 
 const STORAGE_KEY_PROFILES = "hw:profiles";
@@ -399,6 +401,8 @@ async function renderListNow() {
   const profiles = await getProfiles();
   const list = $("profile-list");
   list.textContent = "";
+  valueCellObserver.disconnect();
+  hideValuePopover();
   $("empty").classList.toggle("hidden", profiles.length > 0);
 
   // One permission pass for the whole render, read from below rather than
@@ -448,6 +452,12 @@ async function renderListNow() {
     list.appendChild(
       renderProfileCard(profile, grants, collisions, nameById, drafts, registration)
     );
+  }
+  // UI-05a (UA3): measured once the cards are in the DOM, and again by the
+  // observer whenever a cell's size changes.
+  for (const cell of list.querySelectorAll(".rb-value")) {
+    measureValueCell(cell);
+    valueCellObserver.observe(cell);
   }
 
   // Retract a pending question whose subject no longer exists. Reachable now
@@ -712,6 +722,54 @@ function renderReadbackTable(lines) {
   }
   table.append(caption, thead, tbody);
   return table;
+}
+
+// UI-05a (v0.3.0, ruled UA3, UA4, UA7). A value longer than its cell is cut
+// with a visible ellipsis, and only such a cell is a tab stop. Hover or focus
+// shows it whole in one popover, in the top layer so the scrolling list
+// cannot clip it, holding exactly the cell's text. The popover is aria-hidden:
+// the cell's own text is already the whole value for a screen reader.
+const valuePopover = $("value-popover");
+let valuePopoverCell = null;
+
+function measureValueCell(cell) {
+  const cut = valueIsCut(cell.scrollWidth, cell.clientWidth);
+  cell.classList.toggle("cut", cut);
+  if (cut) cell.tabIndex = 0;
+  else cell.removeAttribute("tabindex");
+}
+
+// A width can change without a render (a confirm box brings in the
+// scrollbar, the zoom changes), so every value cell is measured again then.
+const valueCellObserver = new ResizeObserver((entries) => {
+  for (const entry of entries) measureValueCell(entry.target);
+});
+
+function showValuePopover(cell) {
+  valuePopoverCell = cell;
+  valuePopover.textContent = cell.textContent;
+  const table = cell.closest("table").getBoundingClientRect();
+  valuePopover.style.left = `${table.left}px`;
+  valuePopover.style.maxWidth = `${table.width}px`;
+  valuePopover.style.maxHeight = "";
+  valuePopover.style.top = "";
+  valuePopover.style.bottom = "";
+  if (!valuePopover.matches(":popover-open")) valuePopover.showPopover();
+  const main = document.querySelector("main").getBoundingClientRect();
+  const place = placeValuePopover({
+    cell: cell.getBoundingClientRect(),
+    bounds: { top: main.top, bottom: main.bottom },
+    viewportHeight: window.innerHeight,
+    height: valuePopover.offsetHeight,
+  });
+  valuePopover.style.maxHeight = `${place.maxHeight}px`;
+  if (place.top !== null) valuePopover.style.top = `${place.top}px`;
+  else valuePopover.style.bottom = `${place.bottom}px`;
+}
+
+function hideValuePopover() {
+  valuePopoverCell = null;
+  if (valuePopover.matches(":popover-open")) valuePopover.hidePopover();
 }
 
 function renderDomainChip(domain, grants) {
@@ -1521,6 +1579,28 @@ $("delete-proceed").addEventListener("click", () => runMutation(confirmDelete));
 $("import-file").addEventListener("change", onImportFileChosen);
 $("import-cancel").addEventListener("click", hideIoUi);
 $("import-replace").addEventListener("click", () => runMutation(applyImport));
+
+// UI-05a (UA4): the full value of a cut cell, on hover and on focus. The
+// popover stays open while the pointer moves from the cell onto it.
+const profileList = $("profile-list");
+profileList.addEventListener("mouseover", (event) => {
+  const cell = event.target.closest(".rb-value.cut");
+  if (cell && cell !== valuePopoverCell) showValuePopover(cell);
+});
+profileList.addEventListener("mouseout", (event) => {
+  const cell = event.target.closest(".rb-value.cut");
+  if (cell && !valuePopover.contains(event.relatedTarget)) hideValuePopover();
+});
+profileList.addEventListener("focusin", (event) => {
+  if (event.target.matches(".rb-value.cut")) showValuePopover(event.target);
+});
+profileList.addEventListener("focusout", (event) => {
+  if (event.target.matches(".rb-value.cut")) hideValuePopover();
+});
+valuePopover.addEventListener("mouseleave", (event) => {
+  if (!(valuePopoverCell && valuePopoverCell.contains(event.relatedTarget))) hideValuePopover();
+});
+document.querySelector("main").addEventListener("scroll", hideValuePopover, { passive: true });
 
 // ------------------------------------------------------------------ init
 

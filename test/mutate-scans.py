@@ -105,7 +105,10 @@ MUTATIONS = [
     # checks 10 and 12 read double-quoted strings in popup.js ("col", the
     # cells' class names), and the rewritten RB textContent check no longer
     # reads "readback-line".
-    ("the comment stripper also eats string literals", TEST, 21,
+    # 21 -> 25 on 2026-10-14 (UI-05a commit 4), as its predictions said:
+    # checks 23, 24, 26 and 29 read double-quoted strings in popup.js ("cut",
+    # "tabindex", ".rb-value", the listeners' selectors, "value-popover").
+    ("the comment stripper also eats string literals", TEST, 25,
      "const popupJs = stripJsComments(popupJsRaw);",
      'const popupJs = stripJsComments(popupJsRaw).replace(/"[^"]*"/g, \'""\');'),
 
