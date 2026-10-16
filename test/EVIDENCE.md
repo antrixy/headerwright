@@ -10,6 +10,103 @@ from.
 
 ---
 
+# The UI-05a sitting — v0.3.0's browser rows on Chrome 154 (2026-10-14 to 2026-10-16)
+
+The browser rows UI-05a's code left `fixed-unverified`: UI-05a, the header
+rules table in a 480 px popup, and UI-09, FINDING-054's collapsed spaces. The
+predictions were frozen in `test/RUNBOOK-2026-10-14-ui05a.md`, committed at
+`1ef5f9d` before Chrome opened for the sitting. Its Outcomes section gives a
+verdict per prediction and every departure from the file. This entry is what
+was observed. The sitting ran from 2026-10-14 to 2026-10-16 in UTC and in CT
+alike; every counted reading was taken on 2026-10-15 in UTC.
+
+### Environment
+
+| | |
+|---|---|
+| Build | main's `extension/` at `e248dbc` (unchanged at `1ef5f9d`), loaded UNPACKED from `~/headerwright/extension`. All 19 files byte-identical to `e248dbc`, hashed from inside the popup. Not a release: the manifest reads `0.2.4` |
+| Extension ID | `khjeofpciphjaclledledepfppaiicnf`, derived from the folder's path, as predicted. A first load from another folder, `~/Downloads/headerwright-main/extension`, read `ddgomchkggjoehcoeibmmnfaakjanmce`, that path's ID, and was removed before its popup opened (UV11) |
+| Card on `chrome://extensions` | `HeaderWright — Modify HTTP Headers`, `0.2.4`; no Errors button; `minimum_chrome_version` read as `116` |
+| Also installed | nothing. Google Docs Offline was removed before the load |
+| Profile | `hw-ui05a`, `Profile 22`, new for this sitting, signed out |
+| Chrome | **154.0.8037.98** (Official Build) (arm64), revision `b859317bf11f6be47f9b7799ec690a0a42a1fb33-refs/branch-heads/8037@{#1674}`, read on `chrome://version` in `Default` before the runbook was written, in `hw-ui05a` before any row, and again after each long pause. An update was downloaded during the sitting and not applied |
+| OS | macOS 26.5.2 (25F84) |
+| Fonts and scrollbars | measured on the Mac before the runbook was frozen (UV5): SF Mono advances 6.924 px a character at 11.5 px, as DejaVu Sans Mono does in the container; overlay scrollbars (0 px), in `Default` and in the popup |
+| Instruments | none (UV3): no row reads the wire |
+| Tree | `1ef5f9d`, `tree: 700 checks, 270 mutation scenarios, 7 gates`, in 166 seconds |
+| When | 2026-10-14 15:16 CT (20:16 UTC) to 2026-10-15 09:25 CT (14:25 UTC), with pauses of about 3¼ hours (16:16 to 19:33) and 12 hours (20:03 to 07:59); END-1 reported on 2026-10-16 at 16:10 CT. Clock times are the send times of the operator's messages, or a block's `read at` line |
+
+### The fixtures
+
+`probe` on `hw.test`, response `Access-Control-Allow-Origin` set `*`, typed by
+hand, checked from the console (the first check caught the name typed into the
+value field) and saved through the permission dialog: *Read and change your
+data on all hw.test sites and hw.test*. Then, written from the popup's console
+and each rule read back with `getDynamicRules()` before any card was read:
+"Billing sandbox", the design's mock card (request `Authorization` set
+`Bearer eyJhbGciOiJIUzI1NiJ9.dXJl`, request `X-Forwarded-For` append
+`203.0.113.7`, request `Cookie` remove, response `Cache-Control` set
+`no-store, max-age=0`, response `X-Frame-Options` remove); "Long name", request
+`X-HeaderWright-A-Very-Long-Custom-Header-Name-For-Testing` set `v`; "Spaces",
+request `X-Pad` set `  padded  ` and `X-Gap` set `a  b`; and "Ungranted" on
+`ui05a-ungranted.test`, never granted. Chrome registered four rules, the
+append's name as `x-forwarded-for` (AR-23), and skipped "Ungranted": footer
+`5 profiles · 1/2 domains granted · registered 4 · 1 not registered`, hover
+`Not registered: profile 5`.
+
+### UI-05a: the header rules table in a 480 px popup
+
+Every text below was compared in the popup's console by its bytes, with a
+`` $_ === String.raw`…` `` line that read `true`, not read from a screenshot.
+
+| claim | observed |
+| --- | --- |
+| the frame | the popup 480 px wide |
+| the mock card's table | caption `Header rules`; heads `Type`, `Action`, `Header`, `Value`, each `th` with `scope` `col`; rows `req set Authorization "Bearer eyJhbGciOiJIUzI1NiJ9.dXJl"`, `req append x-forwarded-for "203.0.113.7"`, `req remove Cookie —`, `res set Cache-Control "no-store, max-age=0"`, `res remove X-Frame-Options —`; the table 422 px |
+| the widths, in the Mac's fonts | columns 37.8, 52.5, 114.9 and 215.8 px; the Value cell 205 px of room, 29 characters; the card 251.3 px; the footer one line. Equal to the `about:blank` measurement taken before the runbook was frozen |
+| names never cut | all nine names on the cards whole in their cells; the 57-character name in a 200 px block on 3 lines (48.3 px), its column 211.0 px |
+| one cut value | Authorization's value alone wider than its cell, carrying `cut` and `tabindex="0"`, ending in a painted `…` (screenshot); every value that fits with neither, and no `…` on any other card |
+| hover | pointing at the cut value opened the popover with the cell's exact text, `"Bearer eyJhbGciOiJIUzI1NiJ9.dXJl"`, its top at the cell's bottom and its left at the table's, within 1 px |
+| Tab | from the title to Add profile: the toggle, then each card's Edit and Delete, with one more stop, the cut value, between "Billing sandbox"'s Delete and "Long name"'s Edit, then the ungranted chip and Add profile; the popover open with the cell's exact text on that stop and closed at every other |
+| the notes | toggle off: every card `Off — nothing registered`, no table; on again, in the same page: the four tables back with no note, and "Ungranted" `No rule registered for this profile` with no table |
+
+`probe`'s card carried `Access-Control-Allow-Origin` whole in its Header
+column (`SMOKE.md` row 16.5). Rows 16.9 and 16.10 were run in substance on the
+mock card's value rather than on 16.9's `X-HW-Long`.
+
+### UI-09: FINDING-054, the spaces painted
+
+On "Spaces", each Value cell's `innerText` equalled its `textContent`:
+`"  padded  "` and `"a  b"`, two spaces at each edge and two between. A
+screenshot showed the gaps.
+
+### Observed, and not predicted
+
+- **The popover opened and closed ten times during the hover step,** each time
+  with the cell's exact text and placement, while the list scrolled about 75 px
+  under the pointer (UI05A-P6b, recorded, was wrong as worded; it predicted one
+  pair).
+- **With DevTools attached, the popup stayed open behind the permission
+  dialog** and showed the partial footer `1 profile · 0/1 domain granted ·
+  registered 0 · 1 not registered`, as in the s5 sitting.
+- **Clearing the console empties `$_`:** a `$_ ===` line run after a clear
+  read `false` (PRE-6's first run). Shown in Chromium 141 through the protocol;
+  the clear button is taken to do the same.
+- On an unpacked load in this profile, Details showed *Allow access to file
+  URLs* and *Collect errors* on.
+
+### Read, not counted
+
+- **DevTools' Issues panel**, with the list showing and after the popover had
+  opened and closed: one kind, *No label associated with a form field*, 1
+  affected resource; 0 errors, 0 warnings. The same kind as the s5 sitting's
+  list view: AR-19's Issues did not change with the table (UA7).
+
+**Every counted prediction held:** all twelve. UI-05a and UI-09 move to
+`verified`.
+
+---
+
 # GATE-0d — the published v0.2.4 in a clean profile (2026-10-13)
 
 The release gate for v0.2.4, a new row as GATE-0b and GATE-0c were (G1's

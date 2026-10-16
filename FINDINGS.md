@@ -2823,3 +2823,10 @@ cell's `innerText` equals its `textContent`, `"  padded  "` and `"a  b"`.
 
 **The lesson.** A check that reads a text node proves what was written, not
 what is painted.
+
+**Browser evidence, 2026-10-15 (UI-05a's sitting, `test/RUNBOOK-2026-10-14-ui05a.md`,
+Chrome 154.0.8037.98, profile `hw-ui05a`; every counted prediction held).** On a
+card with request `X-Pad` set to `  padded  ` and `X-Gap` to `a  b`, each Value
+cell's `innerText` equalled its `textContent`, `"  padded  "` and `"a  b"`,
+compared in the console by its bytes, and a screenshot showed the gaps. UI-09
+is `verified`.
