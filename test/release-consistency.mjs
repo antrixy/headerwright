@@ -109,7 +109,7 @@ export function deriveFacts() {
 }
 
 /** The version the manifest must carry. Pinned; see the note above. */
-export const PINNED_MANIFEST_VERSION = "0.2.4";
+export const PINNED_MANIFEST_VERSION = "0.3.0";
 
 /**
  * Every user-facing artifact, and what it must be consistent with.
