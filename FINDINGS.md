@@ -2830,3 +2830,47 @@ card with request `X-Pad` set to `  padded  ` and `X-Gap` to `a  b`, each Value
 cell's `innerText` equalled its `textContent`, `"  padded  "` and `"a  b"`,
 compared in the console by its bytes, and a screenshot showed the gaps. UI-09
 is `verified`.
+
+**FINDING-055 — the store listing's only screenshot shows the readback as
+lines; from v0.3.0 the card shows a table.** Raised as DR-06 (`LEDGER.md`) on
+2026-10-17, in v0.3.0's release session, while reading the listing against
+the new card.
+
+**Symptom.** Not reported by a user. The listing carries one screenshot: a
+headline, "See what Chrome actually registered.", a caption, and a popup
+whose profile card shows the registered rule as three lines. From v0.3.0 the
+card shows the rule as a table captioned "Header rules", so once v0.3.0
+publishes, the listing's only image shows a layout the extension no longer
+draws, beside a Description that says table (DR-05).
+
+**Cause.** By its content, the image is the one uploaded with v0.2.0 on
+2026-09-22: a real capture of the popup, cropped to the header and an
+`api-staging` demo card, scaled 1.6x, with a caption
+(`headerwright-0.2.0-screenshot-1.png`, 1280x800, sha256 `c09e7da3…` in the
+planning handoff's v0.2.0 artifacts). The file is in neither repository. On
+2026-09-27, Sitting I's runbook and handoff recorded that it "gets redone when
+s4 changes the popup anyway". On 2026-10-10 UTC (2026-10-09 CT), S5-D15 put
+UI-05a, which changes the card, ahead of s4 as v0.3.0, and the note stayed
+with s4. v0.3.0's release session was handed the Description to read against
+the new card, not the image.
+
+**Read** on the dashboard's Store listing tab on 2026-10-17 at 09:33 CT, in a
+screenshot of its graphic assets sent in the session, the thumbnail enlarged:
+the card's three readback lines and the headline legible, the caption not.
+The image itself was not opened at full size or hashed.
+
+**Ruled 2026-10-17 (UR9),** `antrixy/project-planning` `decisions.md`, the
+v0.3.0 release session: v0.3.0 submitted as it is, and the image replaced by
+a dashboard edit after v0.3.0 publishes, in a session of its own, since a new
+image needs the popup in a browser and the listing cannot change while a
+submission is pending review. Rejected: holding the submission for a new
+image.
+
+**Fix.** Not yet made.
+
+**Evidence.** The dashboard read above. Closes on the public listing showing
+the card with its table.
+
+**The lesson.** A to-do tied to a release by its slice's name stays with the
+name when the releases are reordered. Tie it to the change it waits on: here,
+any release that changes how the card looks.
