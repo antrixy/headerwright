@@ -91,7 +91,7 @@ users as soon as each is verified, instead of waiting for a bundle.
 | v0.2.2 | canonical identity and stale writes | fixes; published 2026-09-28 UTC (2026-09-27 CT) |
 | v0.2.3 | drafts | fixes; published 2026-10-03 |
 | v0.2.4 | compatibility and truth language | fixes; published 2026-10-13 |
-| v0.3.0 | a table of each profile's header rules, in a 480px popup | feature |
+| v0.3.0 | a table of each profile's header rules, in a 480px popup | feature; published 2026-10-18 |
 | v0.4.0 | an explicit Grant control; Save stops prompting for permission | feature |
 | v0.5.0 | separate target and initiator domains | feature |
 
